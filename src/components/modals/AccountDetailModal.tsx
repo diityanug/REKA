@@ -136,7 +136,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
             >
               {/* Master Account Balance Breakdown Card */}
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>Total Master Balance</Text>
+                <Text style={styles.summaryLabel}>Total Balance</Text>
                 <Text style={styles.summaryAmount}>
                   {formatCurrency(wallet.balance, wallet.currency, privacyMode)}
                 </Text>
@@ -145,11 +145,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
                 <View style={styles.splitRow}>
                   <View style={styles.splitCol}>
-                    <Text style={styles.splitLabel}>Free Cash</Text>
+                    <Text style={styles.splitLabel}>Main</Text>
                     <Text style={[styles.splitValue, { color: Palette.ink }]}>
                       {formatCurrency(unallocatedBal, wallet.currency, privacyMode)}
                     </Text>
-                    <Text style={styles.splitSub}>Available balance</Text>
                   </View>
 
                   <View style={styles.splitDivider} />
@@ -320,7 +319,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               {/* Sub-Accounts / Pockets Header & Action */}
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
-                  Sub-Accounts & Pockets ({pockets.length})
+                  Pockets ({pockets.length})
                 </Text>
               </View>
 
@@ -331,7 +330,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               >
                 <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
                 <Text style={styles.addPocketBtnText}>
-                  Add Sub-Account in {wallet.name}
+                  Add Pocket in {wallet.name}
                 </Text>
               </TouchableOpacity>
 
@@ -339,9 +338,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               {pockets.length === 0 ? (
                 <View style={styles.emptyCard}>
                   <Layers size={28} color={Palette.mutedSoft} />
-                  <Text style={styles.emptyTitle}>No Sub-Accounts Yet</Text>
+                  <Text style={styles.emptyTitle}>No Pocket Yet</Text>
                   <Text style={styles.emptyDesc}>
-                    Allocate funds from {wallet.name} for emergency savings, goals, or budgets.
+                    Allocate funds from {wallet.name} for budgets etc.
                   </Text>
                 </View>
               ) : (
@@ -420,7 +419,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               {/* Account Activity / Transactions */}
               <View style={[styles.sectionHeader, { marginTop: 20 }]}>
                 <Text style={styles.sectionTitle}>
-                  Account Activity ({transactions.length})
+                  Activity ({transactions.length})
                 </Text>
               </View>
 

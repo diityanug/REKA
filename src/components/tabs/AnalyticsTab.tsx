@@ -91,7 +91,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     });
   }, [currencyTransactions, selectedMonth]);
 
-  // Comprehensive Financial Health Intelligence (Best Practice Benchmarks)
+  // Comprehensive  Intelligence (Best Practice Benchmarks)
   const financialHealth = useMemo(() => {
     let income = 0;
     let expense = 0;
@@ -152,7 +152,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     let statusTitle = 'No Financial Data';
     let statusBadgeColor = Palette.muted;
     let statusBgColor = Palette.surfaceSoft;
-    let diagnosisSummary = 'No transactions recorded in this period to evaluate financial health.';
+    let diagnosisSummary = 'No transactions recorded in this period.';
     let recommendations: string[] = [];
 
     if (!hasData) {
@@ -495,7 +495,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
       {/* 2. Krom Bank Pillar 2 & 3: Cash Flow Momentum & Month-over-Month Delta */}
       <View style={styles.cashFlowCard}>
         <View style={styles.cashFlowHeader}>
-          <Text style={styles.cashFlowTitle}>Cash Flow Momentum</Text>
+          <Text style={styles.cashFlowTitle}>Cash Flow</Text>
           <Text
             style={[
               styles.cashFlowNetVal,
@@ -509,13 +509,13 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
 
         <View style={styles.cfBarRow}>
           <View style={styles.cfBarCol}>
-            <Text style={styles.cfBarLabel}>Inflow (Earned)</Text>
+            <Text style={styles.cfBarLabel}>Inflow</Text>
             <Text style={[styles.cfBarAmount, { color: Palette.success }]}>
               {formatCurrency(financialHealth.income, activeCurrency, privacyMode)}
             </Text>
           </View>
           <View style={[styles.cfBarCol, { alignItems: 'flex-end' }]}>
-            <Text style={styles.cfBarLabel}>Outflow (Spent)</Text>
+            <Text style={styles.cfBarLabel}>Outflow</Text>
             <Text style={[styles.cfBarAmount, { color: Palette.error }]}>
               {formatCurrency(financialHealth.expense, activeCurrency, privacyMode)}
             </Text>
@@ -952,8 +952,8 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
                   adjustsFontSizeToFit={true}
                 >
                   {remainingBudget >= 0
-                    ? `${formatCurrency(remainingBudget, activeCurrency, privacyMode)} left`
-                    : `${formatCurrency(Math.abs(remainingBudget), activeCurrency, privacyMode)} over`}
+                    ? `${formatCurrency(remainingBudget, activeCurrency, privacyMode)}`
+                    : `${formatCurrency(Math.abs(remainingBudget), activeCurrency, privacyMode)}`}
                 </Text>
               </View>
 
@@ -968,7 +968,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
                   adjustsFontSizeToFit={true}
                 >
                   {safeDailySpend !== null && safeDailySpend > 0
-                    ? `${formatCurrency(safeDailySpend, activeCurrency, privacyMode)}/day`
+                    ? `${formatCurrency(safeDailySpend, activeCurrency, privacyMode)}`
                     : budgetStatusLabel}
                 </Text>
               </View>

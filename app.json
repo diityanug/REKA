@@ -10,6 +10,7 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.aes.finance",
       "adaptiveIcon": {
         "backgroundColor": "#14594A",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -31,6 +32,12 @@
           "imageWidth": 200
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "f4e8de88-931d-4d8b-adfb-841233a0bd9c"
+      }
+    },
+    "owner": "descend12"
   }
 }

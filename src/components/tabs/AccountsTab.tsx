@@ -91,7 +91,7 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
       <View style={styles.sectionHeaderRow}>
         <View style={styles.titleWithIcon}>
           <Layers size={16} color={Palette.primary} style={{ marginRight: 6 }} />
-          <Text style={styles.sectionHeaderTitle}>Income Allocation Plans</Text>
+          <Text style={styles.sectionHeaderTitle}>Allocation Plans</Text>
         </View>
       </View>
 
@@ -109,7 +109,7 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
           </View>
           <Text style={styles.emptyPlanTitle}>No Allocation Plans Yet</Text>
           <Text style={styles.emptyPlanDesc}>
-            Create an income allocation card to organize budget breakdown across needs and savings.
+            Create an allocation card to organize budget breakdown across needs and savings.
           </Text>
           <View style={styles.createPlanBadge}>
             <Plus size={14} color={Palette.white} style={{ marginRight: 6 }} />

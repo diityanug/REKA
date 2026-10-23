@@ -197,13 +197,13 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     >
       <ModalHeader
         title={plan ? 'Edit Allocation Plan' : 'New Allocation Plan'}
-        subtitle={`Two-column income breakdown (${activeCurrency})`}
+        subtitle={`(${activeCurrency})`}
         onClose={onClose}
       />
 
           <KeyboardSafeContainer extraBottomSpace={28}>
             {/* Plan Title */}
-            <Text style={styles.sectionTitle}>Income Source / Plan Name</Text>
+            <Text style={styles.sectionTitle}>Name</Text>
             <View style={styles.titleInputWrap}>
               <Layers size={17} color={Palette.primary} style={{ marginRight: 8 }} />
               <TextInput
@@ -338,7 +338,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
               activeOpacity={0.85}
             >
               <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-              <Text style={styles.saveBtnText}>Save Allocation Plan</Text>
+              <Text style={styles.saveBtnText}>Save Plan</Text>
             </TouchableOpacity>
 
             {plan && onDelete && (

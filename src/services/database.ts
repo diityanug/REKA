@@ -1064,7 +1064,7 @@ export async function getAllocationPlans(currency: CurrencyType): Promise<Alloca
       return [
         {
           id: 'plan_initial',
-          title: 'Primary Income Allocation',
+          title: 'Primary Allocation',
           currency,
           items: [
             { id: 'item_1', label: legacyNote.trim(), amount: 0 },
