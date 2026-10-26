@@ -208,3 +208,9 @@ export const parseAmount = (value: string, currency: CurrencyType = 'IDR'): numb
   const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;
 };
+
+// Get today's local date string formatted as YYYY-MM-DD
+export const getTodayDateStr = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};

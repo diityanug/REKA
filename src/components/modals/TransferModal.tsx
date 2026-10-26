@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDown, ArrowLeftRight, ArrowRight } from 'lucide-react-native';
@@ -19,6 +18,8 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CalculatorKeypad } from '../CalculatorKeypad';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { AmountInputModal } from './AmountInputModal';
+import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
 interface TransferModalProps {
   visible: boolean;
@@ -51,8 +52,38 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const [toWalletId, setToWalletId] = useState<string>('');
   const [amountStr, setAmountStr] = useState<string>('');
   const [exchangeRateStr, setExchangeRateStr] = useState<string>('16.000');
+  const [rateModalVisible, setRateModalVisible] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+    buttons?: AlertButton[];
+    type?: AlertType;
+  }>({
+    visible: false,
+    title: '',
+  });
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    type: AlertType = 'info'
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }],
+      type,
+    });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   // Initialize selected accounts whenever modal becomes visible
   useEffect(() => {
@@ -108,24 +139,26 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     Keyboard.dismiss();
 
     if (!fromWalletId || !toWalletId) {
-      Alert.alert('Selection Required', 'Please select both source and destination accounts.');
+      showAlert('Selection Required', 'Please select both source and destination accounts.', undefined, 'warning');
       return;
     }
 
     if (fromWalletId === toWalletId) {
-      Alert.alert('Invalid Selection', 'Source and destination accounts must be different.');
+      showAlert('Invalid Selection', 'Source and destination accounts must be different.', undefined, 'warning');
       return;
     }
 
     if (isNaN(numericAmount) || numericAmount <= 0) {
-      Alert.alert('Invalid Amount', 'Please enter a valid transfer amount.');
+      showAlert('Invalid Amount', 'Please enter a valid transfer amount.', undefined, 'warning');
       return;
     }
 
     if (selectedFromWallet && selectedFromWallet.balance < numericAmount) {
-      Alert.alert(
+      showAlert(
         'Insufficient Balance',
-        `The source account only has ${formatCurrency(selectedFromWallet.balance, fromCurrency, false)}.`
+        `The source account only has ${formatCurrency(selectedFromWallet.balance, fromCurrency, false)}.`,
+        undefined,
+        'warning'
       );
       return;
     }
@@ -145,7 +178,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       setNotes('');
       onClose();
     } catch (err: any) {
-      Alert.alert('Transfer Error', err.message || 'Failed to complete fund transfer.');
+      showAlert('Transfer Error', err.message || 'Failed to complete fund transfer.', undefined, 'error');
     } finally {
       setSubmitting(false);
     }
@@ -323,25 +356,26 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                   <View style={styles.fxCard}>
                     <View style={styles.fxHeaderRow}>
                       <Text style={styles.fxTitle}>Exchange Rate & Conversion</Text>
-                      <View style={styles.fxBadge}>
-                        <Text style={styles.fxBadgeText}>FX Rate</Text>
-                      </View>
                     </View>
 
                     <View style={styles.fxRateRow}>
                       <Text style={styles.fxRateLabel}>Rate (1 USD):</Text>
-                      <View style={styles.fxRateInputWrap}>
-                        <Text style={styles.fxRatePrefix}>Rp</Text>
-                        <TextInput
-                          style={styles.fxRateInput}
-                          keyboardType="number-pad"
-                          value={exchangeRateStr}
-                          onChangeText={(t) => setExchangeRateStr(formatCurrencyInput(t, 'IDR'))}
-                          placeholder="16.000"
-                          placeholderTextColor={Palette.muted}
-                          returnKeyType="done"
-                        />
-                      </View>
+                      <TouchableOpacity
+                        style={styles.fxRatePickerBox}
+                        onPress={() => {
+                          AppHaptics.light();
+                          Keyboard.dismiss();
+                          setRateModalVisible(true);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.fxRatePrefixTag}>
+                          <Text style={styles.fxRatePrefixText}>Rp</Text>
+                        </View>
+                        <Text style={styles.fxRatePickerValue}>
+                          {exchangeRateStr || '16.000'}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
 
                     <View style={styles.fxSummaryBox}>
@@ -432,6 +466,28 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               </TouchableOpacity>
             </View>
           )}
+
+      <AmountInputModal
+        visible={rateModalVisible}
+        title="Set Exchange Rate"
+        subtitle="1 USD equivalent in IDR"
+        initialAmount={exchangeRateStr}
+        currency="IDR"
+        onConfirm={(formatted) => {
+          setExchangeRateStr(formatted && formatted !== '0' ? formatted : '16.000');
+          setRateModalVisible(false);
+        }}
+        onClose={() => setRateModalVisible(false)}
+      />
+
+      <CustomAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        type={alertConfig.type}
+        onClose={hideAlert}
+      />
     </BottomSheetModal>
   );
 };
@@ -595,30 +651,34 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.muted,
   },
-  fxRateInputWrap: {
+  fxRatePickerBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Palette.white,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
   },
-  fxRatePrefix: {
+  fxRatePrefixTag: {
+    backgroundColor: Palette.surfaceSoft,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  fxRatePrefixText: {
     ...Typography.caption,
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '700',
     color: Palette.muted,
-    marginRight: 4,
   },
-  fxRateInput: {
-    ...Typography.body,
+  fxRatePickerValue: {
+    ...Typography.mono,
     fontSize: 13,
     fontWeight: '600',
     color: Palette.ink,
-    paddingVertical: 5,
-    minWidth: 70,
-    textAlign: 'right',
   },
   fxSummaryBox: {
     flexDirection: 'row',

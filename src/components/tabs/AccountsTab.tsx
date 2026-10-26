@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Plus, CreditCard, Layers } from 'lucide-react-native';
+import { Plus, CreditCard, Layers, ArrowUpDown } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Pocket, CurrencyType, AllocationPlan } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
@@ -17,6 +17,7 @@ interface AccountsTabProps {
   allocationPlans: AllocationPlan[];
   onOpenAccountDetail: (w: Wallet) => void;
   onOpenAddAccount: () => void;
+  onOpenManageOrder?: () => void;
   onCreateAllocationPlan: () => void;
   onEditAllocationPlan: (plan: AllocationPlan) => void;
 }
@@ -31,6 +32,7 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
   allocationPlans = [],
   onOpenAccountDetail,
   onOpenAddAccount,
+  onOpenManageOrder,
   onCreateAllocationPlan,
   onEditAllocationPlan,
 }) => {
@@ -141,15 +143,30 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
         </View>
       )}
 
-      {/* Add New Account Button */}
-      <TouchableOpacity
-        style={styles.addAccountBtn}
-        onPress={onOpenAddAccount}
-        activeOpacity={0.85}
-      >
-        <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-        <Text style={styles.addAccountBtnText}>Add New Account</Text>
-      </TouchableOpacity>
+      {/* Add New Account & Manage Order Row */}
+      <View style={styles.actionButtonGroup}>
+        <TouchableOpacity
+          style={styles.addAccountBtn}
+          onPress={onOpenAddAccount}
+          activeOpacity={0.85}
+        >
+          <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
+          <Text style={styles.addAccountBtnText}>Add New Account</Text>
+        </TouchableOpacity>
+
+        {wallets.length > 1 && onOpenManageOrder && (
+          <TouchableOpacity
+            style={styles.manageOrderBtn}
+            onPress={() => {
+              AppHaptics.light();
+              onOpenManageOrder();
+            }}
+            activeOpacity={0.8}
+          >
+            <ArrowUpDown size={16} color={Palette.ink} />
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* Wallets List */}
       {wallets.length === 0 ? (
@@ -319,15 +336,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.white,
   },
+  actionButtonGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 14,
+  },
   addAccountBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Palette.primary,
     paddingVertical: 14,
     borderRadius: 16,
-    marginTop: 4,
-    marginBottom: 14,
+  },
+  manageOrderBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   addAccountBtnText: {
     ...Typography.body,

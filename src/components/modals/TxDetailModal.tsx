@@ -17,9 +17,9 @@ import {
   Banknote,
   TrendingUp,
   CreditCard,
-  Zap,
   CheckCircle2,
 } from 'lucide-react-native';
+import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, Wallet } from '../../types';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
@@ -46,7 +46,7 @@ const getAccountIcon = (type?: string) => {
   if (t === 'cash') return Banknote;
   if (t === 'investment') return TrendingUp;
   if (t === 'credit card' || t === 'creditcard') return CreditCard;
-  if (t === 'e-money' || t === 'emoney') return Zap;
+  if (t === 'e-money' || t === 'emoney') return ContactlessCardIcon;
   return Building2;
 };
 

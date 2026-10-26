@@ -57,7 +57,7 @@ interface AnalyticsTabProps {
   onOpenMonthPicker: () => void;
   onOpenCategoryManager: (type?: TransactionType) => void;
   onOpenSetBudget: () => void;
-  getCategoryIconName: (category: string) => string;
+  getCategoryIconName: (category: string, type?: TransactionType) => string;
 }
 
 export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
@@ -1089,7 +1089,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
                     ]}
                   >
                     <CategoryIcon
-                      name={getCategoryIconName(item.category)}
+                      name={getCategoryIconName(item.category, analyticsType)}
                       size={16}
                       color={item.color}
                     />

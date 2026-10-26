@@ -7,8 +7,8 @@ import {
   CreditCard,
   Smartphone,
   TrendingUp,
-  Zap,
 } from 'lucide-react-native';
+import { ContactlessCardIcon } from './icons/ContactlessCardIcon';
 import { Palette, Typography } from '../theme/tokens';
 import { Wallet, Pocket } from '../types';
 import { formatCurrency } from '../utils/formatters';
@@ -73,7 +73,7 @@ export const AccountCardItem: React.FC<AccountCardItemProps> = ({
               if (t === 'e-wallet' || t === 'ewallet') return <Smartphone size={20} color={Palette.white} />;
               if (t === 'credit card') return <CreditCard size={20} color={Palette.white} />;
               if (t === 'investment') return <TrendingUp size={20} color={Palette.white} />;
-              if (t === 'e-money') return <Zap size={20} color={Palette.white} />;
+              if (t === 'e-money') return <ContactlessCardIcon size={20} color={Palette.white} />;
               return <Building2 size={20} color={Palette.white} />;
             })()}
           </View>

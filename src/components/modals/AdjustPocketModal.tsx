@@ -16,8 +16,8 @@ import { formatCurrency } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
-import { CalculatorKeypad } from '../CalculatorKeypad';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { AmountInputModal } from './AmountInputModal';
 
 interface AdjustPocketModalProps {
   pocket: Pocket | null;
@@ -45,6 +45,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const [showAmountModal, setShowAmountModal] = React.useState<boolean>(false);
   const lastPocketRef = React.useRef<Pocket | null>(propPocket);
   if (propPocket) {
     lastPocketRef.current = propPocket;
@@ -64,7 +65,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
     >
       <ModalHeader
         title={pocket.name}
-        subtitle="Transfer funds with parent account"
+        subtitle="Transfer funds with main account"
         onClose={onClose}
       />
 
@@ -131,12 +132,30 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Amount to {mode === 'allocate' ? 'Allocate' : 'Release'}
               </Text>
-              <CalculatorKeypad
-                value={amount}
-                currency={pCurrency}
-                onChangeValue={onChangeAmount}
-                showDisplay={true}
-              />
+              <TouchableOpacity
+                style={styles.amountPickerBox}
+                onPress={() => {
+                  AppHaptics.light();
+                  Keyboard.dismiss();
+                  setShowAmountModal(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <View style={styles.amountPrefixTag}>
+                  <Text style={styles.amountPrefixTagText}>
+                    {pCurrency === 'IDR' ? 'Rp' : '$'}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.amountPickerValue,
+                    !amount && styles.amountPickerPlaceholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {amount || (pCurrency === 'IDR' ? '0' : '0.00')}
+                </Text>
+              </TouchableOpacity>
             </KeyboardSafeContainer>
 
             <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
@@ -157,6 +176,19 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                 </Text>
               </TouchableOpacity>
             </View>
+
+      <AmountInputModal
+        visible={showAmountModal}
+        title={mode === 'allocate' ? 'Allocate to Pocket' : 'Release from Pocket'}
+        subtitle={`Adjust balance between ${parentWallet?.name || 'Account'} and ${pocket.name}`}
+        initialAmount={amount}
+        currency={pCurrency}
+        onConfirm={(formatted) => {
+          onChangeAmount(formatted);
+          setShowAmountModal(false);
+        }}
+        onClose={() => setShowAmountModal(false)}
+      />
     </BottomSheetModal>
   );
 };
@@ -263,6 +295,40 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.hairline,
     color: Palette.ink,
+  },
+  amountPickerBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  amountPrefixTag: {
+    backgroundColor: Palette.surfaceSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  amountPrefixTagText: {
+    ...Typography.body,
+    fontWeight: '700',
+    color: Palette.ink,
+    fontSize: 14,
+  },
+  amountPickerValue: {
+    ...Typography.body,
+    fontWeight: '600',
+    color: Palette.ink,
+    fontSize: 16,
+    flex: 1,
+  },
+  amountPickerPlaceholder: {
+    color: Palette.mutedSoft,
+    fontWeight: '400',
   },
   stickyFooter: {
     paddingHorizontal: 20,

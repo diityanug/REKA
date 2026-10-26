@@ -16,6 +16,7 @@ import { formatCurrency, formatDate } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
 interface ReviewReceiptModalProps {
   visible: boolean;
@@ -51,6 +52,35 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   const insets = useSafeAreaInsets();
   const [reviewNotes, setReviewNotes] = useState<string>('');
   const [merchantName, setMerchantName] = useState<string>('');
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+    buttons?: AlertButton[];
+    type?: AlertType;
+  }>({
+    visible: false,
+    title: '',
+  });
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    type: AlertType = 'info'
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }],
+      type,
+    });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   const relevantWallets = useMemo(() => {
     return wallets.filter(
@@ -81,6 +111,18 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   if (!visible || !extractedData) return null;
 
   const handleConfirm = () => {
+    if (!selectedWalletId) {
+      showAlert(
+        'Account Required',
+        'Please select or create an account first to record this receipt.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Create Account', onPress: onOpenAddAccount },
+        ],
+        'warning'
+      );
+      return;
+    }
     const finalMerchant = merchantName.trim() || extractedData.merchantName || 'Receipt Transaction';
     onConfirm(reviewNotes, finalMerchant);
   };
@@ -243,6 +285,15 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 <Text style={styles.confirmBtnText}>Save Transaction</Text>
               </TouchableOpacity>
             </View>
+
+      <CustomAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        type={alertConfig.type}
+        onClose={hideAlert}
+      />
     </BottomSheetModal>
   );
 };

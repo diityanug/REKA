@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Trash2, Check, BookOpen, Layers, Edit3 } from 'lucide-react-native';
@@ -19,6 +18,7 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { AmountInputModal } from './AmountInputModal';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
 interface AllocationPlanModalProps {
   visible: boolean;
@@ -49,6 +49,35 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     { id: '1', label: '', amountStr: '' },
   ]);
   const [activeAmountRowId, setActiveAmountRowId] = useState<string | null>(null);
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+    buttons?: AlertButton[];
+    type?: AlertType;
+  }>({
+    visible: false,
+    title: '',
+  });
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    type: AlertType = 'info'
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons,
+      type,
+    });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   const activeRow = useMemo(() => {
     return rows.find((r) => r.id === activeAmountRowId) || null;
@@ -136,7 +165,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const handleSave = () => {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      Alert.alert('Missing Title', 'Please enter a name for this income allocation (e.g. Primary Salary, Freelance).');
+      showAlert('Missing Title', 'Please enter a name for this income allocation (e.g. Primary Salary, Freelance).', undefined, 'warning');
       return;
     }
 
@@ -152,7 +181,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
       });
 
     if (validItems.length === 0) {
-      Alert.alert('Missing Allocations', 'Please add at least one allocation row with a description.');
+      showAlert('Missing Allocations', 'Please add at least one allocation row with a description.', undefined, 'warning');
       return;
     }
 
@@ -171,7 +200,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
 
   const handleDelete = () => {
     if (!plan || !onDelete) return;
-    Alert.alert(
+    showAlert(
       'Delete Allocation Plan',
       `Delete "${plan.title}"? This allocation breakdown will be removed.`,
       [
@@ -184,7 +213,8 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             onDelete(plan.id);
           },
         },
-      ]
+      ],
+      'confirm'
     );
   };
 
@@ -368,6 +398,16 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
           setActiveAmountRowId(null);
         }}
         onClose={() => setActiveAmountRowId(null)}
+      />
+
+      {/* Custom Alert Modal for Allocation Plan */}
+      <CustomAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        type={alertConfig.type}
+        onClose={hideAlert}
       />
     </BottomSheetModal>
   );

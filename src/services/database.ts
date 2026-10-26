@@ -22,6 +22,7 @@ export interface Wallet {
   currency: CurrencyType;
   color: string;
   accountNumber?: string;
+  sortOrder?: number;
 }
 
 export interface Pocket {
@@ -111,7 +112,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
           balance REAL NOT NULL DEFAULT 0,
           currency TEXT NOT NULL DEFAULT 'IDR',
           color TEXT NOT NULL DEFAULT '#CC785C',
-          account_number TEXT DEFAULT ''
+          account_number TEXT DEFAULT '',
+          sort_order INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS pockets (
@@ -176,6 +178,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'wallets', 'currency', "TEXT NOT NULL DEFAULT 'IDR'");
       await ensureColumn(db, 'wallets', 'color', "TEXT NOT NULL DEFAULT '#CC785C'");
       await ensureColumn(db, 'wallets', 'account_number', "TEXT DEFAULT ''");
+      await ensureColumn(db, 'wallets', 'sort_order', 'INTEGER DEFAULT 0');
 
       await ensureColumn(db, 'categories', 'type', "TEXT NOT NULL DEFAULT 'expense'");
       await ensureColumn(db, 'categories', 'icon', "TEXT NOT NULL DEFAULT 'HelpCircle'");
@@ -224,7 +227,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
         { name: 'Health & Medical', type: 'expense', icon: 'HeartPulse', color: '#06B6D4' },
         { name: 'Education', type: 'expense', icon: 'GraduationCap', color: '#3B82F6' },
         { name: 'Travel', type: 'expense', icon: 'Plane', color: '#F97316' },
-        { name: 'Others', type: 'expense', icon: 'HelpCircle', color: '#78716C' },
+        { name: 'Others', type: 'expense', icon: 'CircleEllipsis', color: '#78716C' },
         // Income (from data uwu.md)
         { name: 'Salary', type: 'income', icon: 'DollarSign', color: '#059669' },
         { name: 'Allowance', type: 'income', icon: 'HandCoins', color: '#10B981' },
@@ -232,7 +235,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
         { name: 'Investments', type: 'income', icon: 'TrendingUp', color: '#0284C7' },
         { name: 'Bonus', type: 'income', icon: 'Award', color: '#F59E0B' },
         { name: 'Gift', type: 'income', icon: 'Gift', color: '#EC4899' },
-        { name: 'Others', type: 'income', icon: 'HelpCircle', color: '#78716C' },
+        { name: 'Others', type: 'income', icon: 'CircleEllipsis', color: '#059669' },
       ];
 
       for (let i = 0; i < defaultCategories.length; i++) {
@@ -245,6 +248,9 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
         if (existing) {
           if (!existing.type || existing.type.toLowerCase() !== cat.type.toLowerCase()) {
             await db.runAsync('UPDATE categories SET type = ? WHERE id = ?', cat.type, existing.id);
+          }
+          if (cat.name === 'Others') {
+            await db.runAsync('UPDATE categories SET icon = ?, color = ? WHERE id = ?', cat.icon, cat.color, existing.id);
           }
         } else {
           const slug = cat.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 16);
@@ -260,6 +266,34 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
           );
         }
       }
+
+      // Explicitly guarantee both Expense Others and Income Others exist and have the proper icons
+      const expenseOthers = await db.getFirstAsync<{ id: string; icon: string }>(
+        "SELECT id, icon FROM categories WHERE LOWER(TRIM(name)) = 'others' AND LOWER(TRIM(type)) = 'expense'"
+      );
+      if (!expenseOthers) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
+           VALUES ('cat_e_others_default', 'Others', 'expense', 'CircleEllipsis', '#78716C', 1)`
+        );
+      } else {
+        await db.runAsync("UPDATE categories SET icon = 'CircleEllipsis' WHERE id = ?", expenseOthers.id);
+      }
+
+      const incomeOthers = await db.getFirstAsync<{ id: string; icon: string }>(
+        "SELECT id, icon FROM categories WHERE LOWER(TRIM(name)) = 'others' AND LOWER(TRIM(type)) = 'income'"
+      );
+      if (!incomeOthers) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
+           VALUES ('cat_i_others_default', 'Others', 'income', 'CircleEllipsis', '#059669', 1)`
+        );
+      } else {
+        await db.runAsync("UPDATE categories SET icon = 'CircleEllipsis', color = '#059669' WHERE id = ?", incomeOthers.id);
+      }
+
+      // Unify all 'Others' categories (expense & income) to use the identical expense model icon (CircleEllipsis)
+      await db.runAsync("UPDATE categories SET icon = 'CircleEllipsis' WHERE LOWER(TRIM(name)) = 'others'");
 
       // Ensure Transfer category is always available for internal ledger movements
       const transferCat = await db.getFirstAsync<{ id: string }>(
@@ -392,7 +426,9 @@ export async function deleteCategory(id: string): Promise<boolean> {
 // Wallets Management
 export async function getWallets(): Promise<Wallet[]> {
   const db = await getDatabase();
-  const rows = await db.getAllAsync<any>('SELECT * FROM wallets ORDER BY balance DESC');
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM wallets ORDER BY sort_order ASC, balance DESC'
+  );
   return rows.map((r) => ({
     id: r.id,
     name: r.name,
@@ -401,6 +437,7 @@ export async function getWallets(): Promise<Wallet[]> {
     currency: (r.currency as CurrencyType) || 'IDR',
     color: r.color,
     accountNumber: r.account_number || '',
+    sortOrder: r.sort_order ?? 0,
   }));
 }
 
@@ -408,18 +445,38 @@ export async function createWallet(wallet: Omit<Wallet, 'id'>): Promise<string> 
   const db = await getDatabase();
   const id = 'w_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
   const safeBal = isNaN(wallet.balance) ? 0 : wallet.balance;
+
+  const maxOrderRow = await db.getFirstAsync<{ max_order: number | null }>(
+    'SELECT MAX(sort_order) as max_order FROM wallets'
+  );
+  const nextOrder = (maxOrderRow?.max_order ?? -1) + 1;
+
   await db.runAsync(
-    `INSERT INTO wallets (id, name, type, balance, currency, color, account_number)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO wallets (id, name, type, balance, currency, color, account_number, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     id,
     wallet.name.trim(),
     wallet.type || 'bank',
     safeBal,
     wallet.currency || 'IDR',
     wallet.color || '#CC785C',
-    wallet.accountNumber || ''
+    wallet.accountNumber || '',
+    wallet.sortOrder ?? nextOrder
   );
   return id;
+}
+
+export async function updateWalletsOrder(orderedWalletIds: string[]): Promise<void> {
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    for (let index = 0; index < orderedWalletIds.length; index++) {
+      await db.runAsync(
+        'UPDATE wallets SET sort_order = ? WHERE id = ?',
+        index,
+        orderedWalletIds[index]
+      );
+    }
+  });
 }
 
 export async function updateWalletName(id: string, newName: string): Promise<void> {
@@ -474,7 +531,7 @@ export async function createPocket(pocket: Omit<Pocket, 'id'>): Promise<string> 
       pocket.walletId
     );
     if (!wallet) {
-      throw new Error('Parent account does not exist. Please select a valid account.');
+      throw new Error('Main account does not exist. Please select a valid account.');
     }
     const safeBal = isNaN(pocket.balance) ? 0 : pocket.balance;
     const safeTarget = isNaN(pocket.targetAmount) ? 0 : pocket.targetAmount;
@@ -545,6 +602,13 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
       await db.runAsync('UPDATE pockets SET balance = ? WHERE id = ?', nextBal, pocketId);
     }
   });
+}
+
+export async function updatePocketName(id: string, newName: string): Promise<void> {
+  const db = await getDatabase();
+  const trimmed = newName.trim();
+  if (!trimmed) throw new Error('Pocket name cannot be empty.');
+  await db.runAsync('UPDATE pockets SET name = ? WHERE id = ?', trimmed, id);
 }
 
 export async function deletePocket(id: string): Promise<void> {
@@ -1152,11 +1216,24 @@ export async function exportAllData(): Promise<string> {
 
 // Export ledger transactions formatted as CSV for Excel / Google Sheets
 export async function exportTransactionsCSV(): Promise<string> {
-  const transactions = await getTransactions();
+  const [transactions, wallets, pockets] = await Promise.all([
+    getTransactions(),
+    getWallets(),
+    getPockets(),
+  ]);
+
+  const walletMap = new Map<string, string>();
+  wallets.forEach((w) => walletMap.set(w.id, w.name));
+
+  const pocketMap = new Map<string, string>();
+  pockets.forEach((p) => pocketMap.set(p.id, p.name));
+
   const headers = [
     'Transaction ID',
     'Date & Time',
     'Type',
+    'Account / Wallet',
+    'Sub-Account / Pocket',
     'Merchant / Description',
     'Category',
     'Currency',
@@ -1175,6 +1252,8 @@ export async function exportTransactionsCSV(): Promise<string> {
     escapeCSV(tx.id),
     escapeCSV(tx.timestamp),
     escapeCSV(tx.type),
+    escapeCSV(walletMap.get(tx.walletId) || 'Main Account'),
+    escapeCSV(tx.pocketId ? (pocketMap.get(tx.pocketId) || '') : ''),
     escapeCSV(tx.merchantName),
     escapeCSV(tx.category),
     escapeCSV(tx.currency),

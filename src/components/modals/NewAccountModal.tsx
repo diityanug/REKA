@@ -15,9 +15,9 @@ import {
   CreditCard,
   TrendingUp,
   Smartphone,
-  Zap,
   Plus,
 } from 'lucide-react-native';
+import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { CurrencyType, AccountType } from '../../types';
 import { ACCOUNT_PRESETS } from '../../constants/presets';
@@ -128,7 +128,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                     { key: 'Cash' as const, label: 'Cash', Icon: Banknote },
                     { key: 'Investment' as const, label: 'Investment', Icon: TrendingUp },
                     { key: 'Credit Card' as const, label: 'Credit Card', Icon: CreditCard },
-                    { key: 'E-Money' as const, label: 'E-Money', Icon: Zap },
+                    { key: 'E-Money' as const, label: 'E-Money', Icon: ContactlessCardIcon },
                   ] as const
                 ).map(({ key, label, Icon }) => {
                   const isSelected =
@@ -254,9 +254,9 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
-              {/* Account Number / Details */}
+              {/* Note */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Account Number / Note (Optional)
+                Note (Optional)
               </Text>
               <TextInput
                 style={styles.textInputBox}

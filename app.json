@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AES",
-    "slug": "aes-finance",
+    "name": "REKA",
+    "slug": "reka-finance",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -31,7 +31,9 @@
           "image": "./assets/splash-icon.png",
           "imageWidth": 200
         }
-      ]
+      ],
+      "expo-status-bar",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

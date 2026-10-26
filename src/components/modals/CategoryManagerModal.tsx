@@ -16,7 +16,7 @@ import { Category, TransactionType } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
-import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
+import { CategoryIcon, AVAILABLE_ICONS, CATEGORY_ICON_GROUPS } from '../CategoryIcon';
 import { BottomSheetModal } from '../BottomSheetModal';
 
 interface CategoryManagerModalProps {
@@ -53,8 +53,15 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const [selectedGroupKey, setSelectedGroupKey] = React.useState<string>('all');
   const filteredCategories = categories.filter((c) => c.type === activeType);
   const activeTint = activeType === 'expense' ? Palette.primary : Palette.accentTeal;
+
+  const displayedIcons = React.useMemo(() => {
+    if (selectedGroupKey === 'all') return AVAILABLE_ICONS;
+    const group = CATEGORY_ICON_GROUPS.find((g) => g.key === selectedGroupKey);
+    return group ? group.icons : AVAILABLE_ICONS;
+  }, [selectedGroupKey]);
 
   return (
     <BottomSheetModal
@@ -146,16 +153,70 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   />
 
                   <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                    Select Icon ({AVAILABLE_ICONS.length} available)
+                    Select Icon Category
+                  </Text>
+                  <ScrollView
+                    horizontal={true}
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.groupChipsRow}
+                  >
+                    <TouchableOpacity
+                      style={[
+                        styles.groupChip,
+                        selectedGroupKey === 'all' && [styles.groupChipActive, { backgroundColor: activeTint, borderColor: activeTint }],
+                      ]}
+                      onPress={() => {
+                        AppHaptics.selection();
+                        setSelectedGroupKey('all');
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.groupChipText,
+                          selectedGroupKey === 'all' && styles.groupChipTextActive,
+                        ]}
+                      >
+                        All
+                      </Text>
+                    </TouchableOpacity>
+                    {CATEGORY_ICON_GROUPS.map((grp) => {
+                      const isGrpActive = selectedGroupKey === grp.key;
+                      return (
+                        <TouchableOpacity
+                          key={grp.key}
+                          style={[
+                            styles.groupChip,
+                            isGrpActive && [styles.groupChipActive, { backgroundColor: activeTint, borderColor: activeTint }],
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            setSelectedGroupKey(grp.key);
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.groupChipText,
+                              isGrpActive && styles.groupChipTextActive,
+                            ]}
+                          >
+                            {grp.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <Text style={[styles.inputLabel, { marginTop: 10 }]}>
+                    Choose Icon
                   </Text>
                   <View style={styles.iconScrollBox}>
                     <ScrollView
                       style={styles.iconScrollView}
                       contentContainerStyle={styles.iconGrid}
                       nestedScrollEnabled={true}
-                      showsVerticalScrollIndicator={true}
+                      showsVerticalScrollIndicator={false}
                     >
-                      {AVAILABLE_ICONS.map((ic) => {
+                      {displayedIcons.map((ic) => {
                         const active = newCatIcon === ic;
                         return (
                           <TouchableOpacity
@@ -317,12 +378,10 @@ const styles = StyleSheet.create({
     color: Palette.ink,
   },
   creationBox: {
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
+    marginBottom: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Palette.hairline,
   },
   inputLabel: {
     ...Typography.caption,
@@ -334,7 +393,7 @@ const styles = StyleSheet.create({
   textInputBox: {
     ...Typography.body,
     fontSize: 14,
-    backgroundColor: Palette.white,
+    backgroundColor: Palette.surfaceSoft,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -342,27 +401,55 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     color: Palette.ink,
   },
-  iconScrollBox: {
-    maxHeight: 180,
+  groupChipsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  groupChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    padding: 8,
+  },
+  groupChipActive: {
+    borderColor: Palette.primary,
+  },
+  groupChipText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Palette.ink,
+  },
+  groupChipTextActive: {
+    color: Palette.white,
+    fontWeight: '600',
+  },
+  iconScrollBox: {
+    height: 235,
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    padding: 10,
+    marginBottom: 10,
   },
   iconScrollView: {
-    flexGrow: 0,
+    flex: 1,
   },
   iconGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    paddingBottom: 4,
+    paddingBottom: 8,
   },
   iconCell: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 12,
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
 import { Eye, EyeOff, Settings } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { CurrencyType } from '../types';
@@ -24,12 +24,16 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
     <View style={styles.appBar}>
       <View style={styles.brandBox}>
         <View style={styles.brandRow}>
-          <Image
-            source={require('../../assets/splash-icon.png')}
-            style={styles.brandLogoImage}
-            resizeMode="contain"
-          />
-          <Text style={styles.brandTitle}>AES</Text>
+          <View style={styles.logoBadgeContainer}>
+            <Image
+              source={require('../../assets/splash-icon.png')}
+              style={styles.brandLogoImage}
+              resizeMode="contain"
+            />
+          </View>
+          <View style={styles.titleColumn}>
+            <Text style={styles.brandTitle}>REKA</Text>
+          </View>
         </View>
       </View>
 
@@ -114,33 +118,59 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
   brandBox: {
-    flex: 1,
-    paddingRight: 8,
+    flexShrink: 1,
+    marginRight: 10,
   },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
+  logoBadgeContainer: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#11473B', // Rich emerald base matching app identity
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#11473B',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
+  },
   brandLogoImage: {
-    width: 32,
-    height: 32,
+    width: 24,
+    height: 24,
+  },
+  titleColumn: {
+    justifyContent: 'center',
   },
   brandTitle: {
-    ...Typography.heading,
-    fontSize: 20,
-    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif-medium',
+    fontSize: 18,
+    fontWeight: '600',
     color: Palette.ink,
-    letterSpacing: -0.5,
+    letterSpacing: 1.4,
+    lineHeight: 22,
+  },
+  brandTagline: {
+    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif',
+    fontSize: 9,
+    fontWeight: '500',
+    color: Palette.muted,
+    letterSpacing: 0.3,
+    marginTop: 1,
   },
   actionsBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 0,
   },
   currencyToggleBox: {
     flexDirection: 'row',

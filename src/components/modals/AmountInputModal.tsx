@@ -42,10 +42,17 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 
   useEffect(() => {
     if (visible) {
-      const clean = (initialAmount || '').replace(/\D/g, '').slice(0, maxDigits);
-      setRawDigits(clean === '0' ? '' : clean);
+      if (!initialAmount) {
+        setRawDigits('');
+      } else if (currency === 'USD') {
+        const cleaned = initialAmount.replace(/[^0-9.]/g, '');
+        setRawDigits(cleaned === '0' ? '' : cleaned);
+      } else {
+        const clean = initialAmount.replace(/\D/g, '').slice(0, maxDigits);
+        setRawDigits(clean === '0' ? '' : clean);
+      }
     }
-  }, [visible, initialAmount, maxDigits]);
+  }, [visible, initialAmount, maxDigits, currency]);
 
   const displayFormatted = useMemo(() => {
     if (!rawDigits || rawDigits === '0') return '0';
@@ -57,16 +64,28 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   }, [displayFormatted, currency]);
 
   const handleDigitPress = (d: string) => {
-    if (rawDigits.length >= maxDigits) {
-      // Reached hard digit cap: silent block, no re-render, no blinking
+    if (d === '.') {
+      if (currency !== 'USD') return;
+      if (rawDigits.includes('.')) return; // Only one decimal allowed
+      AppHaptics.selection();
+      setRawDigits((prev) => (prev ? prev + '.' : '0.'));
       return;
     }
+
+    if (currency === 'USD' && rawDigits.includes('.')) {
+      const parts = rawDigits.split('.');
+      if (parts[1] && parts[1].length >= 2) return; // Max 2 decimal places
+    } else {
+      const intPart = rawDigits.split('.')[0] || '';
+      if (intPart.length >= maxDigits) return;
+    }
+
     AppHaptics.selection();
     if (rawDigits === '' || rawDigits === '0') {
       if (d === '0') return;
       setRawDigits(d);
     } else {
-      setRawDigits((prev) => (prev + d).slice(0, maxDigits));
+      setRawDigits((prev) => prev + d);
     }
   };
 
@@ -254,9 +273,9 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
                 ) : (
                   <Pressable
                     style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-                    onPress={() => handleDigitPress('00')}
+                    onPress={() => handleDigitPress('.')}
                   >
-                    <Text style={styles.keypadDigit}>00</Text>
+                    <Text style={[styles.keypadDigit, { fontWeight: '700' }]}>.</Text>
                   </Pressable>
                 )}
                 <Pressable

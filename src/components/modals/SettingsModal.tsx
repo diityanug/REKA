@@ -1,15 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Modal,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
-  Alert,
   ActivityIndicator,
-  Share,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -18,12 +14,15 @@ import {
   Trash2,
   AlertTriangle,
   FileSpreadsheet,
+  FolderOpen,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { saveTextFileDirectly, pickBackupFile } from '../../utils/fileStorage';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -43,19 +42,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const [importJsonText, setImportJsonText] = useState<string>('');
-  const [showImportBox, setShowImportBox] = useState<boolean>(false);
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportingCSV, setExportingCSV] = useState<boolean>(false);
   const [importing, setImporting] = useState<boolean>(false);
   const [wiping, setWiping] = useState<boolean>(false);
 
-  useEffect(() => {
-    if (visible) {
-      setImportJsonText('');
-      setShowImportBox(false);
-    }
-  }, [visible]);
+  // Custom alert dialog state
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+    buttons?: AlertButton[];
+    type?: AlertType;
+  }>({
+    visible: false,
+    title: '',
+  });
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    type: AlertType = 'info'
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }],
+      type,
+    });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   const handleExport = async () => {
     Keyboard.dismiss();
@@ -63,15 +84,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       AppHaptics.light();
       const jsonBackup = await onExportBackup();
-      await Share.share({
-        title: 'AES Finance Unified Backup',
-        message: jsonBackup,
-      });
-      AppHaptics.success();
-    } catch (err: any) {
-      if (err.message !== 'User did not share') {
-        Alert.alert('Export Error', err.message || 'Failed to export backup.');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `REKA_backup_${dateStr}.json`;
+
+      const result = await saveTextFileDirectly(filename, jsonBackup, 'application/json');
+      if (result.success) {
+        AppHaptics.success();
+        showAlert(
+          'Backup Saved',
+          `Your backup file "${filename}" has been saved successfully to your selected folder.`,
+          undefined,
+          'success'
+        );
       }
+    } catch (err: any) {
+      AppHaptics.error();
+      showAlert('Export Error', err.message || 'Failed to export backup.', undefined, 'error');
     } finally {
       setExporting(false);
     }
@@ -84,59 +112,78 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       AppHaptics.light();
       const csvData = await onExportCSV();
-      await Share.share({
-        title: 'AES Finance Ledger Export (CSV)',
-        message: csvData,
-      });
-      AppHaptics.success();
-    } catch (err: any) {
-      if (err.message !== 'User did not share') {
-        Alert.alert('CSV Export Error', err.message || 'Failed to export CSV ledger.');
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const filename = `REKA_ledger_${dateStr}.csv`;
+
+      const result = await saveTextFileDirectly(filename, csvData, 'text/csv');
+      if (result.success) {
+        AppHaptics.success();
+        showAlert(
+          'Ledger Exported',
+          `Your CSV file "${filename}" has been saved successfully.`,
+          undefined,
+          'success'
+        );
       }
+    } catch (err: any) {
+      AppHaptics.error();
+      showAlert('CSV Export Error', err.message || 'Failed to export CSV ledger.', undefined, 'error');
     } finally {
       setExportingCSV(false);
     }
   };
 
-  const handleConfirmImport = async () => {
+  const handlePickAndRestore = async () => {
     Keyboard.dismiss();
-    if (!importJsonText.trim()) {
-      Alert.alert('Missing Data', 'Please paste valid backup JSON data.');
-      return;
-    }
+    try {
+      AppHaptics.light();
+      const picked = await pickBackupFile();
+      if (picked.cancelled || !picked.content) return;
 
-    Alert.alert(
-      'Confirm Data Restore',
-      'Restoring from backup will replace all current database records. Do you want to proceed?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Restore Data',
-          style: 'destructive',
-          onPress: async () => {
-            setImporting(true);
-            try {
-              await onImportBackup(importJsonText.trim());
-              setImportJsonText('');
-              setShowImportBox(false);
-              AppHaptics.success();
-              Alert.alert('Restore Complete', 'Database has been restored successfully.');
-              onClose();
-            } catch (err: any) {
-              AppHaptics.error();
-              Alert.alert('Import Error', err.message || 'Failed to restore backup.');
-            } finally {
-              setImporting(false);
-            }
+      showAlert(
+        'Confirm Data Restore',
+        `Restore database from "${picked.filename || 'selected file'}"? All current records will be replaced.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Restore Now',
+            style: 'destructive',
+            onPress: async () => {
+              setImporting(true);
+              try {
+                await onImportBackup(picked.content!);
+                AppHaptics.success();
+                showAlert(
+                  'Restore Complete',
+                  'Database has been restored successfully from your backup file.',
+                  [
+                    {
+                      text: 'OK',
+                      onPress: () => onClose(),
+                    },
+                  ],
+                  'success'
+                );
+              } catch (err: any) {
+                AppHaptics.error();
+                showAlert('Restore Error', err.message || 'Failed to parse and restore backup file.', undefined, 'error');
+              } finally {
+                setImporting(false);
+              }
+            },
           },
-        },
-      ]
-    );
+        ],
+        'confirm'
+      );
+    } catch (err: any) {
+      AppHaptics.error();
+      showAlert('File Picker Error', err.message || 'Could not read file from storage.', undefined, 'error');
+    }
   };
 
   const handleWipeData = () => {
     Keyboard.dismiss();
-    Alert.alert(
+    showAlert(
       'Wipe All Data',
       'This will permanently delete all transactions, accounts, and pockets. This action cannot be undone.',
       [
@@ -149,17 +196,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             try {
               await onWipeAllData();
               AppHaptics.heavy();
-              Alert.alert('Database Reset', 'All data has been cleared.');
-              onClose();
+              showAlert(
+                'Database Reset',
+                'All data has been cleared successfully.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => onClose(),
+                  },
+                ],
+                'success'
+              );
             } catch (err: any) {
               AppHaptics.error();
-              Alert.alert('Error', err.message || 'Failed to reset database.');
+              showAlert('Error', err.message || 'Failed to reset database.', undefined, 'error');
             } finally {
               setWiping(false);
             }
           },
         },
-      ]
+      ],
+      'confirm'
     );
   };
 
@@ -176,192 +233,159 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         onClose={onClose}
       />
 
-          <KeyboardSafeContainer extraBottomSpace={40}>
-            {/* Backup & Restore Section */}
-            <View style={styles.sectionCard}>
-              <View style={styles.sectionHeader}>
+      <KeyboardSafeContainer extraBottomSpace={40}>
+        {/* Backup & Restore Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Download size={16} color={Palette.primary} />
+            <Text style={styles.sectionTitle}>Backup & Restore</Text>
+          </View>
+          <Text style={styles.sectionDesc}>
+            Save your data to your device storage or restore them from an existing file.
+          </Text>
+
+          {/* Direct Export JSON */}
+          <TouchableOpacity
+            style={styles.outlineActionBtn}
+            onPress={handleExport}
+            disabled={exporting}
+            activeOpacity={0.7}
+          >
+            {exporting ? (
+              <ActivityIndicator size="small" color={Palette.primary} />
+            ) : (
+              <>
                 <Download size={16} color={Palette.primary} />
-                <Text style={styles.sectionTitle}>Backup & Restore</Text>
-              </View>
-              <Text style={styles.sectionDesc}>
-                Export your accounts, pockets, categories, and transactions into a unified portable JSON backup.
-              </Text>
+                <Text style={styles.outlineActionBtnText}>Export Backup</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.outlineActionBtn}
-                onPress={handleExport}
-                disabled={exporting}
-                activeOpacity={0.7}
-              >
-                {exporting ? (
-                  <ActivityIndicator size="small" color={Palette.primary} />
-                ) : (
-                  <>
-                    <Download size={16} color={Palette.primary} />
-                    <Text style={styles.outlineActionBtnText}>Export Backup (JSON)</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+          {/* Direct Pick File & Restore */}
+          <TouchableOpacity
+            style={[styles.outlineActionBtn, { marginTop: 10 }]}
+            onPress={handlePickAndRestore}
+            disabled={importing}
+            activeOpacity={0.7}
+          >
+            {importing ? (
+              <ActivityIndicator size="small" color={Palette.primary} />
+            ) : (
+              <>
+                <FolderOpen size={16} color={Palette.primary} />
+                <Text style={styles.outlineActionBtnText}>Restore Data</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-              <TouchableOpacity
-                style={[styles.outlineActionBtn, { marginTop: 10 }]}
-                onPress={handleExportCSV}
-                disabled={exportingCSV}
-                activeOpacity={0.7}
-              >
-                {exportingCSV ? (
-                  <ActivityIndicator size="small" color={Palette.primary} />
-                ) : (
-                  <>
-                    <FileSpreadsheet size={16} color={Palette.primary} />
-                    <Text style={styles.outlineActionBtnText}>Export Ledger (CSV / Excel)</Text>
-                  </>
-                )}
-              </TouchableOpacity>
+          {/* Export CSV / Excel */}
+          <TouchableOpacity
+            style={[styles.outlineActionBtn, { marginTop: 10 }]}
+            onPress={handleExportCSV}
+            disabled={exportingCSV}
+            activeOpacity={0.7}
+          >
+            {exportingCSV ? (
+              <ActivityIndicator size="small" color={Palette.primary} />
+            ) : (
+              <>
+                <FileSpreadsheet size={16} color={Palette.primary} />
+                <Text style={styles.outlineActionBtnText}>Export Ledger</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
 
-              <TouchableOpacity
-                style={[styles.outlineActionBtn, { marginTop: 10 }]}
-                onPress={() => {
-                  AppHaptics.light();
-                  setShowImportBox((prev) => !prev);
-                }}
-                activeOpacity={0.7}
-              >
-                <Upload size={16} color={Palette.primary} />
-                <Text style={styles.outlineActionBtnText}>
-                  {showImportBox ? 'Hide Restore Console' : 'Import / Restore Backup'}
-                </Text>
-              </TouchableOpacity>
+        {/* Danger Zone */}
+        <View style={[styles.sectionCard, styles.dangerCard]}>
+          <View style={styles.sectionHeader}>
+            <AlertTriangle size={16} color={Palette.error} />
+            <Text style={[styles.sectionTitle, { color: Palette.error }]}>
+              Danger Zone
+            </Text>
+          </View>
+          <Text style={styles.dangerDesc}>
+            Reset all data to a clean initial state. All transaction history, custom pockets, and balances will be erased.
+          </Text>
 
-              {showImportBox ? (
-                <View style={styles.importBox}>
-                  <Text style={styles.inputLabel}>Paste Backup JSON</Text>
-                  <TextInput
-                    style={styles.jsonTextArea}
-                    value={importJsonText}
-                    onChangeText={setImportJsonText}
-                    placeholder="Paste exported JSON payload here..."
-                    placeholderTextColor={Palette.muted}
-                    multiline={true}
-                    numberOfLines={4}
-                    textAlignVertical="top"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
+          <TouchableOpacity
+            style={styles.dangerBtn}
+            onPress={handleWipeData}
+            disabled={wiping}
+            activeOpacity={0.8}
+          >
+            {wiping ? (
+              <ActivityIndicator size="small" color={Palette.white} />
+            ) : (
+              <>
+                <Trash2 size={16} color={Palette.white} />
+                <Text style={styles.dangerBtnText}>Wipe All Data</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardSafeContainer>
 
-                  <TouchableOpacity
-                    style={styles.restoreBtn}
-                    onPress={handleConfirmImport}
-                    disabled={importing}
-                    activeOpacity={0.8}
-                  >
-                    {importing ? (
-                      <ActivityIndicator size="small" color={Palette.white} />
-                    ) : (
-                      <>
-                        <Upload size={16} color={Palette.white} />
-                        <Text style={styles.restoreBtnText}>Restore From JSON</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ) : null}
-            </View>
-
-            {/* Danger Zone */}
-            <View style={[styles.sectionCard, styles.dangerCard]}>
-              <View style={styles.sectionHeader}>
-                <AlertTriangle size={16} color={Palette.error} />
-                <Text style={[styles.sectionTitle, { color: Palette.error }]}>
-                  Danger Zone
-                </Text>
-              </View>
-              <Text style={styles.dangerDesc}>
-                Reset all data to a clean initial state. All transaction history, custom pockets, and balances will be erased.
-              </Text>
-
-              <TouchableOpacity
-                style={styles.dangerBtn}
-                onPress={handleWipeData}
-                disabled={wiping}
-                activeOpacity={0.8}
-              >
-                {wiping ? (
-                  <ActivityIndicator size="small" color={Palette.white} />
-                ) : (
-                  <>
-                    <Trash2 size={16} color={Palette.white} />
-                    <Text style={styles.dangerBtnText}>Wipe All Data</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </KeyboardSafeContainer>
+      {/* Custom Alert Modal for Settings */}
+      <CustomAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        type={alertConfig.type}
+        onClose={hideAlert}
+      />
     </BottomSheetModal>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    width: '100%',
-    shadowColor: Palette.ink,
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 20,
-  },
   sectionCard: {
-    backgroundColor: Palette.white,
+    backgroundColor: Palette.surfaceSoft,
     borderRadius: 16,
     padding: 16,
-    marginBottom: 14,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: Palette.hairline,
+  },
+  dangerCard: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 10,
+    marginBottom: 6,
   },
   sectionTitle: {
-    ...Typography.body,
+    ...Typography.subheading,
     fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '600',
     color: Palette.ink,
   },
   sectionDesc: {
     ...Typography.caption,
     fontSize: 12,
     color: Palette.muted,
-    lineHeight: 17,
-    marginBottom: 12,
+    lineHeight: 18,
+    marginBottom: 14,
   },
-  inputLabel: {
+  dangerDesc: {
     ...Typography.caption,
     fontSize: 12,
-    fontWeight: '600',
-    color: Palette.ink,
-    marginBottom: 6,
+    color: Palette.error,
+    lineHeight: 18,
+    marginBottom: 14,
   },
   outlineActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
+    paddingVertical: 12,
     borderRadius: 12,
-    paddingVertical: 11,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
@@ -371,59 +395,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
-  importBox: {
-    marginTop: 14,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: Palette.hairline,
-  },
-  jsonTextArea: {
-    ...Typography.caption,
-    fontSize: 12,
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    color: Palette.ink,
-    minHeight: 88,
-    fontFamily: 'monospace',
-    marginBottom: 10,
-  },
-  restoreBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: Palette.ink,
-    borderRadius: 12,
-    paddingVertical: 11,
-  },
-  restoreBtnText: {
-    ...Typography.body,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Palette.white,
-  },
-  dangerCard: {
-    borderColor: '#F8D7DA',
-    backgroundColor: '#FEF8F8',
-  },
-  dangerDesc: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-    lineHeight: 17,
-    marginBottom: 12,
-  },
   dangerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     backgroundColor: Palette.error,
+    paddingVertical: 12,
     borderRadius: 12,
-    paddingVertical: 11,
   },
   dangerBtnText: {
     ...Typography.body,

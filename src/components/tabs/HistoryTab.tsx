@@ -44,7 +44,7 @@ interface HistoryTabProps {
   onResetAllFilters: () => void;
   onOpenManualModal?: () => void;
   onSelectTransaction: (tx: Transaction) => void;
-  getCategoryIconName: (category: string) => string;
+  getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
 }
 
@@ -351,7 +351,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   const renderItem = useCallback(({ item }: { item: Transaction }) => (
     <TransactionItemRow
       transaction={item}
-      categoryIcon={getCategoryIconName(item.category)}
+      categoryIcon={getCategoryIconName(item.category, item.type)}
       pocketName={getPocketName(item.pocketId)}
       privacyMode={privacyMode}
       onPress={onSelectTransaction}

@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -30,6 +29,8 @@ import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon } from '../CategoryIcon';
 import { TransactionItemRow } from '../TransactionItemRow';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { AmountInputModal } from './AmountInputModal';
+import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
 interface AccountDetailModalProps {
   wallet: Wallet | null;
@@ -38,12 +39,13 @@ interface AccountDetailModalProps {
   privacyMode: boolean;
   onRenameWallet: (walletId: string, newName: string) => Promise<void> | void;
   onAdjustWalletBalance: (walletId: string, newBalance: number) => Promise<void> | void;
+  onRenamePocket?: (pocketId: string, newName: string) => Promise<void> | void;
   onOpenAddPocket: (w: Wallet) => void;
   onAdjustPocket: (pocket: Pocket, w: Wallet) => void;
   onDeletePocket: (pocket: Pocket) => void;
   onSelectTransaction: (tx: Transaction) => void;
   onDeleteWallet: (w: Wallet) => void;
-  getCategoryIconName: (category: string) => string;
+  getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
   onClose: () => void;
 }
@@ -55,6 +57,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   privacyMode,
   onRenameWallet,
   onAdjustWalletBalance,
+  onRenamePocket,
   onOpenAddPocket,
   onAdjustPocket,
   onDeletePocket,
@@ -74,15 +77,45 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   const [isRenaming, setIsRenaming] = useState<boolean>(false);
   const [editName, setEditName] = useState<string>('');
-  const [isAdjusting, setIsAdjusting] = useState<boolean>(false);
-  const [adjustedBalanceText, setAdjustedBalanceText] = useState<string>('');
+  const [showAdjustAmountModal, setShowAdjustAmountModal] = useState<boolean>(false);
+  const [editingPocketId, setEditingPocketId] = useState<string | null>(null);
+  const [pocketEditName, setPocketEditName] = useState<string>('');
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+    buttons?: AlertButton[];
+    type?: AlertType;
+  }>({
+    visible: false,
+    title: '',
+  });
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    type: AlertType = 'info'
+  ) => {
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }],
+      type,
+    });
+  };
+
+  const hideAlert = () => {
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
 
   useEffect(() => {
     if (propWallet) {
       setEditName(propWallet.name);
-      setAdjustedBalanceText(formatCurrencyInput(String(propWallet.balance), propWallet.currency));
       setIsRenaming(false);
-      setIsAdjusting(false);
+      setEditingPocketId(null);
+      setShowAdjustAmountModal(false);
     }
   }, [propWallet]);
 
@@ -94,23 +127,23 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const handleSaveRename = async () => {
     const trimmed = editName.trim();
     if (!trimmed) {
-      Alert.alert('Invalid Name', 'Account name cannot be empty.');
+      showAlert('Invalid Name', 'Account name cannot be empty.', undefined, 'warning');
       return;
     }
     await onRenameWallet(wallet.id, trimmed);
     setIsRenaming(false);
   };
 
-  const parsedAdjustedBalance = parseAmount(adjustedBalanceText, wallet.currency);
-  const diffAmount = parsedAdjustedBalance - wallet.balance;
-
-  const handleSaveAdjustment = async () => {
-    if (isNaN(parsedAdjustedBalance) || parsedAdjustedBalance < 0) {
-      Alert.alert('Invalid Balance', 'Please enter a valid non-negative amount.');
+  const handleSavePocketRename = async (pocketId: string) => {
+    const trimmed = pocketEditName.trim();
+    if (!trimmed) {
+      showAlert('Invalid Name', 'Pocket name cannot be empty.', undefined, 'warning');
       return;
     }
-    await onAdjustWalletBalance(wallet.id, parsedAdjustedBalance);
-    setIsAdjusting(false);
+    if (onRenamePocket) {
+      await onRenamePocket(pocketId, trimmed);
+    }
+    setEditingPocketId(null);
   };
 
   return (
@@ -171,7 +204,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   style={[styles.accountActionBtn, isRenaming && styles.accountActionBtnActive]}
                   onPress={() => {
                     AppHaptics.light();
-                    setIsAdjusting(false);
                     setIsRenaming((prev) => !prev);
                   }}
                   activeOpacity={0.7}
@@ -188,24 +220,19 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.accountActionBtn, isAdjusting && styles.accountActionBtnActive]}
+                  style={styles.accountActionBtn}
                   onPress={() => {
                     AppHaptics.light();
                     setIsRenaming(false);
-                    setIsAdjusting((prev) => !prev);
+                    setShowAdjustAmountModal(true);
                   }}
                   activeOpacity={0.7}
                 >
                   <SlidersHorizontal
                     size={15}
-                    color={isAdjusting ? Palette.primary : Palette.ink}
+                    color={Palette.ink}
                   />
-                  <Text
-                    style={[
-                      styles.accountActionBtnText,
-                      isAdjusting && styles.accountActionBtnTextActive,
-                    ]}
-                  >
+                  <Text style={styles.accountActionBtnText}>
                     Adjust Balance
                   </Text>
                 </TouchableOpacity>
@@ -243,74 +270,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     >
                       <Check size={14} color={Palette.white} />
                       <Text style={styles.saveEditBtnText}>Save Name</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              )}
-
-              {/* Inline Form: Adjust Balance */}
-              {isAdjusting && (
-                <View style={styles.editCard}>
-                  <View style={styles.editCardHeader}>
-                    <SlidersHorizontal size={15} color={Palette.primary} />
-                    <Text style={styles.editCardTitle}>Adjust Account Balance</Text>
-                  </View>
-                  <Text style={styles.editCardDesc}>
-                    Reconcile actual balance for {wallet.name}.
-                  </Text>
-                  <TextInput
-                    style={styles.editInput}
-                    value={adjustedBalanceText}
-                    maxLength={wallet.currency === 'IDR' ? 17 : 20}
-                    onChangeText={(t) => {
-                      const formatted = formatCurrencyInput(t, wallet.currency);
-                      if (formatted !== adjustedBalanceText) {
-                        setAdjustedBalanceText(formatted);
-                      }
-                    }}
-                    placeholder={wallet.currency === 'IDR' ? '0' : '0.00'}
-                    placeholderTextColor={Palette.mutedSoft}
-                    keyboardType={wallet.currency === 'IDR' ? 'number-pad' : 'decimal-pad'}
-                    autoFocus={true}
-                  />
-
-                  {diffAmount !== 0 && (
-                    <View style={styles.reconcileRow}>
-                      <Text style={styles.reconcileLabel}>Adjustment Difference:</Text>
-                      <Text
-                        style={[
-                          styles.reconcileValue,
-                          { color: diffAmount > 0 ? Palette.success : Palette.error },
-                        ]}
-                      >
-                        {diffAmount > 0 ? '+' : ''}
-                        {formatCurrency(diffAmount, wallet.currency, privacyMode)}
-                      </Text>
-                    </View>
-                  )}
-
-                  {parsedAdjustedBalance < allocatedSum && (
-                    <Text style={styles.warningText}>
-                      Warning: New balance is less than allocated sub-accounts (
-                      {formatCurrency(allocatedSum, wallet.currency)}).
-                    </Text>
-                  )}
-
-                  <View style={styles.editActionRow}>
-                    <TouchableOpacity
-                      style={styles.cancelEditBtn}
-                      onPress={() => setIsAdjusting(false)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.cancelEditBtnText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.saveEditBtn}
-                      onPress={handleSaveAdjustment}
-                      activeOpacity={0.8}
-                    >
-                      <Check size={14} color={Palette.white} />
-                      <Text style={styles.saveEditBtnText}>Save Balance</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -360,11 +319,49 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                             <CategoryIcon name={p.icon} size={18} color={Palette.white} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.pocketTitle}>{p.name}</Text>
+                            {editingPocketId === p.id ? (
+                              <View style={styles.inlineRenameRow}>
+                                <TextInput
+                                  style={styles.pocketRenameInput}
+                                  value={pocketEditName}
+                                  onChangeText={setPocketEditName}
+                                  autoFocus={true}
+                                  returnKeyType="done"
+                                  onSubmitEditing={() => handleSavePocketRename(p.id)}
+                                />
+                                <TouchableOpacity
+                                  style={styles.pocketRenameSaveBtn}
+                                  onPress={() => handleSavePocketRename(p.id)}
+                                >
+                                  <Check size={14} color={Palette.white} />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.pocketRenameCancelBtn}
+                                  onPress={() => setEditingPocketId(null)}
+                                >
+                                  <Text style={styles.pocketRenameCancelText}>✕</Text>
+                                </TouchableOpacity>
+                              </View>
+                            ) : (
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Text style={styles.pocketTitle}>{p.name}</Text>
+                                <TouchableOpacity
+                                  onPress={() => {
+                                    AppHaptics.light();
+                                    setEditingPocketId(p.id);
+                                    setPocketEditName(p.name);
+                                  }}
+                                  style={{ marginLeft: 6, padding: 3 }}
+                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                >
+                                  <Edit3 size={12} color={Palette.muted} />
+                                </TouchableOpacity>
+                              </View>
+                            )}
                             <Text style={styles.pocketMeta}>
                               {p.targetAmount > 0
                                 ? `Goal: ${formatCurrency(p.targetAmount, wallet.currency, privacyMode)}`
-                                : `${progressPct.toFixed(0)}% of account`}
+                                : 'Allocated Pocket'}
                             </Text>
                           </View>
                         </View>
@@ -379,26 +376,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       </View>
 
                       <View style={styles.pocketMiddleRow}>
-                        <Text style={styles.pocketCaption}>
-                          {p.targetAmount > 0
-                            ? `${Math.min(progressPct, 100).toFixed(0)}% reached`
-                            : 'Allocated Balance'}
-                        </Text>
+                        <Text style={styles.pocketCaption}>Allocated Balance</Text>
                         <Text style={styles.pocketBalanceText}>
                           {formatCurrency(p.balance, wallet.currency, privacyMode)}
                         </Text>
-                      </View>
-
-                      <View style={styles.track}>
-                        <View
-                          style={[
-                            styles.fill,
-                            {
-                              width: `${Math.min(Math.max(progressPct, 4), 100)}%`,
-                              backgroundColor: p.color,
-                            },
-                          ]}
-                        />
                       </View>
 
                       <TouchableOpacity
@@ -436,7 +417,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   <TransactionItemRow
                     key={tx.id}
                     transaction={tx}
-                    categoryIcon={getCategoryIconName(tx.category)}
+                    categoryIcon={getCategoryIconName(tx.category, tx.type)}
                     pocketName={getPocketName(tx.pocketId)}
                     privacyMode={privacyMode}
                     onPress={onSelectTransaction}
@@ -454,6 +435,28 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <Text style={styles.deleteAccountText}>Delete Account</Text>
               </TouchableOpacity>
             </ScrollView>
+
+      <AmountInputModal
+        visible={showAdjustAmountModal}
+        title="Adjust Account Balance"
+        subtitle={`Reconcile actual balance for ${wallet.name}`}
+        initialAmount={String(wallet.balance)}
+        currency={wallet.currency}
+        onConfirm={async (_str, num) => {
+          setShowAdjustAmountModal(false);
+          await onAdjustWalletBalance(wallet.id, num);
+        }}
+        onClose={() => setShowAdjustAmountModal(false)}
+      />
+
+      <CustomAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        type={alertConfig.type}
+        onClose={hideAlert}
+      />
     </BottomSheetModal>
   );
 };
@@ -804,5 +807,45 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Palette.white,
+  },
+  inlineRenameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginVertical: 2,
+  },
+  pocketRenameInput: {
+    ...Typography.body,
+    fontSize: 13,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    color: Palette.ink,
+    minWidth: 120,
+    maxWidth: 160,
+  },
+  pocketRenameSaveBtn: {
+    backgroundColor: Palette.primary,
+    padding: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pocketRenameCancelBtn: {
+    backgroundColor: Palette.surfaceSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pocketRenameCancelText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.muted,
   },
 });

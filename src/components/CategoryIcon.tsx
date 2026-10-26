@@ -98,6 +98,7 @@ import {
   Footprints,
   HeartHandshake,
   CircleDollarSign,
+  CircleEllipsis,
   Music2,
   SmilePlus,
   HelpCircle,
@@ -206,6 +207,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Moon,
   ArrowLeftRight,
   Transfer: ArrowLeftRight,
+  CircleEllipsis,
+  Others: CircleEllipsis,
   HelpCircle,
 };
 
@@ -223,6 +226,70 @@ export const CategoryIcon: React.FC<CategoryIconProps> = ({
   const IconComponent = ICON_MAP[name] || HelpCircle;
   return <IconComponent size={size} color={color} />;
 };
+
+export interface IconCategoryGroup {
+  key: string;
+  name: string;
+  icons: string[];
+}
+
+export const CATEGORY_ICON_GROUPS: IconCategoryGroup[] = [
+  {
+    key: 'food',
+    name: 'Food',
+    icons: ['Utensils', 'Coffee', 'Pizza', 'Beer', 'Wine', 'Apple', 'Sandwich', 'Cake', 'Soup'],
+  },
+  {
+    key: 'sport',
+    name: 'Sport',
+    icons: ['Dumbbell', 'Activity', 'Trophy', 'Footprints', 'Bike'],
+  },
+  {
+    key: 'pet',
+    name: 'Pet',
+    icons: ['PawPrint'],
+  },
+  {
+    key: 'shopping',
+    name: 'Shopping',
+    icons: ['ShoppingBag', 'ShoppingCart', 'Tag', 'Shirt', 'Watch', 'Sparkles', 'Package', 'Glasses'],
+  },
+  {
+    key: 'traffic',
+    name: 'Traffic',
+    icons: ['Car', 'Fuel', 'CircleParking', 'Plane', 'Bus', 'Bike', 'MapPin', 'Compass', 'Luggage', 'Hotel'],
+  },
+  {
+    key: 'entertainment',
+    name: 'Entertainment',
+    icons: ['Film', 'Gamepad2', 'Camera', 'Palette', 'Ticket', 'PartyPopper', 'Gift'],
+  },
+  {
+    key: 'medical',
+    name: 'Medical',
+    icons: ['HeartPulse', 'Pill', 'Stethoscope', 'Activity', 'Syringe'],
+  },
+  {
+    key: 'education',
+    name: 'Education',
+    icons: ['GraduationCap', 'Book', 'BookOpen', 'PenTool', 'Newspaper'],
+  },
+  {
+    key: 'family',
+    name: 'Family',
+    icons: ['Users', 'User', 'Baby', 'Heart', 'HeartHandshake', 'SmilePlus', 'Home', 'Armchair', 'Bed', 'BedDouble'],
+  },
+  {
+    key: 'music',
+    name: 'Music',
+    icons: ['Music2', 'Headphones', 'Mic'],
+  },
+  {
+    key: 'income',
+    name: 'Income',
+    icons: ['DollarSign', 'CircleDollarSign', 'HandCoins', 'PiggyBank', 'Wallet', 'Coins', 'Landmark', 'TrendingUp', 'Award', 'CreditCard', 'Banknote', 'Building2', 'Percent', 'Receipt', 'CircleEllipsis'],
+  },
+];
 
 export const AVAILABLE_ICONS = [
   // Food & Dining
@@ -321,6 +388,7 @@ export const AVAILABLE_ICONS = [
   'Banknote',
   'Building2',
   'Receipt',
+  'CircleEllipsis',
 
   // Family, Pets & Social
   'Users',

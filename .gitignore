@@ -23,6 +23,7 @@ scripts/
 .vscode
 DESIGN.md
 focus.md
+error.txt
 
 # Metro
 .metro-health-check*

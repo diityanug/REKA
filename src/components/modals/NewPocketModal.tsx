@@ -64,8 +64,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      height="82%"
+      maxHeight="86%"
     >
       <ModalHeader
         title="New Pocket"
@@ -73,8 +73,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
         onClose={onClose}
       />
 
-          <KeyboardSafeContainer extraBottomSpace={48}>
-              <Text style={styles.inputLabel}>Parent Account</Text>
+          <KeyboardSafeContainer extraBottomSpace={16}>
+              <Text style={styles.inputLabel}>Main Account</Text>
               <View style={styles.chipsRow}>
                 {wallets.map((w) => (
                   <TouchableOpacity
@@ -199,7 +199,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                   style={styles.iconScrollView}
                   contentContainerStyle={styles.iconGrid}
                   nestedScrollEnabled={true}
-                  showsVerticalScrollIndicator={true}
+                  showsVerticalScrollIndicator={false}
                 >
                   {AVAILABLE_ICONS.map((ic) => {
                     const active = icon === ic;
@@ -321,12 +321,13 @@ const styles = StyleSheet.create({
     color: Palette.white,
   },
   iconScrollBox: {
-    maxHeight: 180,
+    maxHeight: 160,
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    padding: 8,
+    padding: 10,
+    marginBottom: 10,
   },
   iconScrollView: {
     flexGrow: 0,
@@ -338,10 +339,10 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   iconCell: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    backgroundColor: Palette.surfaceSoft,
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
     alignItems: 'center',

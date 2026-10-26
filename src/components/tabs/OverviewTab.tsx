@@ -54,7 +54,7 @@ interface OverviewTabProps {
   onOpenAccountDetail: (w: Wallet) => void;
   onOpenAddAccount: () => void;
   onSelectTransaction: (tx: Transaction) => void;
-  getCategoryIconName: (category: string) => string;
+  getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
 }
 
@@ -361,13 +361,6 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </TouchableOpacity>
       </View>
 
-      {scanning && (
-        <View style={styles.scanningAlert}>
-          <ActivityIndicator size="small" color={Palette.primary} />
-          <Text style={styles.scanningText}>Analyzing receipt image...</Text>
-        </View>
-      )}
-
       {/* 7-Day Cash Flow Bar Chart */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>7-Day Cash Flow</Text>
@@ -497,7 +490,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           <TransactionItemRow
             key={tx.id}
             transaction={tx}
-            categoryIcon={getCategoryIconName(tx.category)}
+            categoryIcon={getCategoryIconName(tx.category, tx.type)}
             pocketName={getPocketName(tx.pocketId)}
             privacyMode={privacyMode}
             onPress={onSelectTransaction}
@@ -714,24 +707,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: Palette.muted,
     marginTop: 1,
-  },
-  scanningAlert: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FDF0ED',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 14,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: '#F9DCD5',
-  },
-  scanningText: {
-    ...Typography.caption,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Palette.primary,
   },
   weeklyChartCard: {
     backgroundColor: Palette.white,
