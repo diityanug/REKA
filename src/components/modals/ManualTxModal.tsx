@@ -361,7 +361,7 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               {selectedWalletId ? (
                 <>
                   <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                    Sub-Account / Pocket (Optional)
+                    Pocket (Optional)
                   </Text>
                   <View style={styles.chipsRow}>
                     <TouchableOpacity

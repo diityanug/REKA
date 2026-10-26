@@ -98,9 +98,6 @@ export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({ visi
           </View>
 
           <Text style={styles.title}>Analyzing Slip</Text>
-          <Text style={styles.message}>
-            Extracting merchant, date, and amount details with Gemini AI...
-          </Text>
 
           <View style={styles.indicatorRow}>
             <ActivityIndicator size="small" color={Palette.accentTeal} style={{ marginRight: 8 }} />
