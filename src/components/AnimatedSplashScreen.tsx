@@ -12,12 +12,12 @@ import Svg, { Circle, Path, Defs, LinearGradient, Stop } from 'react-native-svg'
 
 interface AnimatedSplashScreenProps {
   onAnimationFinish?: () => void;
-  minDurationMs?: number; // 1.2 - 1.5 detik
+  minDurationMs?: number; // Tepat 1 detik (1000ms)
 }
 
 export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
   onAnimationFinish,
-  minDurationMs = 1350,
+  minDurationMs = 1000,
 }) => {
   const spinValue = useRef(new Animated.Value(0)).current;
   const pulseValue = useRef(new Animated.Value(0.95)).current;
@@ -30,10 +30,10 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
   const dot3 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Fade in seluruh konten dengan lembut
+    // Fade in seluruh konten dengan sangat cepat dan mulus
     Animated.timing(contentFade, {
       toValue: 1,
-      duration: 450,
+      duration: 200,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
@@ -42,7 +42,7 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
     const spinAnim = Animated.loop(
       Animated.timing(spinValue, {
         toValue: 1,
-        duration: 1100,
+        duration: 900,
         easing: Easing.bezier(0.4, 0.0, 0.2, 1),
         useNativeDriver: true,
       })
@@ -85,11 +85,11 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
     };
     animateDots();
 
-    // Timer transisi 1 - 1.5 detik
+    // Timer transisi tepat 1 detik
     const timer = setTimeout(() => {
       Animated.timing(screenFade, {
         toValue: 0,
-        duration: 350,
+        duration: 250,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(() => {
@@ -198,7 +198,7 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
         </View>
       </Animated.View>
 
-      {/* Footer: Prominent App Brand Icon & Tagline */}
+      {/* Footer: Clean App Brand Name */}
       <Animated.View style={[styles.footerContainer, { opacity: contentFade }]}>
         <View style={styles.iconCirclePlate}>
           <Image
@@ -207,8 +207,7 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
             resizeMode="contain"
           />
         </View>
-        <Text style={styles.footerBrandName}>REKA</Text>
-        <Text style={styles.footerTagline}>Your money, in perspective</Text>
+        <Text style={styles.footerBrandName}>R E K A</Text>
       </Animated.View>
     </Animated.View>
   );

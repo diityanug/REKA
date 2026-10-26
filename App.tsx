@@ -8,6 +8,10 @@ import {
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import * as SplashScreen from 'expo-splash-screen';
+
+// Pastikan splash bawaan tetap tampil sampai layar React siap
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Domain Services & Utilities
 import {
@@ -467,10 +471,15 @@ function MainApp() {
     }
   };
 
+  useEffect(() => {
+    // Sembunyikan native splash bawaan OS begitu komponen React siap
+    SplashScreen.hideAsync().catch(() => {});
+  }, []);
+
   if (!splashFinished || (finance.loading && !finance.initialAppReady)) {
     return (
       <AnimatedSplashScreen
-        minDurationMs={1200}
+        minDurationMs={1000}
         onAnimationFinish={() => setSplashFinished(true)}
       />
     );
