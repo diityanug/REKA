@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { formatCurrency } from '../utils/formatters';
 import {
   formatExpressionDisplay,
   evaluateMathExpression,
+  sanitizeExpressionForCurrency,
   getQuickPresets,
   formattedToRawCursor,
   rawToFormattedCursor,
@@ -35,13 +36,27 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
   onChangeValue,
   showDisplay = true,
 }) => {
-  const currentExpr = value || '0';
+  // Synchronize and sanitize parent value whenever switching currency (e.g. from USD with decimals to IDR)
+  useEffect(() => {
+    if (currency === 'IDR' && value && value.includes('.')) {
+      const clean = sanitizeExpressionForCurrency(value, 'IDR');
+      if (clean !== value) {
+        onChangeValue(clean);
+      }
+    }
+  }, [currency, value, onChangeValue]);
+
+  const currentExpr = useMemo(() => {
+    const raw = value || '0';
+    return currency === 'IDR' && raw.includes('.') ? sanitizeExpressionForCurrency(raw, 'IDR') : raw;
+  }, [value, currency]);
+
   const hasOperator =
     currentExpr.includes(' + ') ||
     currentExpr.includes(' - ') ||
     currentExpr.includes(' × ') ||
     currentExpr.includes(' ÷ ');
-  const liveEvaluated = evaluateMathExpression(currentExpr);
+  const liveEvaluated = evaluateMathExpression(currentExpr, currency);
   const presets = getQuickPresets(currency);
 
   const formattedExpr = useMemo(() => {
@@ -120,11 +135,12 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
   const handleQuickAdd = (amount: number) => {
     inputRef.current?.focus();
     setIsFocused(true);
-    const currentNum = evaluateMathExpression(currentExpr);
+    const currentNum = evaluateMathExpression(currentExpr, currency);
     const result = Math.max(currentNum + amount, 0);
     if (result > 9999999999999) return;
 
-    const nextStr = result.toString();
+    const nextNum = currency === 'IDR' ? Math.round(result) : result;
+    const nextStr = nextNum.toString();
     if (nextStr === currentExpr) return;
 
     AppHaptics.light();

@@ -4,7 +4,7 @@ import { CurrencyType } from '../services/database';
  * Pure, safe mathematical expression evaluator (no eval)
  * Supports +, -, ×, ÷ with chronological left-to-right evaluation
  */
-export function evaluateMathExpression(expr: string): number {
+export function evaluateMathExpression(expr: string, currency?: CurrencyType): number {
   if (!expr) return 0;
   const clean = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '');
   const tokens = clean.match(/(\d+(?:\.\d+)?|[+\-*\/])/g);
@@ -30,7 +30,34 @@ export function evaluateMathExpression(expr: string): number {
     else if (op === '/') result = val !== 0 ? result / val : result;
   }
 
-  return isNaN(result) ? 0 : Math.round(result * 100) / 100;
+  if (isNaN(result)) return 0;
+  if (currency === 'IDR') {
+    return Math.round(result);
+  }
+  return Math.round(result * 100) / 100;
+}
+
+/**
+ * Sanitizes an input expression for the target currency:
+ * In IDR: decimals do not exist, so all decimal parts (e.g. .90) are discarded from numbers.
+ */
+export function sanitizeExpressionForCurrency(expr: string, currency: CurrencyType): string {
+  if (!expr || expr === '0') return '0';
+  if (currency === 'IDR') {
+    const parts = expr.split(' ');
+    const sanitized = parts
+      .map((part) => {
+        if (['+', '-', '×', '÷', '*', '/'].includes(part)) return part;
+        if (!part) return '';
+        const isNeg = part.startsWith('-');
+        const absPart = isNeg ? part.slice(1) : part;
+        const intOnly = absPart.split('.')[0] || '0';
+        return (isNeg ? '-' : '') + intOnly;
+      })
+      .join(' ');
+    return sanitized || '0';
+  }
+  return expr;
 }
 
 /**
@@ -50,9 +77,10 @@ export function formatExpressionDisplay(expr: string, currency: CurrencyType): s
       if (currency === 'IDR') {
         const isNeg = part.startsWith('-');
         const absStr = isNeg ? part.slice(1) : part;
-        const sub = absStr.split('.');
-        const intFormatted = sub[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-        return (isNeg ? '-' : '') + intFormatted + (sub.length > 1 ? '.' + sub[1] : '');
+        // In IDR, decimal parts do not exist - discard any decimal portion completely
+        const intPart = absStr.split('.')[0] || '0';
+        const intFormatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        return (isNeg ? '-' : '') + intFormatted;
       } else {
         const sub = part.split('.');
         sub[0] = sub[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
@@ -119,6 +147,9 @@ export function calculateNextExpressionWithCursor(
   rawCursor: number
 ): { nextExpr: string; nextRawCursor: number } {
   let expr = (currentExpr || '0').trim();
+  if (currency === 'IDR' && expr.includes('.')) {
+    expr = sanitizeExpressionForCurrency(expr, 'IDR');
+  }
   const validCursor = Math.max(0, Math.min(rawCursor, expr.length));
 
   // Clear all
@@ -147,7 +178,7 @@ export function calculateNextExpressionWithCursor(
 
   // Equal / Evaluate
   if (key === '=') {
-    const evaluated = evaluateMathExpression(expr);
+    const evaluated = evaluateMathExpression(expr, currency);
     const nextExpr = evaluated.toString();
     return { nextExpr, nextRawCursor: nextExpr.length };
   }

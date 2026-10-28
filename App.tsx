@@ -18,6 +18,7 @@ import {
 import { extractReceiptFromBase64 } from './src/services/receiptScanner';
 import { Palette } from './src/theme/tokens';
 import { formatCurrency, parseAmount, formatCurrencyInput } from './src/utils/formatters';
+import { sanitizeExpressionForCurrency } from './src/utils/calculator';
 import { AppHaptics } from './src/utils/haptics';
 import { TabType, FilterType, CurrencyType } from './src/types';
 
@@ -730,6 +731,9 @@ function MainApp() {
         onChangeCurrency={(c) => {
           modals.setManCurrency(c);
           finance.setActiveCurrency(c);
+          if (c === 'IDR' && modals.manAmount) {
+            modals.setManAmount(sanitizeExpressionForCurrency(modals.manAmount, 'IDR'));
+          }
           const firstMatching = finance.wallets.find((w) => w.currency === c);
           if (firstMatching) {
             modals.setSelectedWalletId(firstMatching.id);

@@ -3,13 +3,7 @@ import { evaluateMathExpression } from './calculator';
 
 /**
  * Universal Currency & Numerical Formatter for AES
- * Caches Intl.NumberFormat instances to prevent wasteful object allocations on every render.
  */
-const usdNumberFormatter = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 2,
-});
-
 export const formatCurrency = (
   amount: number,
   currency: CurrencyType = 'IDR',
@@ -163,8 +157,9 @@ export const formatCurrencyInput = (
   if (!raw) return '';
 
   if (currency === 'IDR') {
-    // Only digits, capped strictly at maxDigits
-    const digits = raw.replace(/\D/g, '').slice(0, maxDigits);
+    // In IDR, decimal parts do not exist - discard any decimal fraction (.xx or ,xx) before extracting digits
+    const intOnly = raw.replace(/[.,]\d{1,2}$/, '');
+    const digits = intOnly.replace(/\D/g, '').slice(0, maxDigits);
     if (!digits) return '';
     return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   }
@@ -195,14 +190,19 @@ export const parseAmount = (value: string, currency: CurrencyType = 'IDR'): numb
     str.includes('*') ||
     str.includes('/')
   ) {
-    return evaluateMathExpression(str);
+    return evaluateMathExpression(str, currency);
   }
-  const cleaned =
-    currency === 'IDR'
-      ? str.replace(/,\d{1,2}$/, '').replace(/\./g, '').replace(/[^0-9]/g, '')
-      : str.replace(/,/g, '').replace(/[^0-9.]/g, '');
+  if (currency === 'IDR') {
+    // In IDR, discard any trailing decimal/sen part (.xx or ,xx)
+    const intOnly = str.replace(/[.,]\d{1,2}$/, '');
+    const cleaned = intOnly.replace(/\./g, '').replace(/[^0-9]/g, '');
+    const parsed = parseInt(cleaned, 10);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  // USD
+  const cleaned = str.replace(/,/g, '').replace(/[^0-9.]/g, '');
   const parsed = parseFloat(cleaned);
-  return isNaN(parsed) ? 0 : parsed;
+  return isNaN(parsed) ? 0 : Math.round(parsed * 100) / 100;
 };
 
 // Get today's local date string formatted as YYYY-MM-DD

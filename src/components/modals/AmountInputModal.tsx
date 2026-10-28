@@ -51,7 +51,8 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
         const cleaned = initialAmount.replace(/[^0-9.]/g, '');
         setRawDigits(cleaned === '0' ? '' : cleaned);
       } else {
-        const clean = initialAmount.replace(/\D/g, '').slice(0, maxDigits);
+        const intOnly = initialAmount.replace(/[.,]\d{1,2}$/, '');
+        const clean = intOnly.replace(/\D/g, '').slice(0, maxDigits);
         setRawDigits(clean === '0' ? '' : clean);
       }
     }
