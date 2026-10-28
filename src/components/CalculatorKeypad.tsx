@@ -159,7 +159,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
 
   return (
     <View style={styles.container}>
-      {/* Interactive Display Card with Native Cursor & Horizontal Scroll */}
+      {/* Interactive Display Card with Native Cursor & Fixed Height Layout */}
       {showDisplay ? (
         <Pressable
           style={[
@@ -179,7 +179,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               style={styles.prefixTouch}
             >
               <Text style={styles.currencyPrefix}>
-                {currency === 'IDR' ? 'Rp.' : '$ '}
+                {currency === 'IDR' ? 'Rp ' : '$ '}
               </Text>
             </TouchableOpacity>
 
@@ -202,14 +202,19 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             />
           </View>
 
-          {hasOperator ? (
-            <View style={styles.liveResultRow}>
-              <Text style={styles.liveResultLabel}>Total:</Text>
-              <Text style={styles.liveResultAmount}>
-                {formatCurrency(liveEvaluated, currency)}
-              </Text>
-            </View>
-          ) : null}
+          {/* Reserved Fixed Result Slot: Stays in layout permanently to prevent height jump / layout shift */}
+          <View
+            style={[
+              styles.liveResultRow,
+              { opacity: hasOperator ? 1 : 0 },
+            ]}
+            pointerEvents={hasOperator ? 'auto' : 'none'}
+          >
+            <Text style={styles.liveResultLabel}>=</Text>
+            <Text style={styles.liveResultAmount}>
+              {formatCurrency(liveEvaluated, currency)}
+            </Text>
+          </View>
         </Pressable>
       ) : null}
 
@@ -426,10 +431,12 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderWidth: 1.5,
     borderColor: Palette.hairline,
     marginBottom: 10,
+    height: 82,
+    justifyContent: 'center',
   },
   displayCardFocused: {
     borderColor: Palette.primary,
@@ -438,10 +445,10 @@ const styles = StyleSheet.create({
   displayMainRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
+    height: 40,
   },
   prefixTouch: {
-    paddingVertical: 4,
+    paddingVertical: 2,
     paddingRight: 6,
     justifyContent: 'center',
   },
@@ -466,16 +473,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 6,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: Palette.hairline,
+    height: 20,
+    marginTop: 2,
   },
   liveResultLabel: {
     ...Typography.caption,
-    fontSize: 12,
+    fontSize: 13,
     color: Palette.muted,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   liveResultAmount: {
     ...Typography.body,

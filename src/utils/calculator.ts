@@ -2,7 +2,7 @@ import { CurrencyType } from '../services/database';
 
 /**
  * Pure, safe mathematical expression evaluator (no eval)
- * Supports +, -, ×, ÷ with chronological left-to-right evaluation
+ * Supports +, -, ×, ÷ with proper operator precedence (BODMAS: ×/÷ evaluated before +/-)
  */
 export function evaluateMathExpression(expr: string, currency?: CurrencyType): number {
   if (!expr) return 0;
@@ -10,24 +10,47 @@ export function evaluateMathExpression(expr: string, currency?: CurrencyType): n
   const tokens = clean.match(/(\d+(?:\.\d+)?|[+\-*\/])/g);
   if (!tokens || tokens.length === 0) return 0;
 
-  // Drop dangling trailing operator if present
-  if (['+', '-', '*', '/'].includes(tokens[tokens.length - 1])) {
+  // Drop dangling trailing operator(s) if present (e.g. "1 + 2 +" -> "1 + 2")
+  while (tokens.length > 0 && ['+', '-', '*', '/'].includes(tokens[tokens.length - 1])) {
     tokens.pop();
   }
   if (tokens.length === 0) return 0;
 
-  let result = parseFloat(tokens[0]);
+  // Handle leading negative number (e.g. ["-", "5", "+", "10"] -> ["-5", "+", "10"])
+  if (tokens[0] === '-' && tokens.length > 1) {
+    tokens.shift();
+    tokens[0] = '-' + tokens[0];
+  }
+
+  // Pass 1: Multiplication and Division (* and /)
+  const pass1: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token === '*' || token === '/') {
+      const prevVal = parseFloat(pass1.pop() || '0');
+      const nextVal = parseFloat(tokens[++i] || '0');
+      if (isNaN(nextVal)) {
+        pass1.push(prevVal.toString());
+        break;
+      }
+      const res = token === '*' ? prevVal * nextVal : (nextVal !== 0 ? prevVal / nextVal : prevVal);
+      pass1.push(res.toString());
+    } else {
+      pass1.push(token);
+    }
+  }
+
+  // Pass 2: Addition and Subtraction (+ and -)
+  let result = parseFloat(pass1[0] || '0');
   if (isNaN(result)) return 0;
 
-  for (let i = 1; i < tokens.length; i += 2) {
-    const op = tokens[i];
-    const val = parseFloat(tokens[i + 1]);
+  for (let i = 1; i < pass1.length; i += 2) {
+    const op = pass1[i];
+    const val = parseFloat(pass1[i + 1] || '0');
     if (isNaN(val)) break;
 
     if (op === '+') result += val;
     else if (op === '-') result -= val;
-    else if (op === '*') result *= val;
-    else if (op === '/') result = val !== 0 ? result / val : result;
   }
 
   if (isNaN(result)) return 0;
