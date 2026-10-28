@@ -65,10 +65,21 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
 
   const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   const [isFocused, setIsFocused] = useState<boolean>(true);
-  const [selection, setSelection] = useState<{ start: number; end: number }>({
+  const [selection, setSelection] = useState<{ start: number; end: number }>(() => ({
     start: formattedExpr.length,
     end: formattedExpr.length,
-  });
+  }));
+
+  const isKeypadActionRef = useRef<boolean>(false);
+
+  // Synchronize cursor position: when value or currency changes externally, ensure cursor starts at the very end
+  useEffect(() => {
+    if (!isKeypadActionRef.current) {
+      const formatted = formatExpressionDisplay(currentExpr, currency);
+      setSelection({ start: formatted.length, end: formatted.length });
+    }
+    isKeypadActionRef.current = false;
+  }, [value, currency, currentExpr]);
 
   const activeSelection = useMemo(() => ({
     start: Math.min(selection.start, formattedExpr.length),
@@ -81,6 +92,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
   };
 
   const handleKeyPress = (key: string) => {
+    isKeypadActionRef.current = true;
     inputRef.current?.focus();
     setIsFocused(true);
 
@@ -133,6 +145,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
   };
 
   const handleQuickAdd = (amount: number) => {
+    isKeypadActionRef.current = true;
     inputRef.current?.focus();
     setIsFocused(true);
     const currentNum = evaluateMathExpression(currentExpr, currency);
@@ -150,6 +163,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
   };
 
   const handlePrefixPress = () => {
+    isKeypadActionRef.current = true;
     AppHaptics.selection();
     inputRef.current?.focus();
     setSelection({ start: 0, end: 0 });
@@ -169,6 +183,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
           onPress={() => {
             inputRef.current?.focus();
             setIsFocused(true);
+            setSelection({ start: formattedExpr.length, end: formattedExpr.length });
           }}
         >
           <View style={styles.displayMainRow}>
@@ -191,7 +206,12 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               value={formattedExpr}
               selection={activeSelection}
               onSelectionChange={handleSelectionChange}
-              onFocus={() => setIsFocused(true)}
+              onFocus={() => {
+                setIsFocused(true);
+                if (selection.start <= 1 && formattedExpr.length > 1) {
+                  setSelection({ start: formattedExpr.length, end: formattedExpr.length });
+                }
+              }}
               onBlur={() => setIsFocused(false)}
               cursorColor={Palette.primary}
               selectionColor={Palette.primary + '33'}

@@ -45,16 +45,22 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 
   useSyncOnChange([visible, initialAmount, maxDigits, currency], () => {
     if (visible) {
+      let nextRaw = '';
       if (!initialAmount) {
-        setRawDigits('');
+        nextRaw = '';
       } else if (currency === 'USD') {
         const cleaned = initialAmount.replace(/[^0-9.]/g, '');
-        setRawDigits(cleaned === '0' ? '' : cleaned);
+        nextRaw = cleaned === '0' ? '' : cleaned;
       } else {
         const intOnly = initialAmount.replace(/[.,]\d{1,2}$/, '');
         const clean = intOnly.replace(/\D/g, '').slice(0, maxDigits);
-        setRawDigits(clean === '0' ? '' : clean);
+        nextRaw = clean === '0' ? '' : clean;
       }
+      setRawDigits(nextRaw);
+      const nextFormatted = nextRaw && nextRaw !== '0'
+        ? formatCurrencyInput(nextRaw, currency, maxDigits)
+        : '0';
+      setSelection({ start: nextFormatted.length, end: nextFormatted.length });
     }
   });
 
@@ -300,6 +306,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
           onPress={() => {
             inputRef.current?.focus();
             setIsFocused(true);
+            setSelection({ start: displayFormatted.length, end: displayFormatted.length });
           }}
         >
           <View style={styles.displayMainRow}>
@@ -320,7 +327,12 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
               value={displayFormatted}
               selection={activeSelection}
               onSelectionChange={handleSelectionChange}
-              onFocus={() => setIsFocused(true)}
+              onFocus={() => {
+                setIsFocused(true);
+                if (selection.start <= 1 && displayFormatted.length > 1) {
+                  setSelection({ start: displayFormatted.length, end: displayFormatted.length });
+                }
+              }}
               onBlur={() => setIsFocused(false)}
               cursorColor={Palette.primary}
               selectionColor={Palette.primary + '33'}
