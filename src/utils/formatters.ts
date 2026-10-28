@@ -24,11 +24,13 @@ export const formatCurrency = (
     const formattedNumber = Math.round(absVal)
       .toString()
       .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-    return `${isNegative ? '- ' : ''}Rp. ${formattedNumber}`;
+    return `${isNegative ? '- ' : ''}Rp ${formattedNumber}`;
   }
 
-  const formattedNumber = usdNumberFormatter.format(absVal);
-  return `${isNegative ? '- ' : ''}$ ${formattedNumber}`;
+  const parts = absVal.toFixed(2).split('.');
+  const intFormatted = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const dec = parts[1] === '00' ? '' : `.${parts[1]}`;
+  return `${isNegative ? '- ' : ''}$ ${intFormatted}${dec}`;
 };
 
 export const formatDate = (timestamp: string): string => {
@@ -197,7 +199,7 @@ export const parseAmount = (value: string, currency: CurrencyType = 'IDR'): numb
   }
   const cleaned =
     currency === 'IDR'
-      ? str.replace(/\./g, '').replace(/[^0-9]/g, '')
+      ? str.replace(/,\d{1,2}$/, '').replace(/\./g, '').replace(/[^0-9]/g, '')
       : str.replace(/,/g, '').replace(/[^0-9.]/g, '');
   const parsed = parseFloat(cleaned);
   return isNaN(parsed) ? 0 : parsed;

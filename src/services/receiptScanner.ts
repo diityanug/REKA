@@ -48,18 +48,35 @@ const CANDIDATE_MODELS = [
   'gemini-3.5-flash',
 ];
 
+function parseSafeAmount(val: any, currency: 'IDR' | 'USD' = 'IDR'): number {
+  if (typeof val === 'number') return Math.abs(val);
+  if (!val) return 0;
+  let str = String(val).trim();
+  if (currency === 'IDR') {
+    str = str.replace(/,\d{1,2}$/, '');
+    const cleaned = str.replace(/\./g, '').replace(/[^0-9]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : Math.abs(parsed);
+  } else {
+    const cleaned = str.replace(/,/g, '').replace(/[^0-9.]/g, '');
+    const parsed = parseFloat(cleaned);
+    return isNaN(parsed) ? 0 : Math.abs(parsed);
+  }
+}
+
 function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): ExtractedReceiptData {
+  const currency: 'IDR' | 'USD' = parsed.currency === 'USD' ? 'USD' : 'IDR';
   const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
   const items = rawItems
     .map((it) => {
       const name = String(it.name || '').trim();
-      const quantity = Math.max(Number(it.quantity) || 1, 1);
-      const unitPrice = Math.abs(Number(it.unitPrice) || 0);
-      const totalPrice = Math.abs(Number(it.totalPrice) || (quantity * unitPrice));
+      const quantity = Math.max(parseSafeAmount(it.quantity, currency) || 1, 1);
+      const unitPrice = parseSafeAmount(it.unitPrice, currency);
+      const totalPrice = parseSafeAmount(it.totalPrice, currency) || (quantity * unitPrice);
       return {
         name: name || 'Item',
         quantity,
-        unitPrice: unitPrice > 0 ? unitPrice : totalPrice,
+        unitPrice: unitPrice > 0 ? unitPrice : (quantity > 0 ? Math.round(totalPrice / quantity) : totalPrice),
         totalPrice,
         category: it.category,
       };
@@ -71,11 +88,11 @@ function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): Extracte
     transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
     category: parsed.category || 'General',
     type: parsed.type === 'income' ? 'income' : 'expense',
-    totalAmount: Math.abs(Number(parsed.totalAmount) || 0),
-    currency: parsed.currency === 'USD' ? 'USD' : 'IDR',
+    totalAmount: parseSafeAmount(parsed.totalAmount, currency),
+    currency,
     paymentMethod: parsed.paymentMethod || 'QRIS',
-    taxAmount: Math.abs(Number(parsed.taxAmount) || 0),
-    discountAmount: Math.abs(Number(parsed.discountAmount) || 0),
+    taxAmount: parseSafeAmount(parsed.taxAmount, currency),
+    discountAmount: parseSafeAmount(parsed.discountAmount, currency),
     notes: parsed.notes || '',
     items,
   };
@@ -120,11 +137,12 @@ Rules:
 5. "type": "expense" for purchases/transfers sent, or "income" for incoming funds/deposits.
 6. "currency": Detect whether the currency is "IDR" (Rupiah, Rp) or "USD" (Dollar, $).
 7. "paymentMethod": e.g. "QRIS", "Debit Card", "Credit Card", "Cash", "Bank Transfer", or "Digital Wallet".
-8. "items": If individual line items or products/services are listed on the receipt, extract them as an array of objects with:
-   - "name": Item or product description
+8. "items": Extract ALL purchased products, services, or line items shown on the receipt as an array of objects:
+   - "name": Clean item description / product name
    - "quantity": Number of units purchased (number, default 1)
-   - "unitPrice": Price per single unit (number)
-   - "totalPrice": Total line price (number)
+   - "unitPrice": Price per single unit (pure number)
+   - "totalPrice": Total line price (pure number)
+   If no individual products or line items exist on the receipt (such as on a single-nominal QRIS payment proof, bank transfer screenshot, or parking slip), return an empty array [].
 9. "taxAmount": Total tax / PPN amount if listed (number), otherwise 0.
 10. "discountAmount": Total discount / promo amount if listed (number), otherwise 0.
 `;
@@ -186,6 +204,7 @@ Rules:
                 'type',
                 'totalAmount',
                 'currency',
+                'items',
               ],
             },
           },
