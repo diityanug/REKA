@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -15,7 +14,6 @@ import { Palette, Typography } from '../../theme/tokens';
 import { Wallet } from '../../types';
 import { POCKET_PRESETS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
-import { formatCurrencyInput } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
@@ -74,7 +72,9 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
       />
 
           <KeyboardSafeContainer extraBottomSpace={16}>
-              <Text style={styles.inputLabel}>Main Account</Text>
+              <Text style={styles.inputLabel}>
+                Main Account <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.chipsRow}>
                 {wallets.map((w) => (
                   <TouchableOpacity
@@ -100,7 +100,9 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                 ))}
               </View>
 
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Pocket Name</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Pocket Name <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <TextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Emergency Fund, Trip"
@@ -108,6 +110,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                 value={name}
                 onChangeText={onChangeName}
                 returnKeyType="next"
+                maxLength={30}
               />
 
               <View style={styles.chipsRow}>
@@ -136,7 +139,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               </View>
 
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Allocated Balance (Optional)
+                Allocated Balance
               </Text>
               <TouchableOpacity
                 style={styles.amountPickerBox}
@@ -164,7 +167,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               </TouchableOpacity>
 
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Target Goal (Optional)
+                Target Goal
               </Text>
               <TouchableOpacity
                 style={styles.amountPickerBox}
@@ -192,7 +195,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               </TouchableOpacity>
 
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Pocket Icon ({AVAILABLE_ICONS.length} available)
+                Pocket Icon <Text style={styles.requiredStar}>*</Text> ({AVAILABLE_ICONS.length} available)
               </Text>
               <View style={styles.iconScrollBox}>
                 <ScrollView
@@ -281,6 +284,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
     marginBottom: 5,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   textInputBox: {
     ...Typography.body,

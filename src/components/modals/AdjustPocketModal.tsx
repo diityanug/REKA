@@ -1,9 +1,7 @@
 import React from 'react';
 import {
-  Modal,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
@@ -14,6 +12,7 @@ import { Palette, Typography } from '../../theme/tokens';
 import { Pocket, Wallet, CurrencyType } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -46,11 +45,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [showAmountModal, setShowAmountModal] = React.useState<boolean>(false);
-  const lastPocketRef = React.useRef<Pocket | null>(propPocket);
-  if (propPocket) {
-    lastPocketRef.current = propPocket;
-  }
-  const pocket = propPocket || lastPocketRef.current;
+  const pocket = useLastDefined(propPocket);
   if (!pocket) return null;
 
   const parentWallet = wallets.find((w) => w.id === pocket.walletId);
@@ -130,7 +125,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
               </View>
 
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Amount to {mode === 'allocate' ? 'Allocate' : 'Release'}
+                Amount to {mode === 'allocate' ? 'Allocate' : 'Release'} <Text style={styles.requiredStar}>*</Text>
               </Text>
               <TouchableOpacity
                 style={styles.amountPickerBox}
@@ -284,6 +279,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
     marginBottom: 5,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   textInputBox: {
     ...Typography.body,

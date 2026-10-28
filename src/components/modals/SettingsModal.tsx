@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,8 @@ import {
   Keyboard,
   ActivityIndicator,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Download,
-  Upload,
   Trash2,
   AlertTriangle,
   FileSpreadsheet,
@@ -41,7 +39,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onWipeAllData,
   onClose,
 }) => {
-  const insets = useSafeAreaInsets();
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportingCSV, setExportingCSV] = useState<boolean>(false);
   const [importing, setImporting] = useState<boolean>(false);

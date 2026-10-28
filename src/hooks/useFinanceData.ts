@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Wallet,
   Pocket,
@@ -8,7 +8,6 @@ import {
   CurrencyType,
   AccountType,
   TransactionType,
-  ExtractedReceiptData,
 } from '../types';
 import {
   getWallets,
@@ -26,8 +25,6 @@ import {
   deletePocket,
   createCategory,
   deleteCategory,
-  insertTransactionWithItems,
-  updateTransaction,
   deleteTransaction,
   transferFunds,
   getMonthlyBudget,
@@ -40,7 +37,7 @@ import {
   wipeAllData,
 } from '../services/database';
 import { AppHaptics } from '../utils/haptics';
-import { parseAmount, getTodayDateStr } from '../utils/formatters';
+import { parseAmount } from '../utils/formatters';
 import { getUniqueEntityColor } from '../utils/colors';
 
 interface UseFinanceDataProps {
@@ -57,8 +54,14 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const [pockets, setPockets] = useState<Pocket[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [allocationPlans, setAllocationPlans] = useState<AllocationPlan[]>([]);
-  const [monthlyBudget, setMonthlyBudgetState] = useState<number>(0);
+  const [allocationPlansMap, setAllocationPlansMap] = useState<Record<CurrencyType, AllocationPlan[]>>({
+    IDR: [],
+    USD: [],
+  });
+  const [monthlyBudgetsMap, setMonthlyBudgetsMap] = useState<Record<CurrencyType, number>>({
+    IDR: 0,
+    USD: 0,
+  });
   const [loading, setLoading] = useState<boolean>(true);
   const [initialAppReady, setInitialAppReady] = useState<boolean>(false);
   const [activeCurrency, setActiveCurrency] = useState<CurrencyType>('IDR');
@@ -70,34 +73,68 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   }, []);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => currentMonthKey);
 
-  // Load database state
+  // Synchronous allocation plans & monthly budget matching active currency (0ms lag, zero flicker)
+  const allocationPlans = useMemo(() => {
+    return allocationPlansMap[activeCurrency] || [];
+  }, [allocationPlansMap, activeCurrency]);
+
+  const monthlyBudget = useMemo(() => {
+    return monthlyBudgetsMap[activeCurrency] || 0;
+  }, [monthlyBudgetsMap, activeCurrency]);
+
+  // Load database state (pre-populating both currencies for instant switching)
   const loadData = useCallback(async () => {
     try {
-      const [wList, pList, txList, catList, savedBudget, plans] = await Promise.all([
+      const [
+        wList,
+        pList,
+        txList,
+        catList,
+        idrBudget,
+        usdBudget,
+        idrPlans,
+        usdPlans,
+      ] = await Promise.all([
         getWallets(),
         getPockets(),
         getTransactions(),
         getCategories(),
-        getMonthlyBudget(activeCurrency, selectedMonth),
-        getAllocationPlans(activeCurrency),
+        getMonthlyBudget('IDR', selectedMonth),
+        getMonthlyBudget('USD', selectedMonth),
+        getAllocationPlans('IDR'),
+        getAllocationPlans('USD'),
       ]);
       setWallets(wList);
       setPockets(pList);
       setTransactions(txList);
       setCategories(catList);
-      setMonthlyBudgetState(savedBudget);
-      setAllocationPlans(plans);
+      setMonthlyBudgetsMap({ IDR: idrBudget, USD: usdBudget });
+      setAllocationPlansMap({ IDR: idrPlans, USD: usdPlans });
     } catch (err: any) {
       showAlert('Database Error', err.message || 'Failed to load database.', undefined, 'error');
     } finally {
       setLoading(false);
       setInitialAppReady(true);
     }
-  }, [activeCurrency, selectedMonth, showAlert]);
+  }, [selectedMonth, showAlert]);
 
+  const isInitialMount = useRef(true);
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      loadData();
+    } else {
+      // Month changed: reload budgets for IDR & USD without touching wallets or tx
+      Promise.all([
+        getMonthlyBudget('IDR', selectedMonth),
+        getMonthlyBudget('USD', selectedMonth),
+      ])
+        .then(([idrB, usdB]) => {
+          setMonthlyBudgetsMap({ IDR: idrB, USD: usdB });
+        })
+        .catch((err) => console.warn('Failed to update month budgets:', err));
+    }
+  }, [selectedMonth, loadData]);
 
   // Active currency wallets & total balance
   const currencyWallets = useMemo(() => {
@@ -526,7 +563,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     try {
       AppHaptics.heavy();
       await setMonthlyBudget(amount, activeCurrency, selectedMonth);
-      await loadData();
+      setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: amount }));
       AppHaptics.success();
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to save budget.', undefined, 'error');
@@ -537,7 +574,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     try {
       AppHaptics.light();
       await setMonthlyBudget(0, activeCurrency, selectedMonth);
-      await loadData();
+      setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: 0 }));
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to remove budget.', undefined, 'error');
     }
@@ -546,15 +583,13 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleSaveAllocationPlan = async (plan: AllocationPlan) => {
     try {
       AppHaptics.heavy();
-      let updated: AllocationPlan[];
-      const exists = allocationPlans.some((p) => p.id === plan.id);
-      if (exists) {
-        updated = allocationPlans.map((p) => (p.id === plan.id ? plan : p));
-      } else {
-        updated = [...allocationPlans, plan];
-      }
+      const currPlans = allocationPlansMap[activeCurrency] || [];
+      const exists = currPlans.some((p) => p.id === plan.id);
+      const updated = exists
+        ? currPlans.map((p) => (p.id === plan.id ? plan : p))
+        : [...currPlans, plan];
       await saveAllocationPlans(updated, activeCurrency);
-      setAllocationPlans(updated);
+      setAllocationPlansMap((prev) => ({ ...prev, [activeCurrency]: updated }));
       AppHaptics.success();
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to save allocation plan.', undefined, 'error');
@@ -564,9 +599,10 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleDeleteAllocationPlan = async (planId: string) => {
     try {
       AppHaptics.light();
-      const updated = allocationPlans.filter((p) => p.id !== planId);
+      const currPlans = allocationPlansMap[activeCurrency] || [];
+      const updated = currPlans.filter((p) => p.id !== planId);
       await saveAllocationPlans(updated, activeCurrency);
-      setAllocationPlans(updated);
+      setAllocationPlansMap((prev) => ({ ...prev, [activeCurrency]: updated }));
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to delete allocation plan.', undefined, 'error');
     }

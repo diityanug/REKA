@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -9,8 +8,9 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Trash2, Check, BookOpen, Layers, Edit3 } from 'lucide-react-native';
+import { Plus, Trash2, Check, Layers, Edit3 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { CurrencyType, AllocationPlan, AllocationItem } from '../../types';
 import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -83,7 +83,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     return rows.find((r) => r.id === activeAmountRowId) || null;
   }, [rows, activeAmountRowId]);
 
-  useEffect(() => {
+  useSyncOnChange([visible, plan, activeCurrency], () => {
     if (visible) {
       if (plan) {
         setTitle(plan.title);
@@ -106,7 +106,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         ]);
       }
     }
-  }, [visible, plan, activeCurrency]);
+  });
 
   const handleAddRow = () => {
     AppHaptics.selection();
@@ -233,7 +233,9 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
 
           <KeyboardSafeContainer extraBottomSpace={28}>
             {/* Plan Title */}
-            <Text style={styles.sectionTitle}>Name</Text>
+            <Text style={styles.sectionTitle}>
+              Name <Text style={styles.requiredStar}>*</Text>
+            </Text>
             <View style={styles.titleInputWrap}>
               <Layers size={17} color={Palette.primary} style={{ marginRight: 8 }} />
               <TextInput
@@ -435,6 +437,10 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.4,
     marginBottom: 6,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   titleInputWrap: {
     flexDirection: 'row',

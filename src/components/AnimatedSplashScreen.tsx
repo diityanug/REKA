@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -8,7 +8,7 @@ import {
   Easing,
   Platform,
 } from 'react-native';
-import Svg, { Circle, Path, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 interface AnimatedSplashScreenProps {
   onAnimationFinish?: () => void;
@@ -19,15 +19,15 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
   onAnimationFinish,
   minDurationMs = 1000,
 }) => {
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const pulseValue = useRef(new Animated.Value(0.95)).current;
-  const contentFade = useRef(new Animated.Value(0)).current;
-  const screenFade = useRef(new Animated.Value(1)).current;
+  const spinValue = useState(() => new Animated.Value(0))[0];
+  const pulseValue = useState(() => new Animated.Value(0.95))[0];
+  const contentFade = useState(() => new Animated.Value(0))[0];
+  const screenFade = useState(() => new Animated.Value(1))[0];
 
   // Animasi 3 titik dot loading "..."
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
+  const dot1 = useState(() => new Animated.Value(0))[0];
+  const dot2 = useState(() => new Animated.Value(0))[0];
+  const dot3 = useState(() => new Animated.Value(0))[0];
 
   useEffect(() => {
     // Fade in seluruh konten dengan sangat cepat dan mulus

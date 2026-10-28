@@ -9,7 +9,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, X, Receipt, RotateCcw, Calendar, SlidersHorizontal } from 'lucide-react-native';
+import { Search, X, Receipt, RotateCcw, SlidersHorizontal } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, CurrencyType, FilterType } from '../../types';
 import { formatCurrency, formatMonthYear, formatMonthShort } from '../../utils/formatters';
@@ -75,10 +75,14 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   const insets = useSafeAreaInsets();
   const [filterModalVisible, setFilterModalVisible] = useState<boolean>(false);
   const [localSearch, setLocalSearch] = useState<string>(searchQuery);
+  const [prevSearchQuery, setPrevSearchQuery] = useState<string>(searchQuery);
 
-  useEffect(() => {
+  // Sync the local (debounced) input when the parent resets/changes the query externally.
+  // Derived-state-during-render avoids the extra cascading render of a setState-in-effect.
+  if (searchQuery !== prevSearchQuery) {
+    setPrevSearchQuery(searchQuery);
     setLocalSearch(searchQuery);
-  }, [searchQuery]);
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -104,14 +108,14 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
 
   // Group transactions chronologically by month
   const monthGroups = useMemo(() => {
-    const groups: Array<{
+    const groups: {
       monthKey: string;
       monthTitle: string;
       count: number;
       totalExpense: number;
       totalIncome: number;
       transactions: Transaction[];
-    }> = [];
+    }[] = [];
     const map = new Map<string, (typeof groups)[0]>();
 
     for (const tx of transactions) {
@@ -309,9 +313,8 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
     activeCurrency,
     historyFlowStats,
     privacyMode,
-    searchQuery,
-    onChangeSearch,
-    onClearSearch,
+    localSearch,
+    handleClearSearch,
     activeFilterCount,
     historyFilter,
     onChangeFilter,

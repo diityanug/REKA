@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
 import {
   TrendingUp,
@@ -18,8 +17,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  BookOpen,
-  Layers,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Pocket, Transaction, CurrencyType } from '../../types';
@@ -444,28 +441,46 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           showsHorizontalScrollIndicator={false}
           style={styles.accountsScroll}
         >
-          {currencyWallets.map((w) => (
-            <AccountCardItem
-              key={w.id}
-              wallet={w}
-              pockets={pockets}
-              totalLiquidity={positiveLiquidityTotal}
-              privacyMode={privacyMode}
-              onPress={onOpenAccountDetail}
-              variant="horizontal"
-            />
-          ))}
+          {currencyWallets.length === 0 ? (
+            <TouchableOpacity
+              style={styles.emptyAddCardCompact}
+              onPress={onOpenAddAccount}
+              activeOpacity={0.8}
+            >
+              <View style={styles.emptyAddIconCircleSmall}>
+                <Plus size={18} color={Palette.primary} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.emptyAddTitleSmall}>No {activeCurrency} accounts yet</Text>
+                <Text style={styles.emptyAddDescSmall}>Tap to create your first {activeCurrency} account</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            currencyWallets.map((w) => (
+              <AccountCardItem
+                key={w.id}
+                wallet={w}
+                pockets={pockets}
+                totalLiquidity={positiveLiquidityTotal}
+                privacyMode={privacyMode}
+                onPress={onOpenAccountDetail}
+                variant="horizontal"
+              />
+            ))
+          )}
 
-          <TouchableOpacity
-            style={styles.addAccountCardHorizontal}
-            onPress={onOpenAddAccount}
-            activeOpacity={0.8}
-          >
-            <View style={styles.emptyAddIconCircle}>
-              <Plus size={20} color={Palette.primary} />
-            </View>
-            <Text style={styles.addAccountCardTitle}>Add Account</Text>
-          </TouchableOpacity>
+          {currencyWallets.length > 0 && (
+            <TouchableOpacity
+              style={styles.addAccountCardHorizontal}
+              onPress={onOpenAddAccount}
+              activeOpacity={0.8}
+            >
+              <View style={styles.emptyAddIconCircle}>
+                <Plus size={20} color={Palette.primary} />
+              </View>
+              <Text style={styles.addAccountCardTitle}>Add Account</Text>
+            </TouchableOpacity>
+          )}
         </ScrollView>
       )}
 
@@ -790,6 +805,40 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.primary,
     marginTop: 8,
+  },
+  emptyAddCardCompact: {
+    width: 250,
+    backgroundColor: Palette.white,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    borderStyle: 'dashed',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+    minHeight: 140,
+  },
+  emptyAddIconCircleSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FDF0ED',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyAddTitleSmall: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.ink,
+    marginBottom: 2,
+  },
+  emptyAddDescSmall: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    lineHeight: 15,
   },
   emptyAddCard: {
     backgroundColor: Palette.white,

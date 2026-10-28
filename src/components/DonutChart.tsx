@@ -38,12 +38,13 @@ export const DonutChart: React.FC<DonutChartProps> = ({
   const gap = validData.length > 1 ? 3 : 0;
 
   // Compute slice offsets
-  let accumulated = 0;
-  const slices = validData.map((slice) => {
+  const slices = validData.map((slice, index) => {
     const fraction = slice.percentage / 100;
     const strokeLength = Math.max(fraction * circumference - gap, 0.5);
+    const accumulated = validData
+      .slice(0, index)
+      .reduce((sum, prevSlice) => sum + (prevSlice.percentage / 100) * circumference, 0);
     const offset = -accumulated;
-    accumulated += fraction * circumference;
     return {
       ...slice,
       dashArray: `${strokeLength} ${circumference}`,

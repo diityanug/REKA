@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
@@ -10,6 +9,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -62,19 +62,18 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
   });
 
   // Sync view year when modal opens or selectedMonth changes
-  useEffect(() => {
-    if (visible) {
-      if (selectedMonth && selectedMonth !== 'all') {
-        const parts = selectedMonth.split('-');
-        const y = parseInt(parts[0], 10);
-        if (!isNaN(y)) {
-          setViewYear(y);
-          return;
-        }
+  useSyncOnChange([visible, selectedMonth, currentYear], () => {
+    if (!visible) return;
+    if (selectedMonth && selectedMonth !== 'all') {
+      const parts = selectedMonth.split('-');
+      const y = parseInt(parts[0], 10);
+      if (!isNaN(y)) {
+        setViewYear(y);
+        return;
       }
-      setViewYear(currentYear);
     }
-  }, [visible, selectedMonth, currentYear]);
+    setViewYear(currentYear);
+  });
 
   const handlePrevYear = () => {
     AppHaptics.selection();

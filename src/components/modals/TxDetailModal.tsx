@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -17,11 +17,12 @@ import {
   Banknote,
   TrendingUp,
   CreditCard,
-  CheckCircle2,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
-import { Transaction, Wallet } from '../../types';
+import { Transaction, TransactionItem, Wallet } from '../../types';
+import { getTransactionItems } from '../../services/database';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon } from '../CategoryIcon';
@@ -39,15 +40,18 @@ interface TxDetailModalProps {
   onClose: () => void;
 }
 
-const getAccountIcon = (type?: string) => {
+const AccountIcon: React.FC<{ type?: string; size: number; color: string }> = ({
+  type,
+  size,
+  color,
+}) => {
   const t = (type || '').toLowerCase();
-  if (t === 'bank') return Building2;
-  if (t === 'e-wallet' || t === 'ewallet') return Smartphone;
-  if (t === 'cash') return Banknote;
-  if (t === 'investment') return TrendingUp;
-  if (t === 'credit card' || t === 'creditcard') return CreditCard;
-  if (t === 'e-money' || t === 'emoney') return ContactlessCardIcon;
-  return Building2;
+  if (t === 'e-wallet' || t === 'ewallet') return <Smartphone size={size} color={color} />;
+  if (t === 'cash') return <Banknote size={size} color={color} />;
+  if (t === 'investment') return <TrendingUp size={size} color={color} />;
+  if (t === 'credit card' || t === 'creditcard') return <CreditCard size={size} color={color} />;
+  if (t === 'e-money' || t === 'emoney') return <ContactlessCardIcon size={size} color={color} />;
+  return <Building2 size={size} color={color} />;
 };
 
 export const TxDetailModal: React.FC<TxDetailModalProps> = ({
@@ -62,12 +66,35 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const lastTxRef = useRef<Transaction | null>(tx);
-  if (tx) {
-    lastTxRef.current = tx;
-  }
-  const currentTx = tx || lastTxRef.current;
+  const currentTx = useLastDefined(tx);
+  const currentCategoryIcon = useLastDefined(
+    categoryIcon && categoryIcon !== 'HelpCircle' ? categoryIcon : undefined
+  ) ?? (categoryIcon && categoryIcon !== 'HelpCircle' ? categoryIcon : 'CircleEllipsis');
+  const currentPocketName = useLastDefined(pocketName);
+
+  // Receipt line items are loaded on demand (kept out of the global transaction list to save memory)
+  const [loadedItems, setLoadedItems] = useState<{ txId: string; items: TransactionItem[] } | null>(
+    null
+  );
+  const activeTxId = tx?.id;
+  useEffect(() => {
+    if (!activeTxId) return;
+    let cancelled = false;
+    getTransactionItems(activeTxId)
+      .then((items) => {
+        if (!cancelled) setLoadedItems({ txId: activeTxId, items });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedItems({ txId: activeTxId, items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTxId]);
+
   if (!currentTx) return null;
+
+  const txItems = loadedItems && loadedItems.txId === currentTx.id ? loadedItems.items : [];
 
   const isExpense = currentTx.type === 'expense';
   const isTransfer =
@@ -111,8 +138,6 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     }
   }
 
-  const FromIcon = getAccountIcon(fromWallet?.type);
-  const ToIcon = getAccountIcon(toWallet?.type);
   const isCrossCurrency = !!(fromWallet && toWallet && fromWallet.currency !== toWallet.currency);
 
   return (
@@ -172,7 +197,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             {/* Step 1: Source (From) */}
             <View style={styles.routeStep}>
               <View style={[styles.routeIconBox, { backgroundColor: '#FDF0ED' }]}>
-                <FromIcon size={18} color={Palette.primary} />
+                <AccountIcon type={fromWallet?.type} size={18} color={Palette.primary} />
               </View>
               <View style={styles.routeInfo}>
                 <Text style={styles.routeRole}>From Account</Text>
@@ -205,7 +230,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             {/* Step 2: Destination (To) */}
             <View style={styles.routeStep}>
               <View style={[styles.routeIconBox, { backgroundColor: '#EBF7F4' }]}>
-                <ToIcon size={18} color={Palette.accentTeal} />
+                <AccountIcon type={toWallet?.type} size={18} color={Palette.accentTeal} />
               </View>
               <View style={styles.routeInfo}>
                 <Text style={styles.routeRole}>To Account</Text>
@@ -242,7 +267,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               {currentTx.notes ? (
                 <View style={[styles.metaRow, { alignItems: 'flex-start' }]}>
                   <Text style={[styles.metaLabel, { marginTop: 1 }]}>Notes</Text>
-                  <Text style={[styles.metaValue, { flex: 1, textAlign: 'right' }]}>
+                  <Text style={styles.metaValue}>
                     {currentTx.notes}
                   </Text>
                 </View>
@@ -250,6 +275,11 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             </>
           ) : (
             <>
+              <View style={styles.metaRow}>
+                <Text style={styles.metaLabel}>Date & Time</Text>
+                <Text style={styles.metaValue}>{formatDateTime(currentTx.timestamp)}</Text>
+              </View>
+
               <View style={styles.metaRow}>
                 <Text style={styles.metaLabel}>Account</Text>
                 <Text style={styles.metaValue}>
@@ -260,7 +290,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               <View style={styles.metaRow}>
                 <Text style={styles.metaLabel}>Category</Text>
                 <View style={styles.categoryInline}>
-                  <CategoryIcon name={categoryIcon} size={15} color={Palette.ink} />
+                  <CategoryIcon name={currentCategoryIcon} size={15} color={Palette.ink} />
                   <Text style={styles.metaValue}>{currentTx.category}</Text>
                 </View>
               </View>
@@ -270,17 +300,17 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 <Text style={styles.metaValue}>{currentTx.paymentMethod}</Text>
               </View>
 
-              {pocketName ? (
+              {currentPocketName ? (
                 <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Sub-Account / Pocket</Text>
-                  <Text style={styles.metaValue}>{pocketName}</Text>
+                  <Text style={styles.metaLabel}>Pocket</Text>
+                  <Text style={styles.metaValue}>{currentPocketName}</Text>
                 </View>
               ) : null}
 
               {currentTx.notes ? (
                 <View style={[styles.metaRow, { alignItems: 'flex-start' }]}>
                   <Text style={[styles.metaLabel, { marginTop: 1 }]}>Notes</Text>
-                  <Text style={[styles.metaValue, { flex: 1, textAlign: 'right' }]}>
+                  <Text style={styles.metaValue}>
                     {currentTx.notes}
                   </Text>
                 </View>
@@ -290,12 +320,12 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
         </View>
 
         {/* 4. Optional Purchased Items List */}
-        {currentTx.items && currentTx.items.length > 0 && (
+        {txItems.length > 0 && (
           <>
             <Text style={styles.sectionTitle}>
-              Items ({currentTx.items.length})
+              Items ({txItems.length})
             </Text>
-            {currentTx.items.map((it) => (
+            {txItems.map((it) => (
               <View key={it.id} style={styles.itemCard}>
                 <View style={{ flex: 1, paddingRight: 8 }}>
                   <Text style={styles.itemName}>{it.name}</Text>
@@ -478,21 +508,25 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
+    paddingVertical: 7,
   },
   metaLabel: {
     ...Typography.caption,
     fontSize: 13,
     color: Palette.muted,
+    width: 124,
+    paddingRight: 8,
   },
   metaValue: {
     ...Typography.body,
     fontSize: 13,
     fontWeight: '600',
     color: Palette.ink,
+    flex: 1,
+    textAlign: 'left',
   },
   categoryInline: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,

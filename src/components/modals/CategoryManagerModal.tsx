@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -9,7 +8,6 @@ import {
   StyleSheet,
   Keyboard,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Category, TransactionType } from '../../types';
@@ -52,7 +50,6 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   onDeleteCategory,
   onClose,
 }) => {
-  const insets = useSafeAreaInsets();
   const [selectedGroupKey, setSelectedGroupKey] = React.useState<string>('all');
   const filteredCategories = categories.filter((c) => c.type === activeType);
   const activeTint = activeType === 'expense' ? Palette.primary : Palette.accentTeal;
@@ -140,7 +137,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
               ) : (
                 <View style={styles.creationBox}>
                   <Text style={styles.inputLabel}>
-                    {activeType === 'expense' ? 'Expense' : 'Income'} Category Name
+                    {activeType === 'expense' ? 'Expense' : 'Income'} Category Name <Text style={styles.requiredStar}>*</Text>
                   </Text>
                   <TextInput
                     style={styles.textInputBox}
@@ -389,6 +386,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
     marginBottom: 5,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   textInputBox: {
     ...Typography.body,

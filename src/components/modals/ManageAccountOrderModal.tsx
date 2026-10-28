@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
@@ -8,8 +7,9 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowUp, ArrowDown, Check, GripVertical } from 'lucide-react-native';
+import { ArrowUp, ArrowDown, Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { Wallet, CurrencyType } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
 import { formatCurrency } from '../../utils/formatters';
@@ -36,11 +36,11 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
   const insets = useSafeAreaInsets();
   const [orderedList, setOrderedList] = useState<Wallet[]>([]);
 
-  useEffect(() => {
+  useSyncOnChange([visible, wallets], () => {
     if (visible) {
       setOrderedList([...wallets]);
     }
-  }, [visible, wallets]);
+  });
 
   const moveItem = (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= orderedList.length) return;

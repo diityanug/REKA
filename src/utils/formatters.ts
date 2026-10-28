@@ -5,12 +5,6 @@ import { evaluateMathExpression } from './calculator';
  * Universal Currency & Numerical Formatter for AES
  * Caches Intl.NumberFormat instances to prevent wasteful object allocations on every render.
  */
-const idrFormatter = new Intl.NumberFormat('id-ID', {
-  style: 'currency',
-  currency: 'IDR',
-  maximumFractionDigits: 0,
-});
-
 const usdNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
   maximumFractionDigits: 2,

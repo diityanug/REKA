@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -22,7 +21,6 @@ import { Palette, Typography } from '../../theme/tokens';
 import { CurrencyType, AccountType } from '../../types';
 import { ACCOUNT_PRESETS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
-import { formatCurrencyInput } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -76,7 +74,9 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
       />
 
           <KeyboardSafeContainer extraBottomSpace={48}>
-              <Text style={styles.inputLabel}>Account Name</Text>
+              <Text style={styles.inputLabel}>
+                Account Name <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <TextInput
                 style={styles.textInputBox}
                 placeholder="e.g. BCA, Cash Wallet, Chase"
@@ -84,6 +84,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 value={name}
                 onChangeText={onChangeName}
                 returnKeyType="next"
+                maxLength={40}
               />
 
               {/* Presets */}
@@ -119,7 +120,9 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
               </View>
 
               {/* Account Type */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Account Type</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Account Type <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.bentoGrid2Col}>
                 {(
                   [
@@ -183,7 +186,9 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
               </View>
 
               {/* Currency */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Currency</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Currency <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.segmentedControl}>
                 <TouchableOpacity
                   style={[
@@ -227,7 +232,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 
               {/* Starting Balance */}
               <Text style={[styles.inputLabel, { marginTop: 10 }]}>
-                Starting Balance (Optional)
+                Starting Balance
               </Text>
               <TouchableOpacity
                 style={styles.amountPickerBox}
@@ -256,7 +261,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 
               {/* Note */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Note (Optional)
+                Note
               </Text>
               <TextInput
                 style={styles.textInputBox}
@@ -313,6 +318,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
     marginBottom: 5,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   textInputBox: {
     ...Typography.body,

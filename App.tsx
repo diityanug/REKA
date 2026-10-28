@@ -10,9 +10,6 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import * as ImagePicker from 'expo-image-picker';
 import * as SplashScreen from 'expo-splash-screen';
 
-// Pastikan splash bawaan tetap tampil sampai layar React siap
-SplashScreen.preventAutoHideAsync().catch(() => {});
-
 // Domain Services & Utilities
 import {
   insertTransactionWithItems,
@@ -20,17 +17,14 @@ import {
 } from './src/services/database';
 import { extractReceiptFromBase64 } from './src/services/receiptScanner';
 import { Palette } from './src/theme/tokens';
-import { formatCurrency, parseAmount, formatCurrencyInput, getTodayDateStr } from './src/utils/formatters';
+import { formatCurrency, parseAmount, formatCurrencyInput } from './src/utils/formatters';
 import { AppHaptics } from './src/utils/haptics';
-import {
-  TabType,
-  FilterType,
-  Transaction,
-} from './src/types';
+import { TabType, FilterType, CurrencyType } from './src/types';
 
 // Custom Hooks
 import { useFinanceData } from './src/hooks/useFinanceData';
 import { useAppModals } from './src/hooks/useAppModals';
+import { useLastDefined } from './src/hooks/useLastDefined';
 
 // Visual Components & Tabs
 import { AppHeader } from './src/components/AppHeader';
@@ -58,6 +52,9 @@ import { AllocationPlanModal } from './src/components/modals/AllocationPlanModal
 import { ManageAccountOrderModal } from './src/components/modals/ManageAccountOrderModal';
 import { CustomAlertModal } from './src/components/CustomAlertModal';
 import { AnimatedSplashScreen } from './src/components/AnimatedSplashScreen';
+
+// Pastikan splash bawaan tetap tampil sampai layar React siap
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function App() {
   return (
@@ -88,17 +85,33 @@ function MainApp() {
   const [historyCategory, setHistoryCategory] = useState<string>('all');
   const [historyMonth, setHistoryMonth] = useState<string>('all');
 
-  // Sync selected account with active currency
+  // Sync selected account when currently selected wallet no longer exists or on initial load
   useEffect(() => {
     if (finance.wallets.length === 0) return;
+    if (
+      modals.manualTxModalVisible ||
+      modals.reviewModalVisible ||
+      modals.newPocketModalVisible
+    ) {
+      return;
+    }
     const currentWallet = finance.wallets.find((w) => w.id === modals.selectedWalletId);
-    if (!currentWallet || currentWallet.currency !== finance.activeCurrency) {
-      const matching = finance.wallets.find((w) => w.currency === finance.activeCurrency);
+    if (!currentWallet) {
+      const matching =
+        finance.wallets.find((w) => w.currency === finance.activeCurrency) ||
+        finance.wallets[0];
       if (matching) {
         modals.setSelectedWalletId(matching.id);
       }
     }
-  }, [finance.activeCurrency, finance.wallets, modals.selectedWalletId]);
+  }, [
+    finance.activeCurrency,
+    finance.wallets,
+    modals.manualTxModalVisible,
+    modals.reviewModalVisible,
+    modals.newPocketModalVisible,
+    modals.selectedWalletId,
+  ]);
 
   // Keep selectedPocketId valid for active selectedWalletId
   useEffect(() => {
@@ -110,7 +123,9 @@ function MainApp() {
     }
   }, [modals.selectedWalletId, finance.pockets, modals.selectedPocketId]);
 
-  // Currently viewed account for deep detail breakdown
+  // Currently viewed account for deep detail breakdown (with sticky cache to prevent slide-down flicker)
+  const lastViewedWalletId = useLastDefined(modals.viewingWallet?.id);
+
   const currentViewingWallet = useMemo(() => {
     const v = modals.viewingWallet;
     if (!v) return null;
@@ -118,14 +133,14 @@ function MainApp() {
   }, [modals.viewingWallet, finance.wallets]);
 
   const currentViewingPockets = useMemo(() => {
-    if (!currentViewingWallet) return [];
-    return finance.pockets.filter((p) => p.walletId === currentViewingWallet.id);
-  }, [currentViewingWallet, finance.pockets]);
+    if (!lastViewedWalletId) return [];
+    return finance.pockets.filter((p) => p.walletId === lastViewedWalletId);
+  }, [lastViewedWalletId, finance.pockets]);
 
   const currentViewingTransactions = useMemo(() => {
-    if (!currentViewingWallet) return [];
-    return finance.transactions.filter((t) => t.walletId === currentViewingWallet.id);
-  }, [currentViewingWallet, finance.transactions]);
+    if (!lastViewedWalletId) return [];
+    return finance.transactions.filter((t) => t.walletId === lastViewedWalletId);
+  }, [lastViewedWalletId, finance.transactions]);
 
   // Safely switch history filter type and reset category if incompatible
   const handleHistoryFilterChange = useCallback(
@@ -306,7 +321,7 @@ function MainApp() {
           {
             text: 'Enter Manually',
             onPress: () => {
-              modals.openManualModal(finance.activeCurrency);
+              handleOpenManualTransaction(finance.activeCurrency);
             },
           },
         ],
@@ -316,6 +331,22 @@ function MainApp() {
       setScanning(false);
     }
   };
+
+  // Open manual transaction modal with auto-selected account matching active currency
+  const handleOpenManualTransaction = useCallback(
+    (preferredCurrency?: CurrencyType) => {
+      const curr = preferredCurrency || finance.activeCurrency;
+      modals.openManualModal(curr);
+      const matchingWallet = finance.wallets.find((w) => w.currency === curr);
+      if (matchingWallet) {
+        modals.setSelectedWalletId(matchingWallet.id);
+      } else {
+        modals.setSelectedWalletId('');
+      }
+      modals.setSelectedPocketId('');
+    },
+    [finance.activeCurrency, finance.wallets, modals]
+  );
 
   // Save scanned receipt transaction
   const handleSaveScanTransaction = async (notesFromModal?: string, editedMerchant?: string) => {
@@ -355,6 +386,20 @@ function MainApp() {
         modals.extractedData.merchantName ||
         'Receipt Transaction';
 
+      const rawItems = Array.isArray(modals.extractedData.items) ? modals.extractedData.items : [];
+      const receiptItems = rawItems.map((it) => {
+        const qty = Math.max(Number(it.quantity) || 1, 1);
+        const unit = Math.abs(Number(it.unitPrice) || 0);
+        const total = Math.abs(Number(it.totalPrice) || (qty * unit));
+        return {
+          name: (it.name || 'Item').trim(),
+          quantity: qty,
+          unitPrice: unit > 0 ? unit : total,
+          totalPrice: total,
+          category: it.category || modals.extractedData?.category || 'Shopping',
+        };
+      });
+
       await insertTransactionWithItems(
         {
           walletId: modals.selectedWalletId,
@@ -364,13 +409,13 @@ function MainApp() {
           type: modals.extractedData.type,
           amount: modals.extractedData.totalAmount,
           currency: txCurrency,
-          taxAmount: 0,
-          discountAmount: 0,
+          taxAmount: modals.extractedData.taxAmount || 0,
+          discountAmount: modals.extractedData.discountAmount || 0,
           timestamp: txTimestamp,
           paymentMethod: modals.extractedData.paymentMethod || 'QRIS',
           notes: (notesFromModal || '').trim(),
         },
-        []
+        receiptItems
       );
 
       if (targetWallet.currency !== finance.activeCurrency) {
@@ -397,18 +442,35 @@ function MainApp() {
       modals.showAlert('Invalid Amount', 'Please enter a valid transaction amount.', undefined, 'warning');
       return;
     }
-    if (!modals.selectedWalletId) {
-      modals.showAlert('Account Required', 'Please create an account first to record transactions.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Create Account', onPress: () => modals.openAddAccountModal(finance.activeCurrency, 'manual') },
-      ], 'warning');
+    // Resolve target account strictly matching the selected transaction currency
+    let targetWallet = finance.wallets.find((w) => w.id === modals.selectedWalletId);
+    if (!targetWallet || targetWallet.currency !== modals.manCurrency) {
+      const matching = finance.wallets.find((w) => w.currency === modals.manCurrency);
+      if (matching) {
+        targetWallet = matching;
+        modals.setSelectedWalletId(matching.id);
+      }
+    }
+
+    if (!targetWallet) {
+      modals.showAlert(
+        'Account Required',
+        `Please create a ${modals.manCurrency} account first to record this transaction.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Create Account',
+            onPress: () => modals.openAddAccountModal(modals.manCurrency, 'manual'),
+          },
+        ],
+        'warning'
+      );
       return;
     }
 
     try {
       AppHaptics.heavy();
-      const targetWallet = finance.wallets.find((w) => w.id === modals.selectedWalletId);
-      const txCurrency = targetWallet ? targetWallet.currency : modals.manCurrency;
+      const txCurrency = modals.manCurrency;
 
       // Construct ISO timestamp using device local date and time
       const now = new Date();
@@ -494,6 +556,7 @@ function MainApp() {
         activeCurrency={finance.activeCurrency}
         privacyMode={privacyMode}
         onCurrencyChange={(c) => {
+          if (finance.activeCurrency === c) return;
           finance.setActiveCurrency(c);
           modals.setManCurrency(c);
         }}
@@ -528,7 +591,7 @@ function MainApp() {
             setHistoryCategory('all');
             setHistoryMonth('all');
           }}
-          onOpenManualModal={() => modals.openManualModal(finance.activeCurrency)}
+          onOpenManualModal={() => handleOpenManualTransaction()}
           onSelectTransaction={(tx) => modals.setSelectedTx(tx)}
           getCategoryIconName={finance.getCategoryIconName}
           getPocketName={finance.getPocketName}
@@ -558,7 +621,7 @@ function MainApp() {
               onSelectMonth={finance.setSelectedMonth}
               onOpenMonthPicker={() => modals.openMonthPicker('overview')}
               onOpenTransferModal={() => modals.setTransferModalVisible(true)}
-              onOpenManualModal={() => modals.openManualModal(finance.activeCurrency)}
+              onOpenManualModal={() => handleOpenManualTransaction()}
               onScanReceipt={handleScanReceipt}
               onPickFromGallery={handlePickFromGallery}
               onOpenAccountDetail={(w) => {
@@ -619,7 +682,7 @@ function MainApp() {
       <BottomTabBar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
-        onOpenManualTransaction={() => modals.openManualModal(finance.activeCurrency)}
+        onOpenManualTransaction={() => handleOpenManualTransaction()}
         bottomInset={insets.bottom}
       />
 
@@ -666,15 +729,21 @@ function MainApp() {
         onChangeType={modals.setManType}
         onChangeCurrency={(c) => {
           modals.setManCurrency(c);
+          finance.setActiveCurrency(c);
           const firstMatching = finance.wallets.find((w) => w.currency === c);
-          if (firstMatching) modals.setSelectedWalletId(firstMatching.id);
+          if (firstMatching) {
+            modals.setSelectedWalletId(firstMatching.id);
+          } else {
+            modals.setSelectedWalletId('');
+          }
+          modals.setSelectedPocketId('');
         }}
         onChangeMethod={modals.setManMethod}
         onChangeDate={modals.setManDate}
         onChangeNotes={modals.setManNotes}
         onSelectWallet={modals.setSelectedWalletId}
         onSelectPocket={modals.setSelectedPocketId}
-        onOpenAddAccount={() => modals.openAddAccountModal(finance.activeCurrency, 'manual')}
+        onOpenAddAccount={() => modals.openAddAccountModal(modals.manCurrency, 'manual')}
         onOpenAddPocket={() => modals.openAddPocketModal('manual')}
         onOpenCategoryManager={() => modals.openCategoryManager(modals.manType, true, 'manual')}
         onSave={handleSaveManualTransaction}
@@ -751,7 +820,7 @@ function MainApp() {
       {/* Modal 5: Transaction Detail */}
       <TxDetailModal
         transaction={modals.selectedTx}
-        categoryIcon={modals.selectedTx ? finance.getCategoryIconName(modals.selectedTx.category, modals.selectedTx.type) : 'HelpCircle'}
+        categoryIcon={modals.selectedTx ? finance.getCategoryIconName(modals.selectedTx.category, modals.selectedTx.type) : ''}
         pocketName={modals.selectedTx ? finance.getPocketName(modals.selectedTx.pocketId) : undefined}
         wallets={finance.wallets}
         privacyMode={privacyMode}

@@ -1,15 +1,12 @@
 import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Target, Check, Trash2 } from 'lucide-react-native';
+import { Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, formatCurrencyInput } from '../../utils/formatters';
@@ -42,7 +39,6 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
   onRemove,
   onClose,
 }) => {
-  const insets = useSafeAreaInsets();
   const [amountModalVisible, setAmountModalVisible] = useState(false);
 
   const periodLabel =
@@ -90,7 +86,9 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
             )}
 
             {/* Input Label */}
-            <Text style={styles.inputLabel}>Enter Budget Limit</Text>
+            <Text style={styles.inputLabel}>
+              Enter Budget Limit <Text style={styles.requiredStar}>*</Text>
+            </Text>
             <TouchableOpacity
               style={styles.inputContainer}
               onPress={() => {
@@ -255,6 +253,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.muted,
     marginBottom: 8,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   inputContainer: {
     flexDirection: 'row',

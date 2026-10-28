@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -38,11 +38,15 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [modalMounted, setModalMounted] = useState(visible);
-  const animValue = useRef(new Animated.Value(0)).current;
+  const animValue = useState(() => new Animated.Value(0))[0];
+
+  // Mount synchronously when opening (derived state) instead of through an effect (cascading render)
+  if (visible && !modalMounted) {
+    setModalMounted(true);
+  }
 
   useEffect(() => {
     if (visible) {
-      setModalMounted(true);
       Animated.timing(animValue, {
         toValue: 1,
         duration: 260,

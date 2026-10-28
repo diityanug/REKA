@@ -1,6 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
@@ -9,6 +8,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -57,7 +57,7 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
   const [viewMonth, setViewMonth] = useState<number>(today.getMonth()); // 0-11
   const [tempSelectedDate, setTempSelectedDate] = useState<string>(selectedDate || todayStr);
 
-  useEffect(() => {
+  useSyncOnChange([visible, selectedDate, todayStr], () => {
     if (visible) {
       const target = selectedDate || todayStr;
       setTempSelectedDate(target);
@@ -71,7 +71,7 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
         }
       }
     }
-  }, [visible, selectedDate, todayStr]);
+  });
 
   const handlePrevMonth = () => {
     AppHaptics.selection();
@@ -119,7 +119,7 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
     const firstDayIndex = new Date(viewYear, viewMonth, 1).getDay();
     const totalDays = new Date(viewYear, viewMonth + 1, 0).getDate();
 
-    const cells: Array<{ day: number | null; dateStr: string }> = [];
+    const cells: { day: number | null; dateStr: string }[] = [];
     // Leading blanks
     for (let i = 0; i < firstDayIndex; i++) {
       cells.push({ day: null, dateStr: '' });

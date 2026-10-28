@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -105,7 +104,8 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
   }, []);
 
   const yesterdayStr = useMemo(() => {
-    const d = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }, []);
 
@@ -180,18 +180,23 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               </View>
 
               {/* Merchant / Description */}
-              <Text style={styles.inputLabel}>Merchant / Recipient</Text>
+              <Text style={styles.inputLabel}>
+                Merchant / Recipient <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <TextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Supermarket, Salary"
                 placeholderTextColor={Palette.mutedSoft}
                 value={manMerchant}
                 onChangeText={onChangeMerchant}
+                maxLength={50}
                 returnKeyType="next"
               />
 
               {/* Currency Selector */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Currency</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Currency <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.currencyToggleBox}>
                 <TouchableOpacity
                   style={[
@@ -230,7 +235,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               </View>
 
               {/* Amount Input with Custom Calculator Keypad */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Amount</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Amount <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <CalculatorKeypad
                 value={manAmount}
                 currency={manCurrency}
@@ -239,7 +246,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               />
 
               {/* Transaction Date */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Date</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Date <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.dateSelectorCard}>
                 <TouchableOpacity
                   style={[
@@ -323,7 +332,7 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
 
               {/* Select Account */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Account ({manCurrency})
+                Account ({manCurrency}) <Text style={styles.requiredStar}>*</Text>
               </Text>
               <View style={styles.chipsRow}>
                 {relevantWallets.map((w) => (
@@ -357,11 +366,11 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Select Pocket (Optional) */}
+              {/* Select Pocket */}
               {selectedWalletId ? (
                 <>
                   <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                    Pocket (Optional)
+                    Pocket
                   </Text>
                   <View style={styles.chipsRow}>
                     <TouchableOpacity
@@ -417,7 +426,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               ) : null}
 
               {/* 2-Column Category Selector */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Category</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Category <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.bentoGrid2Col}>
                 {activeCategories.map((cat) => {
                   const isSelected = manCategory === cat.name;
@@ -476,7 +487,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               </TouchableOpacity>
 
               {/* Payment Method */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Payment Method</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                Payment Method <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.chipsRow}>
                 {PAYMENT_METHODS.map((method) => (
                   <TouchableOpacity
@@ -503,13 +516,14 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               </View>
 
               {/* Notes */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Notes (Optional)</Text>
+              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Notes</Text>
               <TextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Lunch with team"
                 placeholderTextColor={Palette.mutedSoft}
                 value={manNotes}
                 onChangeText={onChangeNotes}
+                maxLength={100}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
@@ -581,6 +595,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
     marginBottom: 5,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   textInputBox: {
     ...Typography.body,

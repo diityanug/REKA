@@ -1,6 +1,5 @@
 import React, { useMemo } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,

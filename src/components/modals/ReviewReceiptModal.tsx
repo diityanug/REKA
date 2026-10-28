@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -11,6 +10,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Check, Pencil } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { Wallet, Pocket, ExtractedReceiptData, CurrencyType } from '../../types';
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
@@ -93,12 +93,12 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     return pockets.filter((p) => p.walletId === selectedWalletId);
   }, [pockets, selectedWalletId]);
 
-  useEffect(() => {
+  useSyncOnChange([visible, extractedData], () => {
     if (visible && extractedData) {
       setMerchantName(extractedData.merchantName || '');
       setReviewNotes('');
     }
-  }, [visible, extractedData]);
+  });
 
   useEffect(() => {
     if (visible && displayWallets.length > 0) {
@@ -165,6 +165,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                     placeholderTextColor={Palette.mutedSoft}
                     returnKeyType="done"
                     autoCapitalize="words"
+                    maxLength={50}
                   />
                 </View>
                 <View style={styles.metaRow}>
@@ -183,7 +184,33 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 </View>
               </View>
 
-              <Text style={styles.sectionTitle}>Account</Text>
+              {/* Line Items if present */}
+              {extractedData.items && extractedData.items.length > 0 ? (
+                <>
+                  <Text style={styles.sectionTitle}>
+                    Items ({extractedData.items.length})
+                  </Text>
+                  <View style={{ marginBottom: 14 }}>
+                    {extractedData.items.map((it, idx) => (
+                      <View key={`item_${idx}`} style={styles.itemCard}>
+                        <View style={{ flex: 1, paddingRight: 8 }}>
+                          <Text style={styles.itemName}>{it.name}</Text>
+                          <Text style={styles.itemQty}>
+                            Qty: {it.quantity} × {formatCurrency(it.unitPrice, extractedData.currency)}
+                          </Text>
+                        </View>
+                        <Text style={styles.itemTotal}>
+                          {formatCurrency(it.totalPrice, extractedData.currency)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : null}
+
+              <Text style={styles.sectionTitle}>
+                Account <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <View style={styles.chipRow}>
                 {displayWallets.map((w) => (
                   <TouchableOpacity
@@ -215,7 +242,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
 
               {selectedWalletId ? (
                 <>
-                  <Text style={styles.sectionTitle}>Sub-Account / Pocket (Optional)</Text>
+                  <Text style={styles.sectionTitle}>Pocket</Text>
                   <View style={styles.chipRow}>
                     <TouchableOpacity
                       style={[
@@ -263,13 +290,14 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 </>
               ) : null}
 
-              <Text style={styles.sectionTitle}>Notes (Optional)</Text>
+              <Text style={styles.sectionTitle}>Notes</Text>
               <TextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Lunch with team, monthly wifi"
                 placeholderTextColor={Palette.mutedSoft}
                 value={reviewNotes}
                 onChangeText={setReviewNotes}
+                maxLength={100}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
@@ -406,6 +434,10 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     marginBottom: 10,
     marginTop: 4,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   chipRow: {
     flexDirection: 'row',

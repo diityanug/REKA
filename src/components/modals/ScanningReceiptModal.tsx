@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal,
   View,
@@ -8,7 +8,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
-import { Camera, Sparkles, Receipt } from 'lucide-react-native';
+import { Sparkles, Receipt } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 
 interface ScanningReceiptModalProps {
@@ -16,8 +16,8 @@ interface ScanningReceiptModalProps {
 }
 
 export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({ visible }) => {
-  const pulseAnim = useRef(new Animated.Value(1)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const pulseAnim = useState(() => new Animated.Value(1))[0];
+  const rotateAnim = useState(() => new Animated.Value(0))[0];
 
   useEffect(() => {
     if (visible) {

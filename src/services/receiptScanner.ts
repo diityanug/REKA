@@ -11,18 +11,32 @@ export interface ExtractedReceiptData {
   taxAmount?: number;
   discountAmount?: number;
   notes?: string;
-  items?: Array<{
+  items?: {
     name: string;
     quantity: number;
     unitPrice: number;
     totalPrice: number;
     category?: string;
-  }>;
+  }[];
 }
 
+/**
+ * Security Best Practice (Item 1a):
+ * - In production builds, set `EXPO_PUBLIC_GEMINI_PROXY_URL` to a backend/serverless proxy endpoint
+ *   so the Gemini API key stays strictly server-side and is never embedded in the client bundle.
+ * - If `EXPO_PUBLIC_GEMINI_API_KEY` is used directly for local/personal builds, restrict the key in
+ *   Google Cloud Console to your Android package (`com.anonymous.projekamba`) + SHA-1 certificate
+ *   fingerprint and iOS bundle identifier, and restrict API scope to Generative Language API only.
+ */
+const proxyUrl = process.env.EXPO_PUBLIC_GEMINI_PROXY_URL;
 const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const sanitizeErrorMessage = (msg: string): string => {
+  if (!apiKey) return msg;
+  return msg.split(apiKey).join('[REDACTED_KEY]');
+};
 
 // Fast candidate model cascade for instant nominal reading
 const CANDIDATE_MODELS = [
@@ -34,12 +48,62 @@ const CANDIDATE_MODELS = [
   'gemini-3.5-flash',
 ];
 
+function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): ExtractedReceiptData {
+  const rawItems = Array.isArray(parsed.items) ? parsed.items : [];
+  const items = rawItems
+    .map((it) => {
+      const name = String(it.name || '').trim();
+      const quantity = Math.max(Number(it.quantity) || 1, 1);
+      const unitPrice = Math.abs(Number(it.unitPrice) || 0);
+      const totalPrice = Math.abs(Number(it.totalPrice) || (quantity * unitPrice));
+      return {
+        name: name || 'Item',
+        quantity,
+        unitPrice: unitPrice > 0 ? unitPrice : totalPrice,
+        totalPrice,
+        category: it.category,
+      };
+    })
+    .filter((it) => it.name.length > 0 && it.totalPrice > 0);
+
+  return {
+    merchantName: parsed.merchantName || 'Unknown Merchant',
+    transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
+    category: parsed.category || 'General',
+    type: parsed.type === 'income' ? 'income' : 'expense',
+    totalAmount: Math.abs(Number(parsed.totalAmount) || 0),
+    currency: parsed.currency === 'USD' ? 'USD' : 'IDR',
+    paymentMethod: parsed.paymentMethod || 'QRIS',
+    taxAmount: Math.abs(Number(parsed.taxAmount) || 0),
+    discountAmount: Math.abs(Number(parsed.discountAmount) || 0),
+    notes: parsed.notes || '',
+    items,
+  };
+}
+
 export async function extractReceiptFromBase64(
   base64Image: string,
   mimeType: string = 'image/jpeg'
 ): Promise<ExtractedReceiptData> {
+  // 1. Prefer secure backend proxy if configured
+  if (proxyUrl) {
+    const res = await fetch(proxyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Image, mimeType }),
+    });
+    if (!res.ok) {
+      throw new Error(`Receipt proxy returned status ${res.status}`);
+    }
+    const data = (await res.json()) as Partial<ExtractedReceiptData>;
+    return normalizeReceiptResult(data);
+  }
+
+  // 2. Fallback to direct client SDK call
   if (!apiKey) {
-    throw new Error('Gemini API Key not found in .env configuration');
+    throw new Error(
+      'Receipt scanner is not configured. Set EXPO_PUBLIC_GEMINI_PROXY_URL or EXPO_PUBLIC_GEMINI_API_KEY in .env'
+    );
   }
 
   const ai = new GoogleGenAI({ apiKey });
@@ -56,6 +120,13 @@ Rules:
 5. "type": "expense" for purchases/transfers sent, or "income" for incoming funds/deposits.
 6. "currency": Detect whether the currency is "IDR" (Rupiah, Rp) or "USD" (Dollar, $).
 7. "paymentMethod": e.g. "QRIS", "Debit Card", "Credit Card", "Cash", "Bank Transfer", or "Digital Wallet".
+8. "items": If individual line items or products/services are listed on the receipt, extract them as an array of objects with:
+   - "name": Item or product description
+   - "quantity": Number of units purchased (number, default 1)
+   - "unitPrice": Price per single unit (number)
+   - "totalPrice": Total line price (number)
+9. "taxAmount": Total tax / PPN amount if listed (number), otherwise 0.
+10. "discountAmount": Total discount / promo amount if listed (number), otherwise 0.
 `;
 
   let response: any = null;
@@ -92,6 +163,21 @@ Rules:
                 totalAmount: { type: Type.NUMBER },
                 currency: { type: Type.STRING, enum: ['IDR', 'USD'] },
                 paymentMethod: { type: Type.STRING },
+                taxAmount: { type: Type.NUMBER },
+                discountAmount: { type: Type.NUMBER },
+                items: {
+                  type: Type.ARRAY,
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      name: { type: Type.STRING },
+                      quantity: { type: Type.NUMBER },
+                      unitPrice: { type: Type.NUMBER },
+                      totalPrice: { type: Type.NUMBER },
+                    },
+                    required: ['name', 'totalPrice'],
+                  },
+                },
               },
               required: [
                 'merchantName',
@@ -134,10 +220,10 @@ Rules:
   }
 
   if (!response || !response.text) {
-    throw (
-      lastError ||
-      new Error('The receipt scanning service is momentarily busy. Please try again or enter details manually.')
-    );
+    const rawMsg =
+      lastError?.message ||
+      'The receipt scanning service is momentarily busy. Please try again or enter details manually.';
+    throw new Error(sanitizeErrorMessage(rawMsg));
   }
 
   const responseText = response.text;
@@ -148,18 +234,9 @@ Rules:
     .trim();
 
   try {
-    const parsed = JSON.parse(cleanedText) as ExtractedReceiptData;
-    return {
-      merchantName: parsed.merchantName || 'Unknown Merchant',
-      transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
-      category: parsed.category || 'General',
-      type: parsed.type || 'expense',
-      totalAmount: Math.abs(Number(parsed.totalAmount) || 0),
-      currency: parsed.currency || 'IDR',
-      paymentMethod: parsed.paymentMethod || 'QRIS',
-      items: [],
-    };
-  } catch (err: any) {
+    const parsed = JSON.parse(cleanedText) as Partial<ExtractedReceiptData>;
+    return normalizeReceiptResult(parsed);
+  } catch {
     throw new Error('Invalid JSON format returned by receipt parser.');
   }
 }

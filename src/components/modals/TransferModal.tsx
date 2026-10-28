@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -11,8 +10,9 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDown, ArrowLeftRight, ArrowRight } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { Wallet, CurrencyType } from '../../types';
-import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
+import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
@@ -85,20 +85,33 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     setAlertConfig((prev) => ({ ...prev, visible: false }));
   };
 
-  // Initialize selected accounts whenever modal becomes visible
-  useEffect(() => {
-    if (visible && eligibleWallets.length >= 2) {
-      if (!fromWalletId || !eligibleWallets.some((w) => w.id === fromWalletId)) {
+  const handleModalClose = () => {
+    setAmountStr('');
+    setNotes('');
+    setSubmitting(false);
+    onClose();
+  };
+
+  // Initialize selected accounts whenever modal becomes visible and reset inputs on close
+  useSyncOnChange([visible, eligibleWallets], () => {
+    if (visible) {
+      if (eligibleWallets.length >= 2) {
+        if (!fromWalletId || !eligibleWallets.some((w) => w.id === fromWalletId)) {
+          setFromWalletId(eligibleWallets[0].id);
+        }
+        if (!toWalletId || !eligibleWallets.some((w) => w.id === toWalletId) || toWalletId === eligibleWallets[0].id) {
+          setToWalletId(eligibleWallets[1].id);
+        }
+      } else if (eligibleWallets.length === 1) {
         setFromWalletId(eligibleWallets[0].id);
+        setToWalletId('');
       }
-      if (!toWalletId || !eligibleWallets.some((w) => w.id === toWalletId) || toWalletId === eligibleWallets[0].id) {
-        setToWalletId(eligibleWallets[1].id);
-      }
-    } else if (visible && eligibleWallets.length === 1) {
-      setFromWalletId(eligibleWallets[0].id);
-      setToWalletId('');
+    } else {
+      setAmountStr('');
+      setNotes('');
+      setSubmitting(false);
     }
-  }, [visible, eligibleWallets]);
+  });
 
   const selectedFromWallet = eligibleWallets.find((w) => w.id === fromWalletId);
   const selectedToWallet = eligibleWallets.find((w) => w.id === toWalletId);
@@ -187,7 +200,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   return (
     <BottomSheetModal
       visible={visible}
-      onClose={onClose}
+      onClose={handleModalClose}
       height="92%"
       maxHeight="94%"
     >
@@ -198,7 +211,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
             ? `Cross-Currency Transfer (${fromCurrency} → ${toCurrency})`
             : `Move money across accounts (${fromCurrency})`
         }
-        onClose={onClose}
+        onClose={handleModalClose}
       />
 
           <KeyboardSafeContainer extraBottomSpace={32}>
@@ -213,7 +226,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
               <>
                 {/* Source Account Selector */}
                 <View style={styles.fieldSection}>
-                  <Text style={styles.inputLabel}>From Account</Text>
+                  <Text style={styles.inputLabel}>
+                    From Account <Text style={styles.requiredStar}>*</Text>
+                  </Text>
                   <View style={styles.accountChipsRow}>
                     {eligibleWallets.map((w) => {
                       const isSelected = w.id === fromWalletId;
@@ -289,7 +304,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
                 {/* Destination Account Selector */}
                 <View style={styles.fieldSection}>
-                  <Text style={styles.inputLabel}>To Account</Text>
+                  <Text style={styles.inputLabel}>
+                    To Account <Text style={styles.requiredStar}>*</Text>
+                  </Text>
                   <View style={styles.accountChipsRow}>
                     {eligibleWallets.map((w) => {
                       const isSelected = w.id === toWalletId;
@@ -398,7 +415,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
                 {/* Transfer Amount Input with Custom Calculator Keypad */}
                 <View style={styles.fieldSection}>
-                  <Text style={styles.inputLabel}>Transfer Amount ({fromCurrency})</Text>
+                  <Text style={styles.inputLabel}>
+                    Transfer Amount ({fromCurrency}) <Text style={styles.requiredStar}>*</Text>
+                  </Text>
 
                   {/* Quick percentage chips */}
                   <View style={styles.quickPercentRow}>
@@ -432,13 +451,14 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
                 {/* Optional Notes */}
                 <View style={styles.fieldSection}>
-                  <Text style={styles.inputLabel}>Notes (Optional)</Text>
+                  <Text style={styles.inputLabel}>Notes</Text>
                   <TextInput
                     style={styles.textInputBox}
                     placeholder="e.g. Allocation, Savings, Bill share"
                     placeholderTextColor={Palette.mutedSoft}
                     value={notes}
                     onChangeText={setNotes}
+                    maxLength={100}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                   />
@@ -515,6 +535,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
     marginBottom: 6,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   accountChipsRow: {
     flexDirection: 'row',

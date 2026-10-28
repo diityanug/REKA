@@ -45,7 +45,7 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
       </View>
 
       {/* Liquidity Allocation Card */}
-      {currencyWallets.length > 0 && (
+      {currencyWallets.length > 0 ? (
         <View style={styles.allocationCard}>
           <Text style={styles.allocationCardLabel}>
             Liquidity Allocation ({activeCurrency})
@@ -86,6 +86,15 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
               );
             })}
           </View>
+        </View>
+      ) : (
+        <View style={styles.emptyAllocationCard}>
+          <Text style={styles.allocationCardLabel}>
+            Liquidity Allocation ({activeCurrency})
+          </Text>
+          <Text style={styles.emptyAllocationText}>
+            No active {activeCurrency} accounts found.
+          </Text>
         </View>
       )}
 
@@ -169,16 +178,16 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
       </View>
 
       {/* Wallets List */}
-      {wallets.length === 0 ? (
+      {currencyWallets.length === 0 ? (
         <View style={styles.emptyCard}>
           <CreditCard size={36} color={Palette.mutedSoft} />
-          <Text style={styles.emptyTitle}>No accounts yet</Text>
+          <Text style={styles.emptyTitle}>No {activeCurrency} accounts yet</Text>
           <Text style={styles.emptyDesc}>
-            Tap "Add New Account" above to create your first bank or cash vault.
+            Tap &quot;Add New Account&quot; above to create your first {activeCurrency} bank or cash vault.
           </Text>
         </View>
       ) : (
-        wallets.map((w) => (
+        currencyWallets.map((w) => (
           <AccountCardItem
             key={w.id}
             wallet={w}
@@ -211,6 +220,21 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: Palette.hairline,
+  },
+  emptyAllocationCard: {
+    backgroundColor: Palette.white,
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    borderStyle: 'dashed',
+  },
+  emptyAllocationText: {
+    ...Typography.caption,
+    fontSize: 13,
+    color: Palette.muted,
+    lineHeight: 18,
   },
   allocationCardLabel: {
     ...Typography.caption,

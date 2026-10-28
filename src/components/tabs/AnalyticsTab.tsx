@@ -13,14 +13,11 @@ import {
   Wallet,
   Target,
   Plus,
-  ShieldCheck,
-  Compass,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, TransactionType, CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
-import { CHART_PALETTE } from '../../constants/presets';
 import { CategoryIcon } from '../CategoryIcon';
 import { DonutChart } from '../DonutChart';
 

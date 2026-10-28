@@ -198,13 +198,24 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'pockets', 'icon', "TEXT NOT NULL DEFAULT 'Briefcase'");
       await ensureColumn(db, 'pockets', 'color', "TEXT NOT NULL DEFAULT '#CC785C'");
 
+      // Performance indexes (created after migrations so legacy tables already have every column)
+      await db.execAsync(`
+        CREATE INDEX IF NOT EXISTS idx_tx_wallet ON transactions (wallet_id);
+        CREATE INDEX IF NOT EXISTS idx_tx_timestamp ON transactions (timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_tx_currency ON transactions (currency);
+        CREATE INDEX IF NOT EXISTS idx_tx_pocket ON transactions (pocket_id);
+        CREATE INDEX IF NOT EXISTS idx_tx_pair ON transactions (transfer_pair_id);
+        CREATE INDEX IF NOT EXISTS idx_items_tx ON transaction_items (transaction_id);
+        CREATE INDEX IF NOT EXISTS idx_pockets_wallet ON pockets (wallet_id);
+      `);
+
       // Ensure all default categories from data uwu.md exist safely
-      const defaultCategories: Array<{
+      const defaultCategories: {
         name: string;
         type: TransactionType;
         icon: string;
         color: string;
-      }> = [
+      }[] = [
         // Expenses (from data uwu.md)
         { name: 'Bills & Utilities', type: 'expense', icon: 'Zap', color: '#C64545' },
         { name: 'Subscriptions', type: 'expense', icon: 'Film', color: '#6366F1' },
@@ -619,7 +630,7 @@ export async function deletePocket(id: string): Promise<void> {
   });
 }
 
-// Transactions Management (Optimized batch query, no N+1 roundtrips, no artificial limits)
+// Transactions Management (line items are fetched on demand via getTransactionItems to keep memory low)
 export async function getTransactions(): Promise<Transaction[]> {
   const db = await getDatabase();
   const txRows = await db.getAllAsync<any>(
@@ -627,30 +638,6 @@ export async function getTransactions(): Promise<Transaction[]> {
   );
 
   if (txRows.length === 0) return [];
-
-  // Batch load all items in a single query
-  const itemRows = await db.getAllAsync<any>(
-    'SELECT * FROM transaction_items'
-  );
-
-  const itemsByTxId = new Map<string, TransactionItem[]>();
-  for (const it of itemRows) {
-    const list = itemsByTxId.get(it.transaction_id);
-    const itemObj: TransactionItem = {
-      id: it.id,
-      transactionId: it.transaction_id,
-      name: it.name,
-      quantity: it.quantity,
-      unitPrice: it.unit_price,
-      totalPrice: it.total_price,
-      category: it.category,
-    };
-    if (list) {
-      list.push(itemObj);
-    } else {
-      itemsByTxId.set(it.transaction_id, [itemObj]);
-    }
-  }
 
   const walletRows = await db.getAllAsync<{ id: string; name: string }>('SELECT id, name FROM wallets');
   const walletMap = new Map(walletRows.map((w) => [w.id, w.name]));
@@ -685,9 +672,25 @@ export async function getTransactions(): Promise<Transaction[]> {
       notes: r.notes,
       imageUri: r.image_uri,
       transferPairId: r.transfer_pair_id || undefined,
-      items: itemsByTxId.get(r.id) || [],
     };
   });
+}
+
+export async function getTransactionItems(transactionId: string): Promise<TransactionItem[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM transaction_items WHERE transaction_id = ?',
+    transactionId
+  );
+  return rows.map((it) => ({
+    id: it.id,
+    transactionId: it.transaction_id,
+    name: it.name,
+    quantity: it.quantity,
+    unitPrice: it.unit_price,
+    totalPrice: it.total_price,
+    category: it.category,
+  }));
 }
 
 export async function insertTransactionWithItems(
@@ -809,7 +812,7 @@ export async function deleteTransaction(id: string): Promise<void> {
     const revertTxBalance = async (targetTx: typeof tx) => {
       const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
       await db.runAsync(
-        'UPDATE wallets SET balance = MAX(0, balance + ?) WHERE id = ?',
+        'UPDATE wallets SET balance = balance + ? WHERE id = ?',
         reverseDelta,
         targetTx.wallet_id
       );
@@ -869,7 +872,7 @@ export async function updateTransaction(
     // 1. Revert previous wallet & pocket balance effect
     const revertDelta = oldTx.type === 'expense' ? oldTx.amount : -oldTx.amount;
     await db.runAsync(
-      'UPDATE wallets SET balance = MAX(0, balance + ?) WHERE id = ?',
+      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
       revertDelta,
       oldTx.wallet_id
     );
@@ -884,7 +887,7 @@ export async function updateTransaction(
     // 2. Apply new wallet & pocket balance effect
     const newDelta = updates.type === 'expense' ? -updates.amount : updates.amount;
     await db.runAsync(
-      'UPDATE wallets SET balance = MAX(0, balance + ?) WHERE id = ?',
+      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
       newDelta,
       updates.walletId
     );

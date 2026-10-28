@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
-  Modal,
   View,
   Text,
   TextInput,
@@ -10,8 +9,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  Building2,
-  Banknote,
   Plus,
   Trash2,
   ArrowUpDown,
@@ -23,8 +20,10 @@ import {
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Pocket, Transaction } from '../../types';
-import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
+import { formatCurrency } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
+import { useLastDefined } from '../../hooks/useLastDefined';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon } from '../CategoryIcon';
 import { TransactionItemRow } from '../TransactionItemRow';
@@ -69,11 +68,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
 
-  const lastWalletRef = React.useRef<Wallet | null>(propWallet);
-  if (propWallet) {
-    lastWalletRef.current = propWallet;
-  }
-  const wallet = propWallet || lastWalletRef.current;
+  // Keep the last viewed wallet while the sheet slides out (pockets/transactions are kept by the parent)
+  const wallet = useLastDefined(propWallet);
+  const currentPockets = pockets;
+  const currentTransactions = transactions;
 
   const [isRenaming, setIsRenaming] = useState<boolean>(false);
   const [editName, setEditName] = useState<string>('');
@@ -110,18 +108,18 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     setAlertConfig((prev) => ({ ...prev, visible: false }));
   };
 
-  useEffect(() => {
+  useSyncOnChange([propWallet], () => {
     if (propWallet) {
       setEditName(propWallet.name);
       setIsRenaming(false);
       setEditingPocketId(null);
       setShowAdjustAmountModal(false);
     }
-  }, [propWallet]);
+  });
 
   if (!wallet) return null;
 
-  const allocatedSum = pockets.reduce((sum, p) => sum + p.balance, 0);
+  const allocatedSum = currentPockets.reduce((sum, p) => sum + p.balance, 0);
   const unallocatedBal = Math.max(wallet.balance - allocatedSum, 0);
 
   const handleSaveRename = async () => {
@@ -192,7 +190,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       {formatCurrency(allocatedSum, wallet.currency, privacyMode)}
                     </Text>
                     <Text style={styles.splitSub}>
-                      {pockets.length} Pocket{pockets.length === 1 ? '' : 's'}
+                      {currentPockets.length} Pocket{currentPockets.length === 1 ? '' : 's'}
                     </Text>
                   </View>
                 </View>
@@ -278,7 +276,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               {/* Sub-Accounts / Pockets Header & Action */}
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>
-                  Pockets ({pockets.length})
+                  Pockets ({currentPockets.length})
                 </Text>
               </View>
 
@@ -294,7 +292,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               </TouchableOpacity>
 
               {/* Pockets List */}
-              {pockets.length === 0 ? (
+              {currentPockets.length === 0 ? (
                 <View style={styles.emptyCard}>
                   <Layers size={28} color={Palette.mutedSoft} />
                   <Text style={styles.emptyTitle}>No Pocket Yet</Text>
@@ -303,14 +301,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                pockets.map((p) => {
-                  const progressPct =
-                    p.targetAmount > 0
-                      ? (p.balance / p.targetAmount) * 100
-                      : wallet.balance > 0
-                        ? (p.balance / wallet.balance) * 100
-                        : 0;
-
+                currentPockets.map((p) => {
                   return (
                     <View key={p.id} style={styles.pocketCard}>
                       <View style={styles.pocketTopRow}>
@@ -400,11 +391,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               {/* Account Activity / Transactions */}
               <View style={[styles.sectionHeader, { marginTop: 20 }]}>
                 <Text style={styles.sectionTitle}>
-                  Activity ({transactions.length})
+                  Activity ({currentTransactions.length})
                 </Text>
               </View>
 
-              {transactions.length === 0 ? (
+              {currentTransactions.length === 0 ? (
                 <View style={styles.emptyCard}>
                   <CreditCard size={28} color={Palette.mutedSoft} />
                   <Text style={styles.emptyTitle}>No Transactions Yet</Text>
@@ -413,7 +404,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                transactions.slice(0, 10).map((tx) => (
+                currentTransactions.slice(0, 10).map((tx) => (
                   <TransactionItemRow
                     key={tx.id}
                     transaction={tx}

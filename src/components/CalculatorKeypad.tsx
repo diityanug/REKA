@@ -1,8 +1,11 @@
-import React from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
+  TextInput,
   Pressable,
+  TouchableOpacity,
+  TextInputSelectionChangeEvent,
   StyleSheet,
 } from 'react-native';
 import { Delete } from 'lucide-react-native';
@@ -11,10 +14,12 @@ import { CurrencyType } from '../types';
 import { AppHaptics } from '../utils/haptics';
 import { formatCurrency } from '../utils/formatters';
 import {
-  calculateNextExpression,
   formatExpressionDisplay,
   evaluateMathExpression,
   getQuickPresets,
+  formattedToRawCursor,
+  rawToFormattedCursor,
+  calculateNextExpressionWithCursor,
 } from '../utils/calculator';
 
 interface CalculatorKeypadProps {
@@ -39,45 +44,146 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
   const liveEvaluated = evaluateMathExpression(currentExpr);
   const presets = getQuickPresets(currency);
 
+  const formattedExpr = useMemo(() => {
+    return formatExpressionDisplay(currentExpr, currency);
+  }, [currentExpr, currency]);
+
+  const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
+  const [isFocused, setIsFocused] = useState<boolean>(true);
+  const [selection, setSelection] = useState<{ start: number; end: number }>({
+    start: formattedExpr.length,
+    end: formattedExpr.length,
+  });
+
+  const activeSelection = useMemo(() => ({
+    start: Math.min(selection.start, formattedExpr.length),
+    end: Math.min(selection.end, formattedExpr.length),
+  }), [selection.start, selection.end, formattedExpr.length]);
+
+  const handleSelectionChange = (e: TextInputSelectionChangeEvent) => {
+    setSelection(e.nativeEvent.selection);
+    setIsFocused(true);
+  };
+
   const handleKeyPress = (key: string) => {
-    const next = calculateNextExpression(currentExpr, key, currency);
-    // If expression is blocked at maximum digit limit, avoid unnecessary re-renders that cause text flickering
-    if (next === currentExpr) {
+    inputRef.current?.focus();
+    setIsFocused(true);
+
+    const rawCursor = formattedToRawCursor(
+      formattedExpr,
+      currentExpr,
+      selection.start,
+      currency
+    );
+
+    // If user highlighted a range of text, delete that range first
+    let activeExpr = currentExpr;
+    let activeRawCursor = rawCursor;
+
+    if (selection.start !== selection.end) {
+      const rawEnd = formattedToRawCursor(
+        formattedExpr,
+        currentExpr,
+        selection.end,
+        currency
+      );
+      const minRaw = Math.min(rawCursor, rawEnd);
+      const maxRaw = Math.max(rawCursor, rawEnd);
+      activeExpr = (currentExpr.slice(0, minRaw) + currentExpr.slice(maxRaw)).trim() || '0';
+      activeRawCursor = minRaw;
+    }
+
+    const { nextExpr, nextRawCursor } = calculateNextExpressionWithCursor(
+      activeExpr,
+      key,
+      currency,
+      activeRawCursor
+    );
+
+    if (nextExpr === currentExpr && nextRawCursor === rawCursor && selection.start === selection.end) {
       return;
     }
+
     AppHaptics.selection();
-    onChangeValue(next);
+    const nextFormatted = formatExpressionDisplay(nextExpr, currency);
+    const nextFormattedPos = rawToFormattedCursor(
+      nextFormatted,
+      nextExpr,
+      nextRawCursor,
+      currency
+    );
+
+    onChangeValue(nextExpr);
+    setSelection({ start: nextFormattedPos, end: nextFormattedPos });
   };
 
   const handleQuickAdd = (amount: number) => {
+    inputRef.current?.focus();
+    setIsFocused(true);
     const currentNum = evaluateMathExpression(currentExpr);
     const result = Math.max(currentNum + amount, 0);
-    // Hard cap at 13 digits (9.999.999.999.999)
-    if (result > 9999999999999) {
-      return;
-    }
+    if (result > 9999999999999) return;
+
     const nextStr = result.toString();
-    if (nextStr === currentExpr) {
-      return;
-    }
+    if (nextStr === currentExpr) return;
+
     AppHaptics.light();
+    const nextFormatted = formatExpressionDisplay(nextStr, currency);
     onChangeValue(nextStr);
+    setSelection({ start: nextFormatted.length, end: nextFormatted.length });
+  };
+
+  const handlePrefixPress = () => {
+    AppHaptics.selection();
+    inputRef.current?.focus();
+    setSelection({ start: 0, end: 0 });
   };
 
   const decimalOrThousandKey = currency === 'IDR' ? '000' : '.';
 
   return (
     <View style={styles.container}>
-      {/* Optional Top Display with Expression & Live Evaluation */}
+      {/* Interactive Display Card with Native Cursor & Horizontal Scroll */}
       {showDisplay ? (
-        <View style={styles.displayCard}>
+        <Pressable
+          style={[
+            styles.displayCard,
+            isFocused && styles.displayCardFocused,
+          ]}
+          onPress={() => {
+            inputRef.current?.focus();
+            setIsFocused(true);
+          }}
+        >
           <View style={styles.displayMainRow}>
-            <Text style={styles.currencyPrefix}>
-              {currency === 'IDR' ? 'Rp.' : '$ '}
-            </Text>
-            <Text style={styles.expressionText} numberOfLines={1} adjustsFontSizeToFit>
-              {formatExpressionDisplay(currentExpr, currency)}
-            </Text>
+            {/* Clickable Currency Prefix */}
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={handlePrefixPress}
+              style={styles.prefixTouch}
+            >
+              <Text style={styles.currencyPrefix}>
+                {currency === 'IDR' ? 'Rp.' : '$ '}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Native TextInput with suppressed system soft keyboard */}
+            <TextInput
+              ref={inputRef}
+              style={styles.textInput}
+              showSoftInputOnFocus={false}
+              value={formattedExpr}
+              selection={activeSelection}
+              onSelectionChange={handleSelectionChange}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+              cursorColor={Palette.primary}
+              selectionColor={Palette.primary + '33'}
+              multiline={false}
+              autoCorrect={false}
+              autoCapitalize="none"
+              scrollEnabled={true}
+            />
           </View>
 
           {hasOperator ? (
@@ -88,7 +194,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               </Text>
             </View>
           ) : null}
-        </View>
+        </Pressable>
       ) : null}
 
       {/* Quick Increment Preset Chips */}
@@ -96,7 +202,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
         {presets.map((p) => (
           <Pressable
             key={p.label}
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.presetChip,
@@ -114,7 +219,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
         {/* Row 1 */}
         <View style={styles.row}>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -125,7 +229,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>7</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -136,7 +239,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>8</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -147,7 +249,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>9</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
@@ -163,7 +264,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
         {/* Row 2 */}
         <View style={styles.row}>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -174,7 +274,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>4</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -185,7 +284,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>5</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -196,7 +294,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>6</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
@@ -212,7 +309,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
         {/* Row 3 */}
         <View style={styles.row}>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -223,7 +319,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>1</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -234,7 +329,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>2</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -245,7 +339,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>3</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
@@ -261,7 +354,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
         {/* Row 4 */}
         <View style={styles.row}>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
@@ -273,7 +365,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.clearText}>C</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -284,7 +375,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>0</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.digitBtn,
@@ -295,7 +385,6 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.digitText}>{decimalOrThousandKey}</Text>
           </Pressable>
           <Pressable
-            
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
@@ -321,29 +410,41 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
+    paddingVertical: 10,
+    borderWidth: 1.5,
     borderColor: Palette.hairline,
     marginBottom: 10,
   },
+  displayCardFocused: {
+    borderColor: Palette.primary,
+    backgroundColor: '#FAF5F2',
+  },
   displayMainRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
+    alignItems: 'center',
+    minHeight: 44,
+  },
+  prefixTouch: {
+    paddingVertical: 4,
+    paddingRight: 6,
+    justifyContent: 'center',
   },
   currencyPrefix: {
     ...Typography.body,
-    fontSize: 16,
+    fontSize: 20,
     fontWeight: '700',
     color: Palette.muted,
   },
-  expressionText: {
+  textInput: {
     ...Typography.display,
     flex: 1,
-    fontSize: 22,
+    fontSize: 26,
     fontWeight: '700',
     color: Palette.ink,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
+    padding: 0,
+    margin: 0,
+    fontVariant: ['tabular-nums'],
   },
   liveResultRow: {
     flexDirection: 'row',
