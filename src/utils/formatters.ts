@@ -224,13 +224,3 @@ export const getTimeStrFromTimestamp = (timestamp?: string): string => {
   if (isNaN(date.getTime())) return getCurrentTimeStr();
   return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 };
-
-// Format HH:mm into a friendly 12h label when the platform locale allows it
-export const formatTimeLabel = (time: string): string => {
-  const parts = time.split(':').map(Number);
-  if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return time;
-  const [h, m] = parts;
-  const suffix = h >= 12 ? 'PM' : 'AM';
-  const hour12 = h % 12 === 0 ? 12 : h % 12;
-  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
-};

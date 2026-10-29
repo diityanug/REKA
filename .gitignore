@@ -2,49 +2,91 @@
 
 # dependencies
 node_modules/
+.pnp
+.pnp.js
 
 # Expo
 .expo/
+.expo-shared/
 dist/
 web-build/
 expo-env.d.ts
-NOTES.md
-.agents
-scripts/
 
-# Native
-.kotlin/
-*.orig.*
-*.jks
-*.p8
-*.p12
-*.key
-*.mobileprovision
-.vscode
+# Internal & Scratch Notes
+NOTES.md
 DESIGN.md
 focus.md
 error.txt
 text.txt
+QA-*.md
+.agents/
+scripts/
+
+# Native builds & Signing Credentials
+.kotlin/
+*.orig.*
+*.keystore
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.cer
+*.der
+*.crt
+*.mobileprovision
+
+# Native Binary Artifacts
+*.apk
+*.aab
+*.ipa
+
+# SQLite Databases & Local Storage
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.sqlite3-journal
+
+# Editor & IDE configs
+.vscode/
+.idea/
+*.iml
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # Metro
 .metro-health-check*
 
-# debug
+# Debug & Logs
+*.log
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+pnpm-debug.*
 
-# macOS
+# OS generated files
 .DS_Store
-*.pem
+Thumbs.db
+desktop.ini
+ehthumbs.db
 
-# local env files
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# Local env files (NEVER commit keys or secrets)
 .env
 .env*.local
+!.env.example
 
-# typescript
+# TypeScript
 *.tsbuildinfo
 
-# generated native folders
+# Generated native folders (Continuous Native Generation)
 /ios
 /android

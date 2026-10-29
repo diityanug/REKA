@@ -293,22 +293,6 @@ export function calculateNextExpressionWithCursor(
 }
 
 /**
- * Compute the next expression state when a keypad button is pressed (defaulting to end of string)
- */
-export function calculateNextExpression(
-  currentExpr: string,
-  key: string,
-  currency: CurrencyType
-): string {
-  return calculateNextExpressionWithCursor(
-    currentExpr,
-    key,
-    currency,
-    (currentExpr || '').length
-  ).nextExpr;
-}
-
-/**
  * Quick increment presets tailored to active currency
  */
 export function getQuickPresets(
