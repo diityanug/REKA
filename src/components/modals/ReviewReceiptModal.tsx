@@ -6,16 +6,20 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Check, Pencil } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
+import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { Wallet, Pocket, ExtractedReceiptData, CurrencyType } from '../../types';
-import { formatCurrency, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatCurrencyInput, formatDate } from '../../utils/formatters';
+import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { AmountInputModal } from './AmountInputModal';
 import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
 interface ReviewReceiptModalProps {
@@ -30,7 +34,11 @@ interface ReviewReceiptModalProps {
   onSelectPocket: (id: string) => void;
   onOpenAddAccount: () => void;
   onOpenAddPocket: () => void;
-  onConfirm: (notes: string, editedMerchant?: string) => void;
+  onConfirm: (
+    notes?: string,
+    merchant?: string,
+    amountOverride?: number
+  ) => Promise<void>;
   onClose: () => void;
 }
 
@@ -50,8 +58,12 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const footerKeyboardOffset = useFooterKeyboardOffset();
   const [reviewNotes, setReviewNotes] = useState<string>('');
   const [merchantName, setMerchantName] = useState<string>('');
+  const [amountOverride, setAmountOverride] = useState<number | null>(null);
+  const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
@@ -82,13 +94,12 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     setAlertConfig((prev) => ({ ...prev, visible: false }));
   };
 
-  const relevantWallets = useMemo(() => {
-    return wallets.filter(
-      (w) => w.currency === (extractedData?.currency || activeCurrency)
-    );
-  }, [wallets, extractedData?.currency, activeCurrency]);
+  // Only wallets matching the receipt currency are safe to save into
+  const displayWallets = useMemo(() => {
+    if (!extractedData) return [];
+    return wallets.filter((w) => w.currency === extractedData.currency);
+  }, [wallets, extractedData]);
 
-  const displayWallets = relevantWallets.length > 0 ? relevantWallets : wallets;
   const walletPockets = useMemo(() => {
     return pockets.filter((p) => p.walletId === selectedWalletId);
   }, [pockets, selectedWalletId]);
@@ -97,6 +108,8 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     if (visible && extractedData) {
       setMerchantName(extractedData.merchantName || '');
       setReviewNotes('');
+      setAmountOverride(null);
+      setSaving(false);
     }
   });
 
@@ -110,11 +123,19 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
 
   if (!visible || !extractedData) return null;
 
-  const handleConfirm = () => {
-    if (!selectedWalletId) {
+  const receiptCurrency = extractedData.currency;
+  const selectedDisplayWallet = displayWallets.find((w) => w.id === selectedWalletId);
+  const hasWalletForCurrency = displayWallets.length > 0;
+  const finalAmount = amountOverride ?? extractedData.totalAmount;
+  const amountUnreadable = extractedData.totalAmount <= 0;
+  const itemCount = extractedData.items ? extractedData.items.length : 0;
+  const canConfirm = hasWalletForCurrency && !!selectedDisplayWallet && !saving;
+
+  const handleConfirm = async () => {
+    if (!hasWalletForCurrency || !selectedDisplayWallet) {
       showAlert(
         'Account Required',
-        'Please select or create an account first to record this receipt.',
+        `Create a ${receiptCurrency} account first to record this receipt.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Create Account', onPress: onOpenAddAccount },
@@ -123,8 +144,17 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
       );
       return;
     }
+    if (saving) return;
+
     const finalMerchant = merchantName.trim() || extractedData.merchantName || 'Receipt Transaction';
-    onConfirm(reviewNotes, finalMerchant);
+    try {
+      setSaving(true);
+      await onConfirm(reviewNotes, finalMerchant, finalAmount);
+    } catch (err: any) {
+      showAlert('Save Failed', err?.message || 'Could not save this transaction.', undefined, 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -133,19 +163,49 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
       onClose={onClose}
       height="92%"
       maxHeight="94%"
+      dismissOnBackdropPress={false}
     >
       <ModalHeader
-        title="Receipt Verified"
-        subtitle="Extracted transaction summary"
+        title="Review Receipt"
+        subtitle="Check the details before saving"
         onClose={onClose}
       />
 
             <KeyboardSafeContainer>
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>Nominal Amount</Text>
-                <Text style={styles.summaryAmount}>
-                  {formatCurrency(extractedData.totalAmount, extractedData.currency)}
-                </Text>
+                <View style={styles.amountLabelRow}>
+                  <Text style={styles.summaryLabel}>Nominal Amount</Text>
+                  <View style={styles.currencyTag}>
+                    <Text style={styles.currencyTagText}>{receiptCurrency}</Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.amountTapRow}
+                  onPress={() => {
+                    AppHaptics.light();
+                    Keyboard.dismiss();
+                    setAmountModalVisible(true);
+                  }}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Amount ${formatCurrency(finalAmount, receiptCurrency)}. Tap to edit.`}
+                >
+                  <Text style={styles.summaryAmount} numberOfLines={1}>
+                    {formatCurrency(finalAmount, receiptCurrency)}
+                  </Text>
+                  <View style={styles.tapToEditRow}>
+                    <Pencil size={11} color={Palette.primary} style={{ marginRight: 3 }} />
+                    <Text style={styles.tapToEditHint}>Tap to edit</Text>
+                  </View>
+                </TouchableOpacity>
+
+                {amountUnreadable && amountOverride === null ? (
+                  <Text style={styles.amountErrorNote}>
+                    The amount could not be read — tap the amount to enter it.
+                  </Text>
+                ) : null}
+
                 <View style={styles.divider} />
 
                 {/* Editable Merchant Name */}
@@ -184,63 +244,97 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 </View>
               </View>
 
-              {/* Line Items if present */}
+              {/* Line items are informational, the amount stays editable */}
+              <Text style={styles.sectionTitle}>
+                {itemCount} items detected
+              </Text>
               {extractedData.items && extractedData.items.length > 0 ? (
-                <>
-                  <Text style={styles.sectionTitle}>
-                    Items ({extractedData.items.length})
-                  </Text>
-                  <View style={{ marginBottom: 14 }}>
-                    {extractedData.items.map((it, idx) => (
-                      <View key={`item_${idx}`} style={styles.itemCard}>
-                        <View style={{ flex: 1, paddingRight: 8 }}>
-                          <Text style={styles.itemName}>{it.name}</Text>
-                          <Text style={styles.itemQty}>
-                            Qty: {it.quantity} × {formatCurrency(it.unitPrice, extractedData.currency)}
-                          </Text>
-                        </View>
-                        <Text style={styles.itemTotal}>
-                          {formatCurrency(it.totalPrice, extractedData.currency)}
+                <View style={{ marginBottom: 14 }}>
+                  {extractedData.items.map((it, idx) => (
+                    <View key={`item_${idx}`} style={styles.itemCard}>
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.itemName}>{it.name}</Text>
+                        <Text style={styles.itemQty}>
+                          Qty: {it.quantity} × {formatCurrency(it.unitPrice, extractedData.currency)}
                         </Text>
                       </View>
-                    ))}
-                  </View>
-                </>
+                      <Text style={styles.itemTotal}>
+                        {formatCurrency(it.totalPrice, extractedData.currency)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
               ) : null}
 
               <Text style={styles.sectionTitle}>
                 Account <Text style={styles.requiredStar}>*</Text>
               </Text>
-              <View style={styles.chipRow}>
-                {displayWallets.map((w) => (
+
+              {hasWalletForCurrency ? (
+                <View style={styles.chipRow}>
+                  {displayWallets.map((w) => {
+                    const isSelected = selectedWalletId === w.id;
+                    return (
+                      <TouchableOpacity
+                        key={w.id}
+                        style={[
+                          styles.chip,
+                          isSelected && styles.chipActive,
+                        ]}
+                        onPress={() => {
+                          AppHaptics.selection();
+                          onSelectWallet(w.id);
+                        }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${w.name}, ${w.currency} account`}
+                        accessibilityState={{ selected: isSelected }}
+                      >
+                        <Text
+                          style={[
+                            styles.chipText,
+                            isSelected && styles.chipTextActive,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {w.name} ({w.currency})
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                   <TouchableOpacity
-                    key={w.id}
-                    style={[
-                      styles.chip,
-                      selectedWalletId === w.id && styles.chipActive,
-                    ]}
-                    onPress={() => onSelectWallet(w.id)}
+                    style={styles.addChip}
+                    onPress={onOpenAddAccount}
+                    accessibilityRole="button"
+                    accessibilityLabel="New account"
                   >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        selectedWalletId === w.id && styles.chipTextActive,
-                      ]}
-                    >
-                      {w.name} ({w.currency})
+                    <Plus size={14} color={Palette.primary} />
+                    <Text style={styles.addChipText}>New Account</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={styles.noWalletNotice}>
+                  <Text style={styles.noWalletNoticeText}>
+                    No {receiptCurrency} account yet. Create one to save this receipt.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.noWalletBtn}
+                    onPress={() => {
+                      AppHaptics.light();
+                      onOpenAddAccount();
+                    }}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Create ${receiptCurrency} Account`}
+                  >
+                    <Plus size={16} color={Palette.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.noWalletBtnText}>
+                      Create {receiptCurrency} Account
                     </Text>
                   </TouchableOpacity>
-                ))}
-                <TouchableOpacity
-                  style={styles.addChip}
-                  onPress={onOpenAddAccount}
-                >
-                  <Plus size={14} color={Palette.primary} />
-                  <Text style={styles.addChipText}>New Account</Text>
-                </TouchableOpacity>
-              </View>
+                </View>
+              )}
 
-              {selectedWalletId ? (
+              {selectedDisplayWallet ? (
                 <>
                   <Text style={styles.sectionTitle}>Pocket</Text>
                   <View style={styles.chipRow}>
@@ -250,6 +344,9 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                         selectedPocketId === '' && styles.chipActive,
                       ]}
                       onPress={() => onSelectPocket('')}
+                      accessibilityRole="button"
+                      accessibilityLabel="Main balance pocket"
+                      accessibilityState={{ selected: selectedPocketId === '' }}
                     >
                       <Text
                         style={[
@@ -268,12 +365,16 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                           selectedPocketId === p.id && styles.chipActive,
                         ]}
                         onPress={() => onSelectPocket(p.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${p.name} pocket`}
+                        accessibilityState={{ selected: selectedPocketId === p.id }}
                       >
                         <Text
                           style={[
                             styles.chipText,
                             selectedPocketId === p.id && styles.chipTextActive,
                           ]}
+                          numberOfLines={1}
                         >
                           {p.name}
                         </Text>
@@ -282,6 +383,8 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                     <TouchableOpacity
                       style={styles.addChip}
                       onPress={onOpenAddPocket}
+                      accessibilityRole="button"
+                      accessibilityLabel="New pocket"
                     >
                       <Plus size={14} color={Palette.primary} />
                       <Text style={styles.addChipText}>New Pocket</Text>
@@ -303,16 +406,54 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
               />
             </KeyboardSafeContainer>
 
-            <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View
+              style={[
+                styles.stickyFooter,
+                {
+                  paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
+                },
+              ]}
+            >
               <TouchableOpacity
-                style={styles.confirmBtn}
+                style={[
+                  styles.confirmBtn,
+                  !canConfirm && styles.confirmBtnDisabled,
+                ]}
                 onPress={handleConfirm}
+                disabled={!canConfirm}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={`Save transaction of ${formatCurrency(finalAmount, receiptCurrency)}`}
+                accessibilityState={{ disabled: !canConfirm, busy: saving }}
               >
-                <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.confirmBtnText}>Save Transaction</Text>
+                {saving ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={Palette.white}
+                    style={{ marginRight: 8 }}
+                  />
+                ) : (
+                  <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                )}
+                <Text style={styles.confirmBtnText}>
+                  {saving ? 'Saving...' : 'Save Transaction'}
+                </Text>
               </TouchableOpacity>
             </View>
+
+      <AmountInputModal
+        visible={amountModalVisible}
+        title="Edit Amount"
+        subtitle={`Receipt total in ${receiptCurrency}`}
+        initialAmount={formatCurrencyInput(String(finalAmount), receiptCurrency)}
+        currency={receiptCurrency}
+        allowZero={false}
+        onConfirm={(_formatted, numericVal) => {
+          setAmountOverride(numericVal);
+          setAmountModalVisible(false);
+        }}
+        onClose={() => setAmountModalVisible(false)}
+      />
 
       <CustomAlertModal
         visible={alertConfig.visible}
@@ -365,8 +506,73 @@ const styles = StyleSheet.create({
     fontSize: 26,
     fontWeight: '700',
     color: Palette.ink,
+    flexShrink: 1,
+  },
+  amountLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  currencyTag: {
+    backgroundColor: Palette.surfaceCard,
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  currencyTagText: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '700',
+    color: Palette.muted,
+  },
+  amountTapRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    minHeight: 44,
     marginTop: 2,
+    marginBottom: 10,
+  },
+  amountErrorNote: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.error,
+    marginBottom: 8,
+  },
+  noWalletNotice: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginBottom: 16,
+  },
+  noWalletNoticeText: {
+    ...Typography.body,
+    fontSize: 13,
+    color: Palette.muted,
+    lineHeight: 18,
     marginBottom: 12,
+  },
+  noWalletBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    paddingVertical: 12,
+    borderRadius: 12,
+    minHeight: 44,
+  },
+  noWalletBtnText: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Palette.white,
+  },
+  confirmBtnDisabled: {
+    opacity: 0.45,
   },
   divider: {
     height: 1,

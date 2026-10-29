@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Trash2, Check, Layers, Edit3 } from 'lucide-react-native';
@@ -24,8 +25,8 @@ interface AllocationPlanModalProps {
   visible: boolean;
   activeCurrency: CurrencyType;
   plan: AllocationPlan | null;
-  onSave: (plan: AllocationPlan) => void;
-  onDelete?: (planId: string) => void;
+  onSave: (plan: AllocationPlan) => void | Promise<void>;
+  onDelete?: (planId: string) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -34,6 +35,26 @@ interface DraftRow {
   label: string;
   amountStr: string;
 }
+
+// Percentage templates: amounts are derived from the current total when one exists.
+const TEMPLATE_50_30_20 = {
+  defaultTitle: 'Monthly Salary',
+  items: [
+    { label: 'Needs (50%)', pct: 50 },
+    { label: 'Wants (30%)', pct: 30 },
+    { label: 'Savings (20%)', pct: 20 },
+  ],
+};
+
+const TEMPLATE_4_BUCKETS = {
+  defaultTitle: 'Side Income',
+  items: [
+    { label: 'Fixed Bills (40%)', pct: 40 },
+    { label: 'Emergency Fund (30%)', pct: 30 },
+    { label: 'Investments (20%)', pct: 20 },
+    { label: 'Personal (10%)', pct: 10 },
+  ],
+};
 
 export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   visible,
@@ -49,6 +70,8 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     { id: '1', label: '', amountStr: '' },
   ]);
   const [activeAmountRowId, setActiveAmountRowId] = useState<string | null>(null);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [deleting, setDeleting] = useState<boolean>(false);
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
@@ -146,13 +169,22 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     });
   };
 
-  const applyTemplate = (items: { label: string; amountStr: string }[]) => {
+  const applyTemplate = (
+    defaultTitle: string,
+    items: readonly { label: string; pct: number }[]
+  ) => {
     AppHaptics.selection();
+    if (!title.trim()) setTitle(defaultTitle);
+    // Fill from the total that is on screen right now, if there is one.
+    const base = totalAllocated;
     setRows(
       items.map((it, idx) => ({
         id: String(idx + 1),
         label: it.label,
-        amountStr: it.amountStr,
+        amountStr:
+          base > 0
+            ? formatCurrencyInput(String(Math.round((base * it.pct) / 100)), activeCurrency, 9)
+            : '',
       }))
     );
   };
@@ -162,23 +194,27 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     return sum + (isNaN(val) ? 0 : val);
   }, 0);
 
-  const handleSave = () => {
+  // Blank draft rows are not part of the plan.
+  const filledRows = rows.filter(
+    (r) => r.label.trim().length > 0 || r.amountStr.trim().length > 0
+  );
+
+  const handleSave = async () => {
+    if (saving) return;
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       showAlert('Missing Title', 'Please enter a name for this income allocation (e.g. Primary Salary, Freelance).', undefined, 'warning');
       return;
     }
 
-    const validItems: AllocationItem[] = rows
-      .filter((r) => r.label.trim().length > 0 || r.amountStr.trim().length > 0)
-      .map((r) => {
-        const amt = parseAmount(r.amountStr, activeCurrency);
-        return {
-          id: r.id,
-          label: r.label.trim() || 'Untitled Allocation',
-          amount: isNaN(amt) ? 0 : amt,
-        };
-      });
+    const validItems: AllocationItem[] = filledRows.map((r) => {
+      const amt = parseAmount(r.amountStr, activeCurrency);
+      return {
+        id: r.id,
+        label: r.label.trim() || 'Untitled Allocation',
+        amount: isNaN(amt) ? 0 : amt,
+      };
+    });
 
     if (validItems.length === 0) {
       showAlert('Missing Allocations', 'Please add at least one allocation row with a description.', undefined, 'warning');
@@ -195,11 +231,16 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
       items: validItems,
     };
 
-    onSave(planToSave);
+    setSaving(true);
+    try {
+      await onSave(planToSave);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = () => {
-    if (!plan || !onDelete) return;
+    if (!plan || !onDelete || deleting) return;
     showAlert(
       'Delete Allocation Plan',
       `Delete "${plan.title}"? This allocation breakdown will be removed.`,
@@ -208,9 +249,15 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         {
           text: 'Delete Plan',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
+            if (deleting) return;
             AppHaptics.light();
-            onDelete(plan.id);
+            setDeleting(true);
+            try {
+              await onDelete(plan.id);
+            } finally {
+              setDeleting(false);
+            }
           },
         },
       ],
@@ -245,6 +292,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
                 value={title}
                 onChangeText={setTitle}
                 returnKeyType="next"
+                maxLength={40}
               />
             </View>
 
@@ -252,35 +300,34 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             <View style={styles.templateRow}>
               <TouchableOpacity
                 style={styles.templateChip}
-                onPress={() => {
-                  if (!title) setTitle('Monthly Salary');
-                  applyTemplate([
-                    { label: 'Needs (50%)', amountStr: '' },
-                    { label: 'Wants (30%)', amountStr: '' },
-                    { label: 'Savings (20%)', amountStr: '' },
-                  ]);
-                }}
+                onPress={() =>
+                  applyTemplate(TEMPLATE_50_30_20.defaultTitle, TEMPLATE_50_30_20.items)
+                }
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Apply 50 30 20 percentage template"
               >
                 <Text style={styles.templateChipText}>+ 50/30/20 Rule</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.templateChip}
-                onPress={() => {
-                  if (!title) setTitle('Side Income');
-                  applyTemplate([
-                    { label: 'Fixed Bills', amountStr: '' },
-                    { label: 'Emergency Fund', amountStr: '' },
-                    { label: 'Investments', amountStr: '' },
-                    { label: 'Personal', amountStr: '' },
-                  ]);
-                }}
+                onPress={() =>
+                  applyTemplate(TEMPLATE_4_BUCKETS.defaultTitle, TEMPLATE_4_BUCKETS.items)
+                }
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Apply 4 buckets percentage template"
               >
                 <Text style={styles.templateChipText}>+ 4 Buckets Rule</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Honest explanation of what the presets do */}
+            <Text style={styles.templateHint}>
+              Percentage presets — shares must total 100% (50+30+20 or 40+30+20+10). Amounts
+              are calculated from the current total.
+            </Text>
 
             {/* Column Headers */}
             <View style={styles.tableHeaderRow}>
@@ -355,7 +402,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
 
             {/* Total Allocated Card */}
             <View style={styles.totalCard}>
-              <Text style={styles.totalLabel}>Total Allocated ({rows.length} items):</Text>
+              <Text style={styles.totalLabel}>Total Allocated ({filledRows.length} items):</Text>
               <Text style={styles.totalValue}>
                 {formatCurrency(totalAllocated, activeCurrency)}
               </Text>
@@ -365,22 +412,43 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
           {/* Sticky Action Footer */}
           <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <TouchableOpacity
-              style={styles.saveBtn}
+              style={[styles.saveBtn, saving && { opacity: 0.7 }]}
               onPress={handleSave}
+              disabled={saving}
               activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Save plan"
             >
-              <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-              <Text style={styles.saveBtnText}>Save Plan</Text>
+              {saving ? (
+                <>
+                  <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                  <Text style={styles.saveBtnText}>Saving...</Text>
+                </>
+              ) : (
+                <>
+                  <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                  <Text style={styles.saveBtnText}>Save Plan</Text>
+                </>
+              )}
             </TouchableOpacity>
 
             {plan && onDelete && (
               <TouchableOpacity
-                style={styles.deletePlanBtn}
+                style={[styles.deletePlanBtn, deleting && { opacity: 0.6 }]}
                 onPress={handleDelete}
+                disabled={deleting}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Delete this plan"
               >
-                <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
-                <Text style={styles.deletePlanBtnText}>Delete This Plan</Text>
+                {deleting ? (
+                  <ActivityIndicator size="small" color={Palette.error} />
+                ) : (
+                  <>
+                    <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
+                    <Text style={styles.deletePlanBtnText}>Delete This Plan</Text>
+                  </>
+                )}
               </TouchableOpacity>
             )}
           </View>
@@ -393,6 +461,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         initialAmount={activeRow ? activeRow.amountStr : ''}
         currency={activeCurrency}
         maxDigits={9}
+        allowZero
         onConfirm={(formatted) => {
           if (activeAmountRowId) {
             handleUpdateRowAmount(activeAmountRowId, formatted);
@@ -478,6 +547,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: Palette.primary,
+  },
+  templateHint: {
+    ...Typography.caption,
+    fontSize: 11,
+    lineHeight: 16,
+    color: Palette.muted,
+    marginTop: -8,
+    marginBottom: 14,
   },
   tableHeaderRow: {
     flexDirection: 'row',

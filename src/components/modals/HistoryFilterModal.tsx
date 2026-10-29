@@ -279,8 +279,10 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                   onReset();
                 }}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Reset all filters"
               >
-                <RotateCcw size={15} color={Palette.error} />
+                <RotateCcw size={15} color={Palette.muted} />
                 <Text style={styles.resetBtnText}>Reset</Text>
               </TouchableOpacity>
             ) : null}
@@ -292,9 +294,11 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                 onClose();
               }}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Done, close filters"
             >
               <Check size={16} color={Palette.white} />
-              <Text style={styles.applyBtnText}>Apply Filters</Text>
+              <Text style={styles.applyBtnText}>Done</Text>
             </TouchableOpacity>
           </View>
     </BottomSheetModal>
@@ -405,15 +409,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 14,
-    backgroundColor: '#FDF0ED',
+    backgroundColor: Palette.surfaceSoft,
     borderWidth: 1,
-    borderColor: '#FCD8D8',
+    borderColor: Palette.hairline,
   },
   resetBtnText: {
     ...Typography.body,
     fontSize: 13,
     fontWeight: '600',
-    color: Palette.error,
+    color: Palette.bodyStrong,
   },
   applyBtn: {
     flex: 1,

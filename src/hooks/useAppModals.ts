@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Keyboard } from 'react-native';
 import {
   Wallet,
@@ -13,18 +13,21 @@ import {
 } from '../types';
 import { AlertButton, AlertType } from '../components/CustomAlertModal';
 import { AppHaptics } from '../utils/haptics';
-import { getTodayDateStr } from '../utils/formatters';
+import { getTodayDateStr, getCurrentTimeStr, getTimeStrFromTimestamp } from '../utils/formatters';
 
 export function useAppModals() {
   // Alert dialog state
+  const alertSeq = useRef(0);
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
+    id: string;
     title: string;
     message?: string;
     buttons?: AlertButton[];
     type?: AlertType;
   }>({
     visible: false,
+    id: '',
     title: '',
   });
 
@@ -35,8 +38,10 @@ export function useAppModals() {
       buttons?: AlertButton[],
       type: AlertType = 'info'
     ) => {
+      alertSeq.current += 1;
       setAlertConfig({
         visible: true,
+        id: `alert_${alertSeq.current}`,
         title,
         message,
         buttons: buttons || [{ text: 'OK', style: 'default' }],
@@ -46,8 +51,12 @@ export function useAppModals() {
     []
   );
 
-  const hideAlert = useCallback(() => {
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  // Only close the dialog that is actually on screen; a chained alert stays open
+  const hideAlert = useCallback((alertId?: string) => {
+    setAlertConfig((prev) => {
+      if (alertId && prev.id !== alertId) return prev;
+      return { ...prev, visible: false };
+    });
   }, []);
 
   // Modal Return State (prevents stacking multiple Modals)
@@ -200,7 +209,6 @@ export function useAppModals() {
     setAdjustPocketAmount('');
     setAdjustPocketTarget(pocket);
   }, []);
-
   const closeAdjustPocketModal = useCallback(() => {
     Keyboard.dismiss();
     setAdjustPocketTarget(null);
@@ -244,6 +252,7 @@ export function useAppModals() {
   const [manCurrency, setManCurrency] = useState<CurrencyType>('IDR');
   const [manMethod, setManMethod] = useState<string>('QRIS');
   const [manDate, setManDate] = useState<string>(() => getTodayDateStr());
+  const [manTime, setManTime] = useState<string>(() => getCurrentTimeStr());
   const [manNotes, setManNotes] = useState<string>('');
 
   const openManualModal = useCallback((activeCurrency: CurrencyType) => {
@@ -257,6 +266,7 @@ export function useAppModals() {
     setManCurrency(activeCurrency);
     setManMethod('QRIS');
     setManDate(getTodayDateStr());
+    setManTime(getCurrentTimeStr());
     setManualTxModalVisible(true);
   }, []);
 
@@ -275,6 +285,8 @@ export function useAppModals() {
     setSelectedPocketId(tx.pocketId || '');
     const dStr = tx.timestamp ? tx.timestamp.split('T')[0] : getTodayDateStr();
     setManDate(dStr);
+    // Keep the original time of day so editing never silently rewrites it
+    setManTime(getTimeStrFromTimestamp(tx.timestamp));
     setTimeout(() => {
       setManualTxModalVisible(true);
     }, 220);
@@ -294,6 +306,7 @@ export function useAppModals() {
     setSelectedWalletId(tx.walletId);
     setSelectedPocketId(tx.pocketId || '');
     setManDate(getTodayDateStr());
+    setManTime(getCurrentTimeStr());
     setTimeout(() => {
       setManualTxModalVisible(true);
     }, 220);
@@ -307,6 +320,7 @@ export function useAppModals() {
     setManAmount('');
     setManNotes('');
     setManDate(getTodayDateStr());
+    setManTime(getCurrentTimeStr());
   }, []);
 
   // Review Scanned Receipt Modal
@@ -381,6 +395,7 @@ export function useAppModals() {
     closeAddPocketModal,
     adjustPocketTarget,
     adjustPocketMode,
+    setAdjustPocketMode,
     adjustPocketAmount,
     setAdjustPocketAmount,
     openAdjustPocketFromDetail,
@@ -415,6 +430,8 @@ export function useAppModals() {
     setManMethod,
     manDate,
     setManDate,
+    manTime,
+    setManTime,
     manNotes,
     setManNotes,
     openManualModal,

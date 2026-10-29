@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { Plus, Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
@@ -28,7 +29,7 @@ interface CategoryManagerModalProps {
   onToggleAddForm: (show: boolean) => void;
   onChangeName: (name: string) => void;
   onChangeIcon: (icon: string) => void;
-  onCreateCategory: () => void;
+  onCreateCategory: () => void | Promise<void>;
   onSelectCategory: (cat: Category) => void;
   onDeleteCategory: (id: string, name: string) => void;
   onClose: () => void;
@@ -51,8 +52,19 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   onClose,
 }) => {
   const [selectedGroupKey, setSelectedGroupKey] = React.useState<string>('all');
+  const [saving, setSaving] = React.useState<boolean>(false);
   const filteredCategories = categories.filter((c) => c.type === activeType);
   const activeTint = activeType === 'expense' ? Palette.primary : Palette.accentTeal;
+
+  const submit = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onCreateCategory();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const displayedIcons = React.useMemo(() => {
     if (selectedGroupKey === 'all') return AVAILABLE_ICONS;
@@ -252,11 +264,23 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       <Text style={styles.cancelText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.saveBtn, { backgroundColor: activeTint }]}
-                      onPress={onCreateCategory}
+                      style={[styles.saveBtn, { backgroundColor: activeTint }, saving && { opacity: 0.7 }]}
+                      onPress={submit}
+                      disabled={saving}
+                      accessibilityRole="button"
+                      accessibilityLabel="Save category"
                     >
-                      <Check size={16} color={Palette.white} style={{ marginRight: 6 }} />
-                      <Text style={styles.saveText}>Save Category</Text>
+                      {saving ? (
+                        <>
+                          <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 6 }} />
+                          <Text style={styles.saveText}>Saving...</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Check size={16} color={Palette.white} style={{ marginRight: 6 }} />
+                          <Text style={styles.saveText}>Save Category</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>

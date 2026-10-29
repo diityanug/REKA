@@ -12,7 +12,7 @@ interface BottomTabBarProps {
   bottomInset: number;
 }
 
-export const BottomTabBar: React.FC<BottomTabBarProps> = ({
+export const BottomTabBar = React.memo<BottomTabBarProps>(({
   activeTab,
   onSelectTab,
   onOpenManualTransaction,
@@ -28,6 +28,9 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
             onSelectTab('overview');
           }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Overview"
+          accessibilityState={{ selected: activeTab === 'overview' }}
         >
           <Layers
             size={20}
@@ -38,6 +41,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               styles.navTabLabel,
               activeTab === 'overview' && styles.navTabLabelActive,
             ]}
+            numberOfLines={1}
           >
             Overview
           </Text>
@@ -50,6 +54,9 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
             onSelectTab('accounts');
           }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Accounts"
+          accessibilityState={{ selected: activeTab === 'accounts' }}
         >
           <CreditCard
             size={20}
@@ -60,6 +67,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               styles.navTabLabel,
               activeTab === 'accounts' && styles.navTabLabelActive,
             ]}
+            numberOfLines={1}
           >
             Accounts
           </Text>
@@ -73,6 +81,8 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
             onOpenManualTransaction();
           }}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Add transaction"
         >
           <Plus size={24} color={Palette.white} strokeWidth={2.5} />
         </TouchableOpacity>
@@ -84,6 +94,9 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
             onSelectTab('history');
           }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="History"
+          accessibilityState={{ selected: activeTab === 'history' }}
         >
           <Receipt
             size={20}
@@ -94,6 +107,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               styles.navTabLabel,
               activeTab === 'history' && styles.navTabLabelActive,
             ]}
+            numberOfLines={1}
           >
             History
           </Text>
@@ -106,6 +120,9 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
             onSelectTab('analytics');
           }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Analytics"
+          accessibilityState={{ selected: activeTab === 'analytics' }}
         >
           <TrendingUp
             size={20}
@@ -116,6 +133,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
               styles.navTabLabel,
               activeTab === 'analytics' && styles.navTabLabelActive,
             ]}
+            numberOfLines={1}
           >
             Analytics
           </Text>
@@ -123,7 +141,9 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
       </View>
     </View>
   );
-};
+});
+
+BottomTabBar.displayName = 'BottomTabBar';
 
 const styles = StyleSheet.create({
   navBarWrapper: {
@@ -168,9 +188,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   centerActionBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: Palette.primary,
     alignItems: 'center',
     justifyContent: 'center',

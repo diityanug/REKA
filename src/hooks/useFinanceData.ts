@@ -35,9 +35,14 @@ import {
   exportTransactionsCSV,
   importAllData,
   wipeAllData,
+  hasPreRestoreSnapshot,
+  restorePreRestoreSnapshot,
+  getSetting,
+  setSetting,
+  InsufficientFundsError,
 } from '../services/database';
 import { AppHaptics } from '../utils/haptics';
-import { parseAmount } from '../utils/formatters';
+import { parseAmount, formatCurrency } from '../utils/formatters';
 import { getUniqueEntityColor } from '../utils/colors';
 
 interface UseFinanceDataProps {
@@ -73,6 +78,15 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   }, []);
   const [selectedMonth, setSelectedMonth] = useState<string>(() => currentMonthKey);
 
+  // Budgets always belong to exactly one calendar month (never "all")
+  const budgetMonthKey = useMemo(
+    () => (selectedMonth === 'all' ? currentMonthKey : selectedMonth),
+    [selectedMonth, currentMonthKey]
+  );
+
+  // Last exchange rate used for cross-currency transfers
+  const [exchangeRate, setExchangeRate] = useState<number>(16000);
+
   // Synchronous allocation plans & monthly budget matching active currency (0ms lag, zero flicker)
   const allocationPlans = useMemo(() => {
     return allocationPlansMap[activeCurrency] || [];
@@ -99,8 +113,8 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         getPockets(),
         getTransactions(),
         getCategories(),
-        getMonthlyBudget('IDR', selectedMonth),
-        getMonthlyBudget('USD', selectedMonth),
+        getMonthlyBudget('IDR', budgetMonthKey),
+        getMonthlyBudget('USD', budgetMonthKey),
         getAllocationPlans('IDR'),
         getAllocationPlans('USD'),
       ]);
@@ -110,13 +124,17 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       setCategories(catList);
       setMonthlyBudgetsMap({ IDR: idrBudget, USD: usdBudget });
       setAllocationPlansMap({ IDR: idrPlans, USD: usdPlans });
+      const storedRate = Number(await getSetting('usd_idr_rate', '16000'));
+      if (isFinite(storedRate) && storedRate > 0) {
+        setExchangeRate(storedRate);
+      }
     } catch (err: any) {
       showAlert('Database Error', err.message || 'Failed to load database.', undefined, 'error');
     } finally {
       setLoading(false);
       setInitialAppReady(true);
     }
-  }, [selectedMonth, showAlert]);
+  }, [budgetMonthKey, showAlert]);
 
   const isInitialMount = useRef(true);
   useEffect(() => {
@@ -126,15 +144,15 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     } else {
       // Month changed: reload budgets for IDR & USD without touching wallets or tx
       Promise.all([
-        getMonthlyBudget('IDR', selectedMonth),
-        getMonthlyBudget('USD', selectedMonth),
+        getMonthlyBudget('IDR', budgetMonthKey),
+        getMonthlyBudget('USD', budgetMonthKey),
       ])
         .then(([idrB, usdB]) => {
           setMonthlyBudgetsMap({ IDR: idrB, USD: usdB });
         })
         .catch((err) => console.warn('Failed to update month budgets:', err));
     }
-  }, [selectedMonth, loadData]);
+  }, [budgetMonthKey, loadData]);
 
   // Active currency wallets & total balance
   const currencyWallets = useMemo(() => {
@@ -148,6 +166,19 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const positiveLiquidityTotal = useMemo(() => {
     return currencyWallets.reduce((acc, w) => acc + Math.max(w.balance, 0), 0);
   }, [currencyWallets]);
+
+  // Funds in an account that have not been assigned to a pocket yet
+  const getUnallocated = useCallback(
+    (walletId: string): number => {
+      const wallet = wallets.find((w) => w.id === walletId);
+      if (!wallet) return 0;
+      const allocated = pockets
+        .filter((p) => p.walletId === walletId)
+        .reduce((acc, p) => acc + p.balance, 0);
+      return Math.max(wallet.balance - allocated, 0);
+    },
+    [wallets, pockets]
+  );
 
   // 7-Day Cash Flow Bar Chart data
   const last7DaysFlow = useMemo(() => {
@@ -166,6 +197,8 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     transactions
       .filter((tx) => tx.currency === activeCurrency)
       .forEach((tx) => {
+        // Internal transfers move money between accounts, they are not real cash flow
+        if (tx.category === 'Transfer' || tx.transferPairId) return;
         const dt = new Date(tx.timestamp);
         if (isNaN(dt.getTime())) return;
         const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
@@ -321,9 +354,28 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   };
 
   const handleDeleteAccount = (wallet: Wallet, onDeleted?: () => void) => {
+    if (wallets.length <= 1) {
+      showAlert(
+        'Cannot Delete Account',
+        'This is your only account. Create another account first so the app always has somewhere to record transactions.',
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    const txCount = transactions.filter((t) => t.walletId === wallet.id).length;
+    const pocketCount = pockets.filter((p) => p.walletId === wallet.id).length;
+    const detailParts = [
+      txCount > 0 ? `${txCount} transaction${txCount === 1 ? '' : 's'}` : '',
+      pocketCount > 0 ? `${pocketCount} pocket${pocketCount === 1 ? '' : 's'}` : '',
+    ].filter(Boolean);
+
     showAlert(
       'Delete Account',
-      `Remove "${wallet.name}" and its linked records from this device?`,
+      detailParts.length > 0
+        ? `Removing "${wallet.name}" will also permanently delete ${detailParts.join(' and ')}. This cannot be undone.`
+        : `Remove "${wallet.name}" from this device? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -378,6 +430,17 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     const initialBal = isNaN(parsedBal) ? 0 : parsedBal;
     const targetAmt = isNaN(parsedTarget) ? 0 : parsedTarget;
 
+    const unallocated = getUnallocated(params.walletId);
+    if (initialBal > unallocated + 0.005) {
+      showAlert(
+        'Not Enough Funds',
+        `Only ${formatCurrency(unallocated, pCurrency)} is available in this account. Your starting balance cannot exceed that amount.`,
+        undefined,
+        'warning'
+      );
+      throw new Error('Starting balance exceeds available funds');
+    }
+
     const usedColors = [...wallets.map((w) => w.color), ...pockets.map((p) => p.color)];
     const assignedColor = getUniqueEntityColor(usedColors);
 
@@ -413,13 +476,34 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     targetPocket: Pocket,
     mode: 'allocate' | 'release',
     amountStr: string
-  ) => {
+  ): Promise<boolean> => {
     const parentWallet = wallets.find((w) => w.id === targetPocket.walletId);
     const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
     const amt = parseAmount(amountStr, pCurrency);
     if (isNaN(amt) || amt <= 0) {
       showAlert('Invalid Amount', 'Please enter a valid amount.', undefined, 'warning');
-      return;
+      return false;
+    }
+
+    if (mode === 'allocate') {
+      const unallocated = getUnallocated(targetPocket.walletId);
+      if (amt > unallocated + 0.005) {
+        showAlert(
+          'Not Enough Funds',
+          `Only ${formatCurrency(unallocated, pCurrency)} is available to allocate from this account.`,
+          undefined,
+          'warning'
+        );
+        return false;
+      }
+    } else if (amt > targetPocket.balance + 0.005) {
+      showAlert(
+        'Not Enough Funds',
+        `You can release at most ${formatCurrency(targetPocket.balance, pCurrency)} from this pocket.`,
+        undefined,
+        'warning'
+      );
+      return false;
     }
 
     try {
@@ -427,8 +511,19 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       await adjustPocketBalance(targetPocket.id, delta);
       await loadData();
       AppHaptics.success();
+      return true;
     } catch (err: any) {
-      showAlert('Error', err.message || 'Could not update pocket balance.', undefined, 'error');
+      if (err instanceof InsufficientFundsError) {
+        showAlert(
+          'Not Enough Funds',
+          `Only ${formatCurrency(err.available, pCurrency)} is available for this action.`,
+          undefined,
+          'warning'
+        );
+      } else {
+        showAlert('Error', err.message || 'Could not update pocket balance.', undefined, 'error');
+      }
+      return false;
     }
   };
 
@@ -460,11 +555,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     name: string;
     type: TransactionType;
     icon: string;
-  }) => {
+  }): Promise<boolean> => {
     const trimmed = params.name.trim();
     if (!trimmed) {
       showAlert('Missing Name', 'Please enter a category name.', undefined, 'warning');
-      return;
+      return false;
     }
     try {
       await createCategory({
@@ -475,8 +570,10 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       });
       await loadData();
       AppHaptics.success();
+      return true;
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to create category.', undefined, 'error');
+      return false;
     }
   };
 
@@ -517,6 +614,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         currency: activeCurrency,
         notes,
       });
+      if (exchangeRate && exchangeRate > 0) {
+        await handleSaveExchangeRate(exchangeRate);
+      }
       await loadData();
       AppHaptics.success();
     } catch (err: any) {
@@ -562,7 +662,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleSaveBudget = async (amount: number) => {
     try {
       AppHaptics.heavy();
-      await setMonthlyBudget(amount, activeCurrency, selectedMonth);
+      await setMonthlyBudget(amount, activeCurrency, budgetMonthKey);
       setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: amount }));
       AppHaptics.success();
     } catch (err: any) {
@@ -573,11 +673,34 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleRemoveBudget = async () => {
     try {
       AppHaptics.light();
-      await setMonthlyBudget(0, activeCurrency, selectedMonth);
+      await setMonthlyBudget(0, activeCurrency, budgetMonthKey);
       setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: 0 }));
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to remove budget.', undefined, 'error');
     }
+  };
+
+  const handleSaveExchangeRate = async (rate: number) => {
+    if (!isFinite(rate) || rate <= 0 || rate > 1e9) return;
+    setExchangeRate(rate);
+    try {
+      await setSetting('usd_idr_rate', String(rate));
+    } catch {
+      // rate persistence is a convenience, never block a transfer on it
+    }
+  };
+
+  const checkPreRestoreSnapshot = async (): Promise<boolean> => {
+    try {
+      return await hasPreRestoreSnapshot();
+    } catch {
+      return false;
+    }
+  };
+
+  const handleUndoRestore = async () => {
+    await restorePreRestoreSnapshot();
+    await loadData();
   };
 
   const handleSaveAllocationPlan = async (plan: AllocationPlan) => {
@@ -639,9 +762,12 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     setActiveCurrency,
     selectedMonth,
     setSelectedMonth,
+    budgetMonthKey,
+    exchangeRate,
     currencyWallets,
     totalBalance,
     positiveLiquidityTotal,
+    getUnallocated,
     last7DaysFlow,
     availableMonths,
     availableExpenseCategories,
@@ -665,6 +791,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleDeleteTransaction,
     handleSaveBudget,
     handleRemoveBudget,
+    handleSaveExchangeRate,
+    checkPreRestoreSnapshot,
+    handleUndoRestore,
     handleSaveAllocationPlan,
     handleDeleteAllocationPlan,
     handleExportBackup,

@@ -82,10 +82,23 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   });
 
   const handleBackdropPress = () => {
-    if (dismissOnBackdropPress) {
+    if (!dismissOnBackdropPress) return;
+    // While typing, a tap outside should only dismiss the keyboard,
+    // otherwise a stray tap would discard a half-filled form.
+    if (Keyboard.isVisible && Keyboard.isVisible()) {
       Keyboard.dismiss();
-      onClose();
+      return;
     }
+    Keyboard.dismiss();
+    onClose();
+  };
+
+  const handleRequestClose = () => {
+    if (Keyboard.isVisible && Keyboard.isVisible()) {
+      Keyboard.dismiss();
+      return;
+    }
+    onClose();
   };
 
   return (
@@ -94,7 +107,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
       transparent={true}
       animationType="none"
       statusBarTranslucent={true}
-      onRequestClose={onClose}
+      onRequestClose={handleRequestClose}
     >
       <View
         style={[

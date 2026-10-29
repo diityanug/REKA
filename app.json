@@ -7,10 +7,21 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.aes.finance",
+      "buildNumber": "1",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Allow REKA to use the camera so you can scan a receipt.",
+        "NSPhotoLibraryUsageDescription": "Allow REKA to access your photos so you can import a receipt image."
+      }
     },
     "android": {
       "package": "com.aes.finance",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize",
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#14594A",
         "foregroundImage": "./assets/android-icon-foreground.png",

@@ -7,15 +7,17 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  TouchableOpacity,
 } from 'react-native';
 import { Sparkles, Receipt } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 
 interface ScanningReceiptModalProps {
   visible: boolean;
+  onCancel?: () => void;
 }
 
-export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({ visible }) => {
+export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({ visible, onCancel }) => {
   const pulseAnim = useState(() => new Animated.Value(1))[0];
   const rotateAnim = useState(() => new Animated.Value(0))[0];
 
@@ -72,6 +74,7 @@ export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({ visi
       transparent={true}
       animationType="fade"
       statusBarTranslucent={true}
+      onRequestClose={onCancel}
     >
       <View style={styles.overlay}>
         <View style={styles.card}>
@@ -103,6 +106,18 @@ export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({ visi
             <ActivityIndicator size="small" color={Palette.accentTeal} style={{ marginRight: 8 }} />
             <Text style={styles.indicatorText}>Reading receipt items</Text>
           </View>
+
+          {onCancel ? (
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel receipt scanning"
+              onPress={onCancel}
+            >
+              <Text style={styles.cancelBtnText}>Cancel Scan</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
     </Modal>
@@ -208,6 +223,22 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 12,
     fontWeight: '600',
+    color: Palette.bodyStrong,
+  },
+  cancelBtn: {
+    marginTop: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+  },
+  cancelBtnText: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '700',
     color: Palette.bodyStrong,
   },
 });

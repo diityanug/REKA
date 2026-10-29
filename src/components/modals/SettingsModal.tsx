@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Keyboard,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import {
   Download,
@@ -13,6 +14,8 @@ import {
   AlertTriangle,
   FileSpreadsheet,
   FolderOpen,
+  ShieldCheck,
+  Undo2,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { AppHaptics } from '../../utils/haptics';
@@ -28,6 +31,9 @@ interface SettingsModalProps {
   onExportCSV?: () => Promise<string>;
   onImportBackup: (jsonString: string) => Promise<void>;
   onWipeAllData: () => Promise<void>;
+  canUndoRestore?: boolean;
+  onUndoRestore?: () => Promise<void>;
+  appVersion?: string;
   onClose: () => void;
 }
 
@@ -37,11 +43,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onExportCSV,
   onImportBackup,
   onWipeAllData,
+  canUndoRestore = false,
+  onUndoRestore,
+  appVersion = '1.0.0',
   onClose,
 }) => {
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportingCSV, setExportingCSV] = useState<boolean>(false);
   const [importing, setImporting] = useState<boolean>(false);
+  const [undoing, setUndoing] = useState<boolean>(false);
   const [wiping, setWiping] = useState<boolean>(false);
 
   // Custom alert dialog state
@@ -56,12 +66,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     title: '',
   });
 
+  // Alerts may chain (step 1 -> step 2). The button handler runs before the
+  // alert closes, so a newer alert must survive that close call.
+  const alertSeq = useRef<number>(0);
+  const renderedSeq = alertSeq.current;
+
   const showAlert = (
     title: string,
     message?: string,
     buttons?: AlertButton[],
     type: AlertType = 'info'
   ) => {
+    alertSeq.current += 1;
     setAlertConfig({
       visible: true,
       title,
@@ -72,10 +88,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const hideAlert = () => {
+    if (alertSeq.current !== renderedSeq) return;
     setAlertConfig((prev) => ({ ...prev, visible: false }));
   };
 
+  // Shared outcome handling for every file export path.
+  const reportExportResult = (
+    result: { success: boolean; cancelled?: boolean },
+    kind: 'backup' | 'ledger',
+    filename: string
+  ) => {
+    const label = kind === 'backup' ? 'Backup' : 'Ledger';
+    if (result.cancelled) {
+      showAlert('Export Cancelled', 'No file was created.', undefined, 'info');
+      return;
+    }
+    if (!result.success) {
+      showAlert(
+        'Export Failed',
+        `The ${kind === 'backup' ? 'backup' : 'CSV'} file could not be saved to your device.`,
+        undefined,
+        'error'
+      );
+      return;
+    }
+
+    AppHaptics.success();
+    if (Platform.OS === 'ios') {
+      // iOS hands the file to the system share sheet; the user still picks the destination.
+      showAlert(
+        `${label} Ready`,
+        `${label} ready — choose where to save it in the share sheet.`,
+        undefined,
+        'success'
+      );
+    } else {
+      showAlert(
+        `${label} Saved`,
+        `Your ${kind === 'backup' ? 'backup' : 'CSV'} file "${filename}" has been saved successfully.`,
+        undefined,
+        'success'
+      );
+    }
+  };
+
   const handleExport = async () => {
+    if (exporting) return;
     Keyboard.dismiss();
     setExporting(true);
     try {
@@ -85,25 +143,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const filename = `REKA_backup_${dateStr}.json`;
 
       const result = await saveTextFileDirectly(filename, jsonBackup, 'application/json');
-      if (result.success) {
-        AppHaptics.success();
-        showAlert(
-          'Backup Saved',
-          `Your backup file "${filename}" has been saved successfully to your selected folder.`,
-          undefined,
-          'success'
-        );
-      }
+      reportExportResult(result, 'backup', filename);
     } catch (err: any) {
       AppHaptics.error();
-      showAlert('Export Error', err.message || 'Failed to export backup.', undefined, 'error');
+      showAlert('Export Failed', err.message || 'Failed to export backup.', undefined, 'error');
     } finally {
       setExporting(false);
     }
   };
 
   const handleExportCSV = async () => {
-    if (!onExportCSV) return;
+    if (exportingCSV || !onExportCSV) return;
     Keyboard.dismiss();
     setExportingCSV(true);
     try {
@@ -113,18 +163,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       const filename = `REKA_ledger_${dateStr}.csv`;
 
       const result = await saveTextFileDirectly(filename, csvData, 'text/csv');
-      if (result.success) {
-        AppHaptics.success();
-        showAlert(
-          'Ledger Exported',
-          `Your CSV file "${filename}" has been saved successfully.`,
-          undefined,
-          'success'
-        );
-      }
+      reportExportResult(result, 'ledger', filename);
     } catch (err: any) {
       AppHaptics.error();
-      showAlert('CSV Export Error', err.message || 'Failed to export CSV ledger.', undefined, 'error');
+      showAlert('Export Failed', err.message || 'Failed to export CSV ledger.', undefined, 'error');
     } finally {
       setExportingCSV(false);
     }
@@ -178,24 +220,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleWipeData = () => {
+  const handleUndoRestore = () => {
+    if (!onUndoRestore || undoing) return;
     Keyboard.dismiss();
     showAlert(
-      'Wipe All Data',
-      'This will permanently delete all transactions, accounts, and pockets. This action cannot be undone.',
+      'Undo Last Restore',
+      'Restore the data that existed before your last restore?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Wipe Everything',
+          text: 'Undo Restore',
           style: 'destructive',
           onPress: async () => {
-            setWiping(true);
+            setUndoing(true);
             try {
-              await onWipeAllData();
-              AppHaptics.heavy();
+              await onUndoRestore();
+              AppHaptics.success();
               showAlert(
-                'Database Reset',
-                'All data has been cleared successfully.',
+                'Restore Undone',
+                'The data from before your last restore is back.',
                 [
                   {
                     text: 'OK',
@@ -206,11 +249,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               );
             } catch (err: any) {
               AppHaptics.error();
-              showAlert('Error', err.message || 'Failed to reset database.', undefined, 'error');
+              showAlert('Undo Failed', err.message || 'Could not undo the last restore.', undefined, 'error');
             } finally {
-              setWiping(false);
+              setUndoing(false);
             }
           },
+        },
+      ],
+      'confirm'
+    );
+  };
+
+  const runWipe = async () => {
+    if (wiping) return;
+    setWiping(true);
+    try {
+      await onWipeAllData();
+      AppHaptics.heavy();
+      showAlert(
+        'Database Reset',
+        'All data has been cleared successfully.',
+        [
+          {
+            text: 'OK',
+            onPress: () => onClose(),
+          },
+        ],
+        'success'
+      );
+    } catch (err: any) {
+      AppHaptics.error();
+      showAlert('Error', err.message || 'Failed to reset database.', undefined, 'error');
+    } finally {
+      setWiping(false);
+    }
+  };
+
+  // Step 1 of the wipe confirmation.
+  const handleWipeData = () => {
+    if (wiping) return;
+    Keyboard.dismiss();
+    showAlert(
+      'Wipe All Data',
+      'This will permanently delete all transactions, accounts, and pockets. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          style: 'destructive',
+          // Step 2: the final, explicit confirmation.
+          onPress: () =>
+            showAlert(
+              'Are you absolutely sure?',
+              'This deletes every account, transaction and pocket on this device.',
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete Everything',
+                  style: 'destructive',
+                  onPress: runWipe,
+                },
+              ],
+              'error'
+            ),
         },
       ],
       'confirm'
@@ -275,6 +376,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </TouchableOpacity>
 
+          {/* Undo the restore that replaced the current data */}
+          {canUndoRestore && onUndoRestore ? (
+            <TouchableOpacity
+              style={[styles.outlineActionBtn, { marginTop: 10 }]}
+              onPress={handleUndoRestore}
+              disabled={undoing}
+              activeOpacity={0.7}
+            >
+              {undoing ? (
+                <ActivityIndicator size="small" color={Palette.primary} />
+              ) : (
+                <>
+                  <Undo2 size={16} color={Palette.primary} />
+                  <Text style={styles.outlineActionBtnText}>Undo Last Restore</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+
           {/* Export CSV / Excel */}
           <TouchableOpacity
             style={[styles.outlineActionBtn, { marginTop: 10 }]}
@@ -291,6 +411,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </>
             )}
           </TouchableOpacity>
+        </View>
+
+        {/* Privacy & Data Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <ShieldCheck size={16} color={Palette.primary} />
+            <Text style={styles.sectionTitle}>Privacy & Data</Text>
+          </View>
+          <Text style={styles.privacyLine}>
+            All records are stored only on this device in a local database. REKA has no server and no account.
+          </Text>
+          <Text style={styles.privacyLine}>
+            Scanning a receipt sends that photo to Google Gemini for text extraction. Manual entry never leaves the device.
+          </Text>
+          <Text style={styles.appVersionLine}>App version {appVersion}</Text>
         </View>
 
         {/* Danger Zone */}
@@ -312,10 +447,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             activeOpacity={0.8}
           >
             {wiping ? (
-              <ActivityIndicator size="small" color={Palette.white} />
+              <ActivityIndicator size="small" color={Palette.error} />
             ) : (
               <>
-                <Trash2 size={16} color={Palette.white} />
+                <Trash2 size={16} color={Palette.error} />
                 <Text style={styles.dangerBtnText}>Wipe All Data</Text>
               </>
             )}
@@ -375,6 +510,19 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 14,
   },
+  privacyLine: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.muted,
+    lineHeight: 18,
+    marginBottom: 8,
+  },
+  appVersionLine: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.mutedSoft,
+    marginTop: 2,
+  },
   outlineActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -392,19 +540,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
+  // Destructive but visually secondary: outlined, not a solid red block.
   dangerBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: Palette.error,
+    backgroundColor: Palette.white,
     paddingVertical: 12,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
   },
   dangerBtnText: {
     ...Typography.body,
     fontSize: 13,
     fontWeight: '600',
-    color: Palette.white,
+    color: Palette.error,
   },
 });

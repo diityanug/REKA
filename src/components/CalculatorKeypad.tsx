@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   TextInputSelectionChangeEvent,
   StyleSheet,
+  Keyboard,
 } from 'react-native';
 import { Delete } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
@@ -28,13 +29,22 @@ interface CalculatorKeypadProps {
   currency: CurrencyType;
   onChangeValue: (val: string) => void;
   showDisplay?: boolean;
+  /** When false, only the amount display is rendered (collapsible keypad). */
+  showKeypad?: boolean;
+  /** Fired when user taps specifically on the amount display card */
+  onPressDisplay?: () => void;
+  /** Fired when user finishes and requests closing/dismissing the keypad */
+  onCloseKeypad?: () => void;
 }
 
-export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
+export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
   value,
   currency,
   onChangeValue,
   showDisplay = true,
+  showKeypad = true,
+  onPressDisplay,
+  onCloseKeypad,
 }) => {
   // Synchronize and sanitize parent value whenever switching currency (e.g. from USD with decimals to IDR)
   useEffect(() => {
@@ -91,7 +101,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
     setIsFocused(true);
   };
 
-  const handleKeyPress = (key: string) => {
+  const handleKeyPress = useCallback((key: string) => {
     isKeypadActionRef.current = true;
     inputRef.current?.focus();
     setIsFocused(true);
@@ -142,9 +152,9 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
 
     onChangeValue(nextExpr);
     setSelection({ start: nextFormattedPos, end: nextFormattedPos });
-  };
+  }, [currentExpr, formattedExpr, selection.start, selection.end, currency, onChangeValue]);
 
-  const handleQuickAdd = (amount: number) => {
+  const handleQuickAdd = useCallback((amount: number) => {
     isKeypadActionRef.current = true;
     inputRef.current?.focus();
     setIsFocused(true);
@@ -160,14 +170,14 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
     const nextFormatted = formatExpressionDisplay(nextStr, currency);
     onChangeValue(nextStr);
     setSelection({ start: nextFormatted.length, end: nextFormatted.length });
-  };
+  }, [currentExpr, currency, onChangeValue]);
 
-  const handlePrefixPress = () => {
+  const handlePrefixPress = useCallback(() => {
     isKeypadActionRef.current = true;
     AppHaptics.selection();
     inputRef.current?.focus();
     setSelection({ start: 0, end: 0 });
-  };
+  }, []);
 
   const decimalOrThousandKey = currency === 'IDR' ? '000' : '.';
 
@@ -181,9 +191,11 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             isFocused && styles.displayCardFocused,
           ]}
           onPress={() => {
+            Keyboard.dismiss();
             inputRef.current?.focus();
             setIsFocused(true);
             setSelection({ start: formattedExpr.length, end: formattedExpr.length });
+            onPressDisplay?.();
           }}
         >
           <View style={styles.displayMainRow}>
@@ -211,6 +223,7 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
                 if (selection.start <= 1 && formattedExpr.length > 1) {
                   setSelection({ start: formattedExpr.length, end: formattedExpr.length });
                 }
+                onPressDisplay?.();
               }}
               onBlur={() => setIsFocused(false)}
               cursorColor={Palette.primary}
@@ -238,12 +251,15 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
         </Pressable>
       ) : null}
 
-      {/* Quick Increment Preset Chips */}
+      {/* Quick Increment Preset Chips (keypad expanded only) */}
+      {showKeypad && (
       <View style={styles.presetsRow}>
         {presets.map((p) => (
           <Pressable
             key={p.label}
             hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel={`Add ${p.amount}`}
             style={({ pressed }) => [
               styles.presetChip,
               pressed && styles.presetChipPressed,
@@ -253,9 +269,29 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
             <Text style={styles.presetChipText}>{p.label}</Text>
           </Pressable>
         ))}
+        {onCloseKeypad ? (
+          <Pressable
+            hitSlop={4}
+            accessibilityRole="button"
+            accessibilityLabel="Done entering amount"
+            style={({ pressed }) => [
+              styles.presetChip,
+              styles.doneChip,
+              pressed && styles.presetChipPressed,
+            ]}
+            onPress={() => {
+              AppHaptics.selection();
+              onCloseKeypad();
+            }}
+          >
+            <Text style={styles.doneChipText}>Done</Text>
+          </Pressable>
+        ) : null}
       </View>
+      )}
 
       {/* 4x4 Calculator Keypad Grid */}
+      {showKeypad && (
       <View style={styles.grid}>
         {/* Row 1 */}
         <View style={styles.row}>
@@ -265,6 +301,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="7"
             onPress={() => handleKeyPress('7')}
           >
             <Text style={styles.digitText}>7</Text>
@@ -275,6 +313,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="8"
             onPress={() => handleKeyPress('8')}
           >
             <Text style={styles.digitText}>8</Text>
@@ -285,6 +325,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="9"
             onPress={() => handleKeyPress('9')}
           >
             <Text style={styles.digitText}>9</Text>
@@ -296,6 +338,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.deleteBtn,
               pressed && styles.funcBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Delete"
             onPress={() => handleKeyPress('⌫')}
           >
             <Delete size={20} color={Palette.muted} />
@@ -310,6 +354,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="4"
             onPress={() => handleKeyPress('4')}
           >
             <Text style={styles.digitText}>4</Text>
@@ -320,6 +366,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="5"
             onPress={() => handleKeyPress('5')}
           >
             <Text style={styles.digitText}>5</Text>
@@ -330,6 +378,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="6"
             onPress={() => handleKeyPress('6')}
           >
             <Text style={styles.digitText}>6</Text>
@@ -341,6 +391,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.opBtn,
               pressed && styles.funcBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Subtract"
             onPress={() => handleKeyPress('-')}
           >
             <Text style={styles.opText}>−</Text>
@@ -355,6 +407,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="1"
             onPress={() => handleKeyPress('1')}
           >
             <Text style={styles.digitText}>1</Text>
@@ -365,6 +419,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="2"
             onPress={() => handleKeyPress('2')}
           >
             <Text style={styles.digitText}>2</Text>
@@ -375,6 +431,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="3"
             onPress={() => handleKeyPress('3')}
           >
             <Text style={styles.digitText}>3</Text>
@@ -386,6 +444,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.opBtn,
               pressed && styles.funcBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Add"
             onPress={() => handleKeyPress('+')}
           >
             <Text style={styles.opText}>+</Text>
@@ -401,6 +461,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.clearBtn,
               pressed && styles.funcBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Clear"
             onPress={() => handleKeyPress('C')}
           >
             <Text style={styles.clearText}>C</Text>
@@ -411,6 +473,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="0"
             onPress={() => handleKeyPress('0')}
           >
             <Text style={styles.digitText}>0</Text>
@@ -421,6 +485,8 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.digitBtn,
               pressed && styles.digitBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel={currency === 'IDR' ? '000' : 'Decimal point'}
             onPress={() => handleKeyPress(decimalOrThousandKey)}
           >
             <Text style={styles.digitText}>{decimalOrThousandKey}</Text>
@@ -432,15 +498,20 @@ export const CalculatorKeypad: React.FC<CalculatorKeypadProps> = ({
               styles.equalBtn,
               pressed && styles.funcBtnPressed,
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Equals"
             onPress={() => handleKeyPress('=')}
           >
             <Text style={styles.equalText}>=</Text>
           </Pressable>
         </View>
       </View>
+      )}
     </View>
   );
-};
+});
+
+CalculatorKeypad.displayName = 'CalculatorKeypad';
 
 const styles = StyleSheet.create({
   container: {
@@ -532,6 +603,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.ink,
+  },
+  doneChip: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  doneChipText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.white,
   },
   grid: {
     gap: 8,

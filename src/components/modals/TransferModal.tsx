@@ -8,11 +8,16 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDown, ArrowLeftRight, ArrowRight } from 'lucide-react-native';
+import { ArrowDown, ArrowLeftRight, ArrowRight, Plus } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
+import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { Wallet, CurrencyType } from '../../types';
-import { formatCurrency, parseAmount } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatCurrencyInput,
+  parseAmount,
+} from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
@@ -21,11 +26,20 @@ import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
 import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
+// Fallback used when the typed exchange rate cannot be applied
+const DEFAULT_EXCHANGE_RATE = 16000;
+const MIN_EXCHANGE_RATE = 1;
+const MAX_EXCHANGE_RATE = 1e9;
+
 interface TransferModalProps {
   visible: boolean;
   wallets: Wallet[];
   activeCurrency: CurrencyType;
   privacyMode: boolean;
+  /** Persisted USD -> IDR rate, seeds the exchange rate input */
+  initialExchangeRate: number;
+  /** Opens the create-account flow when a transfer needs another account */
+  onOpenAddAccount?: () => void;
   onExecuteTransfer: (
     fromWalletId: string,
     toWalletId: string,
@@ -37,22 +51,29 @@ interface TransferModalProps {
   onClose: () => void;
 }
 
-export const TransferModal: React.FC<TransferModalProps> = ({
+export const TransferModal = React.memo<TransferModalProps>(({
   visible,
   wallets,
   activeCurrency,
   privacyMode,
+  initialExchangeRate,
+  onOpenAddAccount,
   onExecuteTransfer,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const footerKeyboardOffset = useFooterKeyboardOffset();
   const eligibleWallets = wallets;
 
   const [fromWalletId, setFromWalletId] = useState<string>('');
   const [toWalletId, setToWalletId] = useState<string>('');
   const [amountStr, setAmountStr] = useState<string>('');
-  const [exchangeRateStr, setExchangeRateStr] = useState<string>('16.000');
+  const [keypadOpen, setKeypadOpen] = useState<boolean>(false);
+  const [exchangeRateStr, setExchangeRateStr] = useState<string>(() =>
+    formatCurrencyInput(String(initialExchangeRate), 'IDR')
+  );
   const [rateModalVisible, setRateModalVisible] = useState<boolean>(false);
+  const [quickPercentHint, setQuickPercentHint] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [alertConfig, setAlertConfig] = useState<{
@@ -88,9 +109,19 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const handleModalClose = () => {
     setAmountStr('');
     setNotes('');
+    setQuickPercentHint('');
     setSubmitting(false);
+    setKeypadOpen(false);
+    // The exchange rate is intentionally kept, it is re-seeded on the next open
     onClose();
   };
+
+  // Re-seed the rate whenever the modal opens or the persisted rate changes
+  useSyncOnChange([visible, initialExchangeRate], () => {
+    if (visible) {
+      setExchangeRateStr(formatCurrencyInput(String(initialExchangeRate), 'IDR'));
+    }
+  });
 
   // Initialize selected accounts whenever modal becomes visible and reset inputs on close
   useSyncOnChange([visible, eligibleWallets], () => {
@@ -109,7 +140,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
     } else {
       setAmountStr('');
       setNotes('');
+      setQuickPercentHint('');
       setSubmitting(false);
+      setKeypadOpen(false);
     }
   });
 
@@ -119,21 +152,50 @@ export const TransferModal: React.FC<TransferModalProps> = ({
   const toCurrency = selectedToWallet ? selectedToWallet.currency : activeCurrency;
   const isCrossCurrency = selectedFromWallet && selectedToWallet && selectedFromWallet.currency !== selectedToWallet.currency;
 
-  const parsedRate = parseAmount(exchangeRateStr, 'IDR') || 16000;
+  const parsedRate = parseAmount(exchangeRateStr, 'IDR');
+  const rateInvalid = parsedRate < MIN_EXCHANGE_RATE || parsedRate > MAX_EXCHANGE_RATE;
+  // Always convert and display the rate that is actually applied
+  const appliedRate = rateInvalid ? DEFAULT_EXCHANGE_RATE : parsedRate;
+  const appliedRateLabel = formatCurrencyInput(String(appliedRate), 'IDR');
   const numericAmount = parseAmount(amountStr, fromCurrency);
 
   let targetAmount = numericAmount;
   if (isCrossCurrency) {
     if (fromCurrency === 'USD' && toCurrency === 'IDR') {
-      targetAmount = Math.round(numericAmount * parsedRate);
+      targetAmount = Math.round(numericAmount * appliedRate);
     } else if (fromCurrency === 'IDR' && toCurrency === 'USD') {
-      targetAmount = Math.round((numericAmount / parsedRate) * 100) / 100;
+      targetAmount = Math.round((numericAmount / appliedRate) * 100) / 100;
     }
   }
 
+  // Non-blocking sanity warning for the USD/IDR pair
+  const isUsdIdrPair =
+    isCrossCurrency &&
+    ((fromCurrency === 'USD' && toCurrency === 'IDR') ||
+      (fromCurrency === 'IDR' && toCurrency === 'USD'));
+  const rateLooksUnusual =
+    isUsdIdrPair &&
+    numericAmount > 0 &&
+    targetAmount > 0 &&
+    (targetAmount > numericAmount * 100 || numericAmount > targetAmount * 100);
+
+  const quickPercentUnavailable = !selectedFromWallet || selectedFromWallet.balance <= 0;
+  const submitDisabled =
+    submitting ||
+    !fromWalletId ||
+    !toWalletId ||
+    fromWalletId === toWalletId ||
+    !(numericAmount > 0) ||
+    (isCrossCurrency && rateInvalid);
+
   const handleQuickPercent = (pct: number) => {
-    if (!selectedFromWallet || selectedFromWallet.balance <= 0) return;
+    if (!selectedFromWallet || selectedFromWallet.balance <= 0) {
+      AppHaptics.error();
+      setQuickPercentHint('No balance available — add funds to this account first.');
+      return;
+    }
     AppHaptics.selection();
+    setQuickPercentHint('');
     const val = fromCurrency === 'IDR'
       ? Math.floor(selectedFromWallet.balance * pct)
       : Math.round(selectedFromWallet.balance * pct * 100) / 100;
@@ -166,10 +228,20 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       return;
     }
 
+    if (isCrossCurrency && rateInvalid) {
+      showAlert(
+        'Invalid Exchange Rate',
+        'Enter an exchange rate between Rp 1 and Rp 1.000.000.000.',
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
     if (selectedFromWallet && selectedFromWallet.balance < numericAmount) {
       showAlert(
         'Insufficient Balance',
-        `The source account only has ${formatCurrency(selectedFromWallet.balance, fromCurrency, false)}.`,
+        `The source account only has ${formatCurrency(selectedFromWallet.balance, fromCurrency, privacyMode)}.`,
         undefined,
         'warning'
       );
@@ -185,7 +257,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         numericAmount,
         notes,
         isCrossCurrency ? targetAmount : undefined,
-        isCrossCurrency ? parsedRate : undefined
+        isCrossCurrency ? appliedRate : undefined
       );
       setAmountStr('');
       setNotes('');
@@ -221,6 +293,21 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                 <Text style={styles.noticeDesc}>
                   You need at least two accounts to perform a transfer.
                 </Text>
+                {onOpenAddAccount ? (
+                  <TouchableOpacity
+                    style={styles.noticeActionBtn}
+                    onPress={() => {
+                      AppHaptics.light();
+                      onOpenAddAccount();
+                    }}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Create Account"
+                  >
+                    <Plus size={16} color={Palette.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.noticeActionBtnText}>Create Account</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             ) : (
               <>
@@ -248,6 +335,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                             }
                           }}
                           activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`From account ${w.name}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
+                          accessibilityState={{ selected: isSelected }}
                         >
                           <View style={styles.chipTopRow}>
                             <Text
@@ -325,6 +415,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                             setToWalletId(w.id);
                           }}
                           activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`To account ${w.name}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
+                          accessibilityState={{ selected: isSelected, disabled: isSource }}
                         >
                           <View style={styles.chipTopRow}>
                             <Text
@@ -384,16 +477,33 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                           Keyboard.dismiss();
                           setRateModalVisible(true);
                         }}
+                        disabled={submitting}
                         activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Exchange rate, 1 USD equals ${appliedRateLabel} Rupiah. Tap to edit.`}
                       >
                         <View style={styles.fxRatePrefixTag}>
                           <Text style={styles.fxRatePrefixText}>Rp</Text>
                         </View>
-                        <Text style={styles.fxRatePickerValue}>
-                          {exchangeRateStr || '16.000'}
-                        </Text>
+                        <Text style={styles.fxRatePickerValue}>{appliedRateLabel}</Text>
                       </TouchableOpacity>
                     </View>
+
+                    <Text style={styles.fxRateHelper}>
+                      Rate: 1 USD = Rp {appliedRateLabel}
+                    </Text>
+
+                    {rateInvalid ? (
+                      <Text style={styles.fxRateError}>
+                        Enter a valid rate between Rp 1 and Rp 1.000.000.000.
+                      </Text>
+                    ) : null}
+
+                    {rateLooksUnusual ? (
+                      <Text style={styles.fxRateWarning}>
+                        This rate looks unusual — double-check it.
+                      </Text>
+                    ) : null}
 
                     <View style={styles.fxSummaryBox}>
                       <View style={styles.fxSummaryCol}>
@@ -422,30 +532,58 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                   {/* Quick percentage chips */}
                   <View style={styles.quickPercentRow}>
                     <TouchableOpacity
-                      style={styles.quickPercentBtn}
+                      style={[
+                        styles.quickPercentBtn,
+                        quickPercentUnavailable && styles.quickPercentBtnDimmed,
+                      ]}
                       onPress={() => handleQuickPercent(0.25)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Use 25 percent of balance"
+                      accessibilityState={{ selected: false, disabled: quickPercentUnavailable }}
                     >
                       <Text style={styles.quickPercentText}>25%</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.quickPercentBtn}
+                      style={[
+                        styles.quickPercentBtn,
+                        quickPercentUnavailable && styles.quickPercentBtnDimmed,
+                      ]}
                       onPress={() => handleQuickPercent(0.5)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Use 50 percent of balance"
+                      accessibilityState={{ selected: false, disabled: quickPercentUnavailable }}
                     >
                       <Text style={styles.quickPercentText}>50%</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.quickPercentBtn}
+                      style={[
+                        styles.quickPercentBtn,
+                        quickPercentUnavailable && styles.quickPercentBtnDimmed,
+                      ]}
                       onPress={() => handleQuickPercent(1.0)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Use all available balance"
+                      accessibilityState={{ selected: false, disabled: quickPercentUnavailable }}
                     >
                       <Text style={styles.quickPercentText}>All Balance</Text>
                     </TouchableOpacity>
                   </View>
+
+                  {quickPercentHint ? (
+                    <Text style={styles.quickPercentHint}>{quickPercentHint}</Text>
+                  ) : null}
 
                   <CalculatorKeypad
                     value={amountStr}
                     currency={fromCurrency}
                     onChangeValue={setAmountStr}
                     showDisplay={true}
+                    showKeypad={keypadOpen}
+                    onPressDisplay={() => {
+                      Keyboard.dismiss();
+                      setKeypadOpen(true);
+                    }}
+                    onCloseKeypad={() => setKeypadOpen(false)}
                   />
                 </View>
 
@@ -458,6 +596,7 @@ export const TransferModal: React.FC<TransferModalProps> = ({
                     placeholderTextColor={Palette.mutedSoft}
                     value={notes}
                     onChangeText={setNotes}
+                    onFocus={() => setKeypadOpen(false)}
                     maxLength={100}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
@@ -469,15 +608,25 @@ export const TransferModal: React.FC<TransferModalProps> = ({
 
           {/* Sticky Bottom Action */}
           {eligibleWallets.length >= 2 && (
-            <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View
+              style={[
+                styles.stickyFooter,
+                {
+                  paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
+                },
+              ]}
+            >
               <TouchableOpacity
                 style={[
                   styles.confirmBtn,
-                  submitting && { opacity: 0.7 },
+                  submitDisabled && styles.confirmBtnDisabled,
                 ]}
                 onPress={handleSubmit}
-                disabled={submitting}
+                disabled={submitDisabled}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Transfer funds"
+                accessibilityState={{ disabled: submitDisabled, busy: submitting }}
               >
                 <ArrowLeftRight size={18} color={Palette.white} style={{ marginRight: 8 }} />
                 <Text style={styles.confirmBtnText}>
@@ -491,10 +640,12 @@ export const TransferModal: React.FC<TransferModalProps> = ({
         visible={rateModalVisible}
         title="Set Exchange Rate"
         subtitle="1 USD equivalent in IDR"
-        initialAmount={exchangeRateStr}
+        initialAmount={appliedRateLabel}
         currency="IDR"
+        allowZero={false}
         onConfirm={(formatted) => {
-          setExchangeRateStr(formatted && formatted !== '0' ? formatted : '16.000');
+          // Keep the raw input so an unreadable rate surfaces the inline error
+          setExchangeRateStr(formatted);
           setRateModalVisible(false);
         }}
         onClose={() => setRateModalVisible(false)}
@@ -510,7 +661,9 @@ export const TransferModal: React.FC<TransferModalProps> = ({
       />
     </BottomSheetModal>
   );
-};
+});
+
+TransferModal.displayName = 'TransferModal';
 
 const styles = StyleSheet.create({
   modalOverlay: {
@@ -572,6 +725,7 @@ const styles = StyleSheet.create({
   accountChip: {
     flex: 1,
     minWidth: '47%',
+    minHeight: 44,
     padding: 12,
     borderRadius: 14,
     backgroundColor: Palette.surfaceSoft,
@@ -704,6 +858,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
+  fxRateHelper: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: -6,
+    marginBottom: 10,
+  },
+  fxRateError: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.error,
+    marginTop: -6,
+    marginBottom: 10,
+  },
+  fxRateWarning: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.accentAmber,
+    marginTop: -6,
+    marginBottom: 10,
+  },
   fxSummaryBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -773,12 +950,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: Palette.hairline,
+    minHeight: 36,
+    justifyContent: 'center',
+  },
+  quickPercentBtnDimmed: {
+    opacity: 0.5,
   },
   quickPercentText: {
     ...Typography.caption,
     fontSize: 12,
     fontWeight: '600',
     color: Palette.ink,
+  },
+  quickPercentHint: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.error,
+    marginTop: 6,
   },
   textInputBox: {
     ...Typography.body,
@@ -814,6 +1002,24 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 18,
   },
+  noticeActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderRadius: 12,
+    marginTop: 16,
+    minHeight: 44,
+    alignSelf: 'stretch',
+  },
+  noticeActionBtnText: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Palette.white,
+  },
   stickyFooter: {
     paddingHorizontal: 20,
     paddingTop: 12,
@@ -828,6 +1034,10 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.ink,
     paddingVertical: 13,
     borderRadius: 14,
+    minHeight: 44,
+  },
+  confirmBtnDisabled: {
+    opacity: 0.45,
   },
   confirmBtnText: {
     ...Typography.body,

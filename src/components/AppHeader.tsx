@@ -13,7 +13,7 @@ interface AppHeaderProps {
   onOpenSettings?: () => void;
 }
 
-export const AppHeader: React.FC<AppHeaderProps> = ({
+export const AppHeader = React.memo<AppHeaderProps>(({
   activeCurrency,
   privacyMode,
   onCurrencyChange,
@@ -49,6 +49,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onCurrencyChange('IDR');
             }}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Show IDR"
+            accessibilityState={{ selected: activeCurrency === 'IDR' }}
           >
             <Text
               style={[
@@ -69,6 +72,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onCurrencyChange('USD');
             }}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Show USD"
+            accessibilityState={{ selected: activeCurrency === 'USD' }}
           >
             <Text
               style={[
@@ -88,6 +94,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             onTogglePrivacy();
           }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={privacyMode ? 'Show amounts' : 'Hide amounts'}
+          accessibilityState={{ selected: privacyMode }}
         >
           {privacyMode ? (
             <EyeOff size={16} color={Palette.muted} />
@@ -104,6 +113,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               onOpenSettings();
             }}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Open settings"
           >
             <Settings size={16} color={Palette.muted} />
           </TouchableOpacity>
@@ -111,7 +122,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       </View>
     </View>
   );
-};
+});
+
+AppHeader.displayName = 'AppHeader';
 
 const styles = StyleSheet.create({
   appBar: {
@@ -181,8 +194,8 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
   },
   currencyBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
     borderRadius: 12,
   },
   currencyBtnActive: {
@@ -195,7 +208,7 @@ const styles = StyleSheet.create({
   },
   currencyBtnText: {
     ...Typography.caption,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '600',
     color: Palette.muted,
   },
@@ -203,9 +216,9 @@ const styles = StyleSheet.create({
     color: Palette.ink,
   },
   actionIconBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: Palette.surfaceSoft,
     alignItems: 'center',
     justifyContent: 'center',

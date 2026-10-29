@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Plus, CreditCard, Layers, ArrowUpDown } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
@@ -22,7 +22,7 @@ interface AccountsTabProps {
   onEditAllocationPlan: (plan: AllocationPlan) => void;
 }
 
-export const AccountsTab: React.FC<AccountsTabProps> = ({
+export const AccountsTab = React.memo<AccountsTabProps>(({
   wallets,
   pockets,
   activeCurrency,
@@ -36,7 +36,21 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
   onCreateAllocationPlan,
   onEditAllocationPlan,
 }) => {
-  const currencyWallets = wallets.filter((w) => w.currency === activeCurrency);
+  const currencyWallets = useMemo<Wallet[]>(
+    () => wallets.filter((w) => w.currency === activeCurrency),
+    [wallets, activeCurrency]
+  );
+
+  // Single source of truth for both the stacked bar and the legend
+  const shareOf = (w: Wallet): number =>
+    positiveLiquidityTotal > 0 && w.balance > 0
+      ? (w.balance / positiveLiquidityTotal) * 100
+      : 0;
+  const totalShare = currencyWallets.reduce((sum, w) => sum + shareOf(w), 0);
+  const hasLiquidity = totalShare > 0;
+
+  const formatShare = (share: number): string =>
+    share < 1 ? `${share.toFixed(1)}%` : `${share.toFixed(0)}%`;
 
   return (
     <View>
@@ -44,59 +58,44 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
         <Text style={styles.bannerTitle}>Accounts</Text>
       </View>
 
-      {/* Liquidity Allocation Card */}
+      {/* Liquidity Allocation Card (only when the active currency has accounts) */}
       {currencyWallets.length > 0 ? (
         <View style={styles.allocationCard}>
           <Text style={styles.allocationCardLabel}>
             Liquidity Allocation ({activeCurrency})
           </Text>
           <View style={styles.stackedBarTrack}>
-            {currencyWallets.map((w) => {
-              const share =
-                positiveLiquidityTotal > 0 && w.balance > 0
-                  ? (w.balance / positiveLiquidityTotal) * 100
-                  : 100 / currencyWallets.length;
-              return (
-                <View
-                  key={w.id}
-                  style={[
-                    styles.stackedBarSegment,
-                    {
-                      flex: Math.max(share, 5),
-                      backgroundColor: w.color,
-                    },
-                  ]}
-                />
-              );
-            })}
+            {hasLiquidity
+              ? currencyWallets.map((w) => {
+                  const share = shareOf(w);
+                  if (share <= 0) return null;
+                  return (
+                    <View
+                      key={w.id}
+                      style={[
+                        styles.stackedBarSegment,
+                        { flex: share, backgroundColor: w.color },
+                      ]}
+                    />
+                  );
+                })
+              : null}
           </View>
           <View style={styles.allocationLegendWrap}>
             {currencyWallets.map((w) => {
-              const share =
-                positiveLiquidityTotal > 0 && w.balance > 0
-                  ? (w.balance / positiveLiquidityTotal) * 100
-                  : 0;
+              const share = shareOf(w);
               return (
                 <View key={w.id} style={styles.legendItem}>
                   <View style={[styles.legendDot, { backgroundColor: w.color }]} />
-                  <Text style={styles.legendText}>
-                    {w.name} ({share.toFixed(0)}%)
+                  <Text style={styles.legendText} numberOfLines={1}>
+                    {w.name} {hasLiquidity ? `(${formatShare(share)})` : '· No balance yet'}
                   </Text>
                 </View>
               );
             })}
           </View>
         </View>
-      ) : (
-        <View style={styles.emptyAllocationCard}>
-          <Text style={styles.allocationCardLabel}>
-            Liquidity Allocation ({activeCurrency})
-          </Text>
-          <Text style={styles.emptyAllocationText}>
-            No active {activeCurrency} accounts found.
-          </Text>
-        </View>
-      )}
+      ) : null}
 
       {/* Allocation Plans Section */}
       <View style={styles.sectionHeaderRow}>
@@ -152,39 +151,58 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
         </View>
       )}
 
-      {/* Add New Account & Manage Order Row */}
-      <View style={styles.actionButtonGroup}>
-        <TouchableOpacity
-          style={styles.addAccountBtn}
-          onPress={onOpenAddAccount}
-          activeOpacity={0.85}
-        >
-          <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-          <Text style={styles.addAccountBtnText}>Add New Account</Text>
-        </TouchableOpacity>
-
-        {wallets.length > 1 && onOpenManageOrder && (
+      {/* Add New Account & Manage Order Row (hidden when the empty state owns the CTA) */}
+      {currencyWallets.length > 0 ? (
+        <View style={styles.actionButtonGroup}>
           <TouchableOpacity
-            style={styles.manageOrderBtn}
-            onPress={() => {
-              AppHaptics.light();
-              onOpenManageOrder();
-            }}
-            activeOpacity={0.8}
+            style={styles.addAccountBtn}
+            onPress={onOpenAddAccount}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Add new account"
           >
-            <ArrowUpDown size={16} color={Palette.ink} />
+            <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
+            <Text style={styles.addAccountBtnText}>Add New Account</Text>
           </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Wallets List */}
+          {currencyWallets.length > 1 && onOpenManageOrder ? (
+            <TouchableOpacity
+              style={styles.manageOrderBtn}
+              onPress={() => {
+                AppHaptics.light();
+                onOpenManageOrder();
+              }}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Reorder accounts"
+            >
+              <ArrowUpDown size={16} color={Palette.ink} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* Wallets List — single empty state with one CTA */}
       {currencyWallets.length === 0 ? (
         <View style={styles.emptyCard}>
           <CreditCard size={36} color={Palette.mutedSoft} />
           <Text style={styles.emptyTitle}>No {activeCurrency} accounts yet</Text>
           <Text style={styles.emptyDesc}>
-            Tap &quot;Add New Account&quot; above to create your first {activeCurrency} bank or cash vault.
+            Create your first {activeCurrency} bank, cash, or e-wallet account to start tracking.
           </Text>
+          <TouchableOpacity
+            style={styles.emptyCtaBtn}
+            onPress={() => {
+              AppHaptics.light();
+              onOpenAddAccount();
+            }}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Add account"
+          >
+            <Plus size={15} color={Palette.white} style={{ marginRight: 6 }} />
+            <Text style={styles.emptyCtaBtnText}>Add Account</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         currencyWallets.map((w) => (
@@ -201,7 +219,9 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({
       )}
     </View>
   );
-};
+});
+
+AccountsTab.displayName = 'AccountsTab';
 
 const styles = StyleSheet.create({
   bannerHeader: {
@@ -220,21 +240,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderWidth: 1,
     borderColor: Palette.hairline,
-  },
-  emptyAllocationCard: {
-    backgroundColor: Palette.white,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    borderStyle: 'dashed',
-  },
-  emptyAllocationText: {
-    ...Typography.caption,
-    fontSize: 13,
-    color: Palette.muted,
-    lineHeight: 18,
   },
   allocationCardLabel: {
     ...Typography.caption,
@@ -264,6 +269,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexShrink: 1,
   },
   legendDot: {
     width: 8,
@@ -274,6 +280,7 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 12,
     color: Palette.muted,
+    flexShrink: 1,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -397,6 +404,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 28,
     alignItems: 'center',
+    marginTop: 4,
   },
   emptyTitle: {
     ...Typography.subheading,
@@ -410,5 +418,21 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     textAlign: 'center',
     marginTop: 4,
+  },
+  emptyCtaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 14,
+  },
+  emptyCtaBtnText: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.white,
   },
 });

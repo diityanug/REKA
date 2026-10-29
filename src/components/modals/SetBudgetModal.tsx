@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
@@ -15,6 +16,7 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
+import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 
 interface SetBudgetModalProps {
   visible: boolean;
@@ -23,8 +25,8 @@ interface SetBudgetModalProps {
   currentBudget: number;
   amount: string;
   onChangeAmount: (text: string) => void;
-  onSave: () => void;
-  onRemove: () => void;
+  onSave: () => void | Promise<void>;
+  onRemove: () => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -40,11 +42,47 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
   onClose,
 }) => {
   const [amountModalVisible, setAmountModalVisible] = useState(false);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [removing, setRemoving] = useState<boolean>(false);
 
-  const periodLabel =
-    selectedMonth === 'all'
-      ? 'Default Monthly'
-      : formatMonthYear(selectedMonth);
+  const [alertConfig, setAlertConfig] = useState<{
+    visible: boolean;
+    title: string;
+    message?: string;
+    buttons?: AlertButton[];
+    type?: AlertType;
+  }>({
+    visible: false,
+    title: '',
+  });
+
+  // The confirm handler runs before the alert closes; a newer alert must survive it.
+  const alertSeq = useRef<number>(0);
+  const renderedSeq = alertSeq.current;
+
+  const showAlert = (
+    title: string,
+    message?: string,
+    buttons?: AlertButton[],
+    type: AlertType = 'info'
+  ) => {
+    alertSeq.current += 1;
+    setAlertConfig({
+      visible: true,
+      title,
+      message,
+      buttons: buttons || [{ text: 'OK', style: 'default' }],
+      type,
+    });
+  };
+
+  const hideAlert = () => {
+    if (alertSeq.current !== renderedSeq) return;
+    setAlertConfig((prev) => ({ ...prev, visible: false }));
+  };
+
+  const monthLabel = selectedMonth === 'all' ? 'All Months' : formatMonthYear(selectedMonth);
+  const periodLabel = `Limit for ${monthLabel} · ${activeCurrency}`;
 
   const presets =
     activeCurrency === 'IDR'
@@ -61,6 +99,47 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
           { label: '$5,000', val: formatCurrencyInput('5000', 'USD') },
         ];
 
+  const submit = async () => {
+    if (saving) return;
+    AppHaptics.heavy();
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runRemove = async () => {
+    if (removing) return;
+    setRemoving(true);
+    try {
+      await onRemove();
+    } finally {
+      setRemoving(false);
+    }
+  };
+
+  // Removing the limit is destructive for the month, so it asks first.
+  const requestRemove = () => {
+    if (removing) return;
+    AppHaptics.light();
+    Keyboard.dismiss();
+    showAlert(
+      'Remove Budget Limit',
+      "Remove this month's budget limit?",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: runRemove,
+        },
+      ],
+      'confirm'
+    );
+  };
+
   return (
     <BottomSheetModal
       visible={visible}
@@ -70,7 +149,7 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
     >
       <ModalHeader
         title="Monthly Expense Budget"
-        subtitle={`${periodLabel} Limit (${activeCurrency})`}
+        subtitle={periodLabel}
         onClose={onClose}
       />
 
@@ -97,6 +176,8 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
                 setAmountModalVisible(true);
               }}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`Budget limit, ${amount || '0'} ${activeCurrency}`}
             >
               <View style={styles.currencyPrefixBadge}>
                 <Text style={styles.currencyPrefixText}>
@@ -125,6 +206,8 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
                     onChangeAmount(p.val);
                   }}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Set budget ${p.label}`}
                 >
                   <Text style={styles.presetChipText}>{p.label}</Text>
                 </TouchableOpacity>
@@ -134,28 +217,43 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
             {/* Action Buttons */}
             <View style={styles.actionsContainer}>
               <TouchableOpacity
-                style={styles.saveBtn}
-                onPress={() => {
-                  AppHaptics.heavy();
-                  onSave();
-                }}
+                style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+                onPress={submit}
+                disabled={saving}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Save budget"
               >
-                <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.saveBtnText}>Save Budget</Text>
+                {saving ? (
+                  <>
+                    <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.saveBtnText}>Saving...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.saveBtnText}>Save Budget</Text>
+                  </>
+                )}
               </TouchableOpacity>
 
               {currentBudget > 0 && (
                 <TouchableOpacity
                   style={styles.removeBtn}
-                  onPress={() => {
-                    AppHaptics.light();
-                    onRemove();
-                  }}
+                  onPress={requestRemove}
+                  disabled={removing}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove budget limit"
                 >
-                  <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
-                  <Text style={styles.removeBtnText}>Remove Budget Limit</Text>
+                  {removing ? (
+                    <ActivityIndicator size="small" color={Palette.error} />
+                  ) : (
+                    <>
+                      <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
+                      <Text style={styles.removeBtnText}>Remove Budget Limit</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               )}
             </View>
@@ -164,65 +262,39 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
       <AmountInputModal
         visible={amountModalVisible}
         title="Set Budget Limit"
-        subtitle={`${periodLabel} Limit (${activeCurrency})`}
+        subtitle={periodLabel}
         initialAmount={amount}
         currency={activeCurrency}
-        onConfirm={(formatted) => onChangeAmount(formatted)}
+        allowZero
+        onConfirm={(formatted, numericVal) => {
+          setAmountModalVisible(false);
+          // A zero amount is an explicit "remove the limit" action.
+          if (numericVal <= 0) {
+            if (currentBudget > 0) {
+              requestRemove();
+            } else {
+              onChangeAmount('0');
+            }
+            return;
+          }
+          onChangeAmount(formatted);
+        }}
         onClose={() => setAmountModalVisible(false)}
+      />
+
+      <CustomAlertModal
+        visible={alertConfig.visible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        buttons={alertConfig.buttons}
+        type={alertConfig.type}
+        onClose={hideAlert}
       />
     </BottomSheetModal>
   );
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '84%',
-    maxHeight: '90%',
-    overflow: 'hidden',
-  },
-  infoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-  },
-  infoIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#FDF0ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  infoTextWrap: {
-    flex: 1,
-  },
-  infoTitle: {
-    ...Typography.body,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Palette.ink,
-    marginBottom: 2,
-  },
-  infoDesc: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
-    lineHeight: 16,
-  },
   activeBudgetBadge: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -280,15 +352,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: Palette.ink,
-  },
-  textInput: {
-    flex: 1,
-    ...Typography.heading,
-    fontSize: 18,
-    fontWeight: '700',
-    color: Palette.ink,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
   },
   amountDisplayText: {
     flex: 1,

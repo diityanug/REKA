@@ -31,7 +31,47 @@ export interface ExtractedReceiptData {
 const proxyUrl = process.env.EXPO_PUBLIC_GEMINI_PROXY_URL;
 const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
+// Lets the UI explain the situation instead of failing after a photo was taken
+export const isReceiptScannerConfigured = Boolean(proxyUrl || apiKey);
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const REQUEST_TIMEOUT_MS = 30000;
+
+// Rejects after `ms` or when the caller cancels, so the scanner can never hang forever
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  signal?: AbortSignal,
+  message: string = 'Receipt scanning took too long. Please try again or enter the details manually.'
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      fn();
+    };
+    const onAbort = () =>
+      finish(() => reject(new Error('Receipt scanning was cancelled.')));
+    const timer = setTimeout(() => finish(() => reject(new Error(message))), ms);
+
+    if (signal) {
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort);
+    }
+
+    promise.then(
+      (value) => finish(() => resolve(value)),
+      (err) => finish(() => reject(err))
+    );
+  });
+}
 
 const sanitizeErrorMessage = (msg: string): string => {
   if (!apiKey) return msg;
@@ -40,12 +80,9 @@ const sanitizeErrorMessage = (msg: string): string => {
 
 // Fast candidate model cascade for instant nominal reading
 const CANDIDATE_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
+  'gemini-3.8-flash',
   'gemini-3.5-flash-lite',
-  'gemini-3.5-flash',
+  'gemini-3.1-flash-lite',
 ];
 
 function parseSafeAmount(val: any, currency: 'IDR' | 'USD' = 'IDR'): number {
@@ -103,17 +140,22 @@ function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): Extracte
 
 export async function extractReceiptFromBase64(
   base64Image: string,
-  mimeType: string = 'image/jpeg'
+  mimeType: string = 'image/jpeg',
+  signal?: AbortSignal
 ): Promise<ExtractedReceiptData> {
   // 1. Prefer secure backend proxy if configured
   if (proxyUrl) {
-    const res = await fetch(proxyUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ base64Image, mimeType }),
-    });
+    const res = await withTimeout(
+      fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64Image, mimeType }),
+      }),
+      REQUEST_TIMEOUT_MS,
+      signal
+    );
     if (!res.ok) {
-      throw new Error(`Receipt proxy returned status ${res.status}`);
+      throw new Error(`Receipt scanner is unavailable right now (status ${res.status}).`);
     }
     const data = (await res.json()) as Partial<ExtractedReceiptData>;
     return normalizeReceiptResult(data);
@@ -122,7 +164,7 @@ export async function extractReceiptFromBase64(
   // 2. Fallback to direct client SDK call
   if (!apiKey) {
     throw new Error(
-      'Receipt scanner is not configured. Set EXPO_PUBLIC_GEMINI_PROXY_URL or EXPO_PUBLIC_GEMINI_API_KEY in .env'
+      'Receipt scanning is not set up for this build. Add a receipt photo manually instead.'
     );
   }
 
@@ -156,8 +198,9 @@ Rules:
   for (const model of CANDIDATE_MODELS) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        response = await ai.models.generateContent({
-          model,
+        response = await withTimeout(
+          ai.models.generateContent({
+            model,
           contents: [
             {
               role: 'user',
@@ -211,13 +254,17 @@ Rules:
               ],
             },
           },
-        });
+          }),
+          REQUEST_TIMEOUT_MS,
+          signal
+        );
 
         if (response && response.text) {
           break;
         }
       } catch (err: any) {
         lastError = err;
+        if (signal?.aborted) break;
         const errMsg = (err?.message || '').toLowerCase();
         const isTemporary =
           errMsg.includes('demand') ||
@@ -229,16 +276,20 @@ Rules:
           errMsg.includes('unavailable');
 
         if (isTemporary && attempt === 0) {
-          await sleep(1200);
+          await sleep(800);
         } else {
           break;
         }
       }
     }
 
-    if (response && response.text) {
+    if ((response && response.text) || signal?.aborted) {
       break;
     }
+  }
+
+  if (signal?.aborted) {
+    throw new Error('Receipt scanning was cancelled.');
   }
 
   if (!response || !response.text) {

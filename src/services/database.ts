@@ -76,6 +76,19 @@ export interface Transaction {
 let dbInstance: SQLite.SQLiteDatabase | null = null;
 let dbInitPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+// Typed domain error so the UI can render a friendly, formatted message
+export class InsufficientFundsError extends Error {
+  scope: 'account' | 'pocket' | 'allocate' | 'release';
+  available: number;
+
+  constructor(scope: 'account' | 'pocket' | 'allocate' | 'release', available: number, message: string) {
+    super(message);
+    this.name = 'InsufficientFundsError';
+    this.scope = scope;
+    this.available = available;
+  }
+}
+
 // Ensure column exists on existing SQLite tables for smooth upgrades
 async function ensureColumn(
   db: SQLite.SQLiteDatabase,
@@ -91,6 +104,108 @@ async function ensureColumn(
   } catch {
     // Column already exists or table not ready, safely ignore
   }
+}
+
+const DEFAULT_CATEGORIES: {
+  name: string;
+  type: TransactionType;
+  icon: string;
+  color: string;
+}[] = [
+  { name: 'Bills & Utilities', type: 'expense', icon: 'Zap', color: '#C64545' },
+  { name: 'Subscriptions', type: 'expense', icon: 'Film', color: '#6366F1' },
+  { name: 'Housing / Rent', type: 'expense', icon: 'Home', color: '#0EA5E9' },
+  { name: 'Internet & Phone', type: 'expense', icon: 'Wifi', color: '#3B82F6' },
+  { name: 'Insurance', type: 'expense', icon: 'ShieldCheck', color: '#10B981' },
+  { name: 'Fitness & Gym', type: 'expense', icon: 'Dumbbell', color: '#F97316' },
+  { name: 'Cloud & Storage', type: 'expense', icon: 'Cloud', color: '#8B5CF6' },
+  { name: 'Food & Beverages', type: 'expense', icon: 'Utensils', color: '#CC785C' },
+  { name: 'Snacks', type: 'expense', icon: 'Coffee', color: '#D97706' },
+  { name: 'Shopping', type: 'expense', icon: 'ShoppingBag', color: '#EC4899' },
+  { name: 'Fuel', type: 'expense', icon: 'Fuel', color: '#EF4444' },
+  { name: 'Parking', type: 'expense', icon: 'CircleParking', color: '#64748B' },
+  { name: 'Vehicle Services', type: 'expense', icon: 'Wrench', color: '#F59E0B' },
+  { name: 'Public Services', type: 'expense', icon: 'Landmark', color: '#0284C7' },
+  { name: 'Personal', type: 'expense', icon: 'User', color: '#A855F7' },
+  { name: 'Home Services', type: 'expense', icon: 'Hammer', color: '#14B8A6' },
+  { name: 'Furnisings', type: 'expense', icon: 'Armchair', color: '#84CC16' },
+  { name: 'Social', type: 'expense', icon: 'Users', color: '#E11D48' },
+  { name: 'Health & Medical', type: 'expense', icon: 'HeartPulse', color: '#06B6D4' },
+  { name: 'Education', type: 'expense', icon: 'GraduationCap', color: '#3B82F6' },
+  { name: 'Travel', type: 'expense', icon: 'Plane', color: '#F97316' },
+  { name: 'Others', type: 'expense', icon: 'CircleEllipsis', color: '#78716C' },
+  { name: 'Salary', type: 'income', icon: 'DollarSign', color: '#059669' },
+  { name: 'Allowance', type: 'income', icon: 'HandCoins', color: '#10B981' },
+  { name: 'Interest', type: 'income', icon: 'Percent', color: '#14B8A6' },
+  { name: 'Investments', type: 'income', icon: 'TrendingUp', color: '#0284C7' },
+  { name: 'Bonus', type: 'income', icon: 'Award', color: '#F59E0B' },
+  { name: 'Gift', type: 'income', icon: 'Gift', color: '#EC4899' },
+  { name: 'Others', type: 'income', icon: 'CircleEllipsis', color: '#059669' },
+];
+
+async function ensureTransferCategory(db: SQLite.SQLiteDatabase): Promise<void> {
+  const transferCat = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM categories WHERE LOWER(TRIM(name)) = ?',
+    'transfer'
+  );
+  if (!transferCat) {
+    await db.runAsync(
+      `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
+       VALUES ('cat_t_transfer', 'Transfer', 'expense', 'ArrowLeftRight', '#6C7A89', 1)`
+    );
+  }
+}
+
+// Seeds the factory category list. Runs once per install so a deleted default
+// category stays deleted; pass force to restore factory state after a wipe.
+export async function seedDefaultCategories(
+  db: SQLite.SQLiteDatabase,
+  force = false
+): Promise<void> {
+  if (!force) {
+    const seededRow = await db.getFirstAsync<{ value: string }>(
+      "SELECT value FROM app_settings WHERE key = 'defaults_seeded_v1'"
+    );
+    if (seededRow && seededRow.value === '1') return;
+  }
+
+  for (let i = 0; i < DEFAULT_CATEGORIES.length; i++) {
+    const cat = DEFAULT_CATEGORIES[i];
+    const existing = await db.getFirstAsync<{ id: string; type: string }>(
+      'SELECT id, type FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND (LOWER(TRIM(type)) = LOWER(TRIM(?)) OR type IS NULL OR type = "")',
+      cat.name,
+      cat.type
+    );
+    if (existing) {
+      if (!existing.type || existing.type.toLowerCase() !== cat.type.toLowerCase()) {
+        await db.runAsync('UPDATE categories SET type = ? WHERE id = ?', cat.type, existing.id);
+      }
+      if (cat.name === 'Others') {
+        await db.runAsync(
+          'UPDATE categories SET icon = ?, color = ? WHERE id = ?',
+          cat.icon,
+          cat.color,
+          existing.id
+        );
+      }
+    } else {
+      const slug = cat.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 16);
+      const catId = `cat_${cat.type[0]}_${slug}_${Date.now().toString(36)}_${i}`;
+      await db.runAsync(
+        `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
+         VALUES (?, ?, ?, ?, ?, 1)`,
+        catId,
+        cat.name,
+        cat.type,
+        cat.icon,
+        cat.color
+      );
+    }
+  }
+
+  await db.runAsync(
+    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('defaults_seeded_v1', '1')"
+  );
 }
 
 export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
@@ -209,114 +324,10 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
         CREATE INDEX IF NOT EXISTS idx_pockets_wallet ON pockets (wallet_id);
       `);
 
-      // Ensure all default categories from data uwu.md exist safely
-      const defaultCategories: {
-        name: string;
-        type: TransactionType;
-        icon: string;
-        color: string;
-      }[] = [
-        // Expenses (from data uwu.md)
-        { name: 'Bills & Utilities', type: 'expense', icon: 'Zap', color: '#C64545' },
-        { name: 'Subscriptions', type: 'expense', icon: 'Film', color: '#6366F1' },
-        { name: 'Housing / Rent', type: 'expense', icon: 'Home', color: '#0EA5E9' },
-        { name: 'Internet & Phone', type: 'expense', icon: 'Wifi', color: '#3B82F6' },
-        { name: 'Insurance', type: 'expense', icon: 'ShieldCheck', color: '#10B981' },
-        { name: 'Fitness & Gym', type: 'expense', icon: 'Dumbbell', color: '#F97316' },
-        { name: 'Cloud & Storage', type: 'expense', icon: 'Cloud', color: '#8B5CF6' },
-        { name: 'Food & Beverages', type: 'expense', icon: 'Utensils', color: '#CC785C' },
-        { name: 'Snacks', type: 'expense', icon: 'Coffee', color: '#D97706' },
-        { name: 'Shopping', type: 'expense', icon: 'ShoppingBag', color: '#EC4899' },
-        { name: 'Fuel', type: 'expense', icon: 'Fuel', color: '#EF4444' },
-        { name: 'Parking', type: 'expense', icon: 'CircleParking', color: '#64748B' },
-        { name: 'Vehicle Services', type: 'expense', icon: 'Wrench', color: '#F59E0B' },
-        { name: 'Public Services', type: 'expense', icon: 'Landmark', color: '#0284C7' },
-        { name: 'Personal', type: 'expense', icon: 'User', color: '#A855F7' },
-        { name: 'Home Services', type: 'expense', icon: 'Hammer', color: '#14B8A6' },
-        { name: 'Furnisings', type: 'expense', icon: 'Armchair', color: '#84CC16' },
-        { name: 'Social', type: 'expense', icon: 'Users', color: '#E11D48' },
-        { name: 'Health & Medical', type: 'expense', icon: 'HeartPulse', color: '#06B6D4' },
-        { name: 'Education', type: 'expense', icon: 'GraduationCap', color: '#3B82F6' },
-        { name: 'Travel', type: 'expense', icon: 'Plane', color: '#F97316' },
-        { name: 'Others', type: 'expense', icon: 'CircleEllipsis', color: '#78716C' },
-        // Income (from data uwu.md)
-        { name: 'Salary', type: 'income', icon: 'DollarSign', color: '#059669' },
-        { name: 'Allowance', type: 'income', icon: 'HandCoins', color: '#10B981' },
-        { name: 'Interest', type: 'income', icon: 'Percent', color: '#14B8A6' },
-        { name: 'Investments', type: 'income', icon: 'TrendingUp', color: '#0284C7' },
-        { name: 'Bonus', type: 'income', icon: 'Award', color: '#F59E0B' },
-        { name: 'Gift', type: 'income', icon: 'Gift', color: '#EC4899' },
-        { name: 'Others', type: 'income', icon: 'CircleEllipsis', color: '#059669' },
-      ];
+      // Seed factory categories exactly once so a deleted default stays deleted
+      await seedDefaultCategories(db);
 
-      for (let i = 0; i < defaultCategories.length; i++) {
-        const cat = defaultCategories[i];
-        const existing = await db.getFirstAsync<{ id: string; type: string }>(
-          'SELECT id, type FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND (LOWER(TRIM(type)) = LOWER(TRIM(?)) OR type IS NULL OR type = "")',
-          cat.name,
-          cat.type
-        );
-        if (existing) {
-          if (!existing.type || existing.type.toLowerCase() !== cat.type.toLowerCase()) {
-            await db.runAsync('UPDATE categories SET type = ? WHERE id = ?', cat.type, existing.id);
-          }
-          if (cat.name === 'Others') {
-            await db.runAsync('UPDATE categories SET icon = ?, color = ? WHERE id = ?', cat.icon, cat.color, existing.id);
-          }
-        } else {
-          const slug = cat.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 16);
-          const catId = `cat_${cat.type[0]}_${slug}_${Date.now().toString(36)}_${i}`;
-          await db.runAsync(
-            `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
-             VALUES (?, ?, ?, ?, ?, 1)`,
-            catId,
-            cat.name,
-            cat.type,
-            cat.icon,
-            cat.color
-          );
-        }
-      }
-
-      // Explicitly guarantee both Expense Others and Income Others exist and have the proper icons
-      const expenseOthers = await db.getFirstAsync<{ id: string; icon: string }>(
-        "SELECT id, icon FROM categories WHERE LOWER(TRIM(name)) = 'others' AND LOWER(TRIM(type)) = 'expense'"
-      );
-      if (!expenseOthers) {
-        await db.runAsync(
-          `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
-           VALUES ('cat_e_others_default', 'Others', 'expense', 'CircleEllipsis', '#78716C', 1)`
-        );
-      } else {
-        await db.runAsync("UPDATE categories SET icon = 'CircleEllipsis' WHERE id = ?", expenseOthers.id);
-      }
-
-      const incomeOthers = await db.getFirstAsync<{ id: string; icon: string }>(
-        "SELECT id, icon FROM categories WHERE LOWER(TRIM(name)) = 'others' AND LOWER(TRIM(type)) = 'income'"
-      );
-      if (!incomeOthers) {
-        await db.runAsync(
-          `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
-           VALUES ('cat_i_others_default', 'Others', 'income', 'CircleEllipsis', '#059669', 1)`
-        );
-      } else {
-        await db.runAsync("UPDATE categories SET icon = 'CircleEllipsis', color = '#059669' WHERE id = ?", incomeOthers.id);
-      }
-
-      // Unify all 'Others' categories (expense & income) to use the identical expense model icon (CircleEllipsis)
-      await db.runAsync("UPDATE categories SET icon = 'CircleEllipsis' WHERE LOWER(TRIM(name)) = 'others'");
-
-      // Ensure Transfer category is always available for internal ledger movements
-      const transferCat = await db.getFirstAsync<{ id: string }>(
-        'SELECT id FROM categories WHERE LOWER(TRIM(name)) = ?',
-        'transfer'
-      );
-      if (!transferCat) {
-        await db.runAsync(
-          `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
-           VALUES ('cat_t_transfer', 'Transfer', 'expense', 'ArrowLeftRight', '#6C7A89', 1)`
-        );
-      }
+      await ensureTransferCategory(db);
 
       // Ensure at least one wallet exists for fresh installation
       const walletCount = await db.getFirstAsync<{ count: number }>(
@@ -353,6 +364,41 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
               `${fromName} to ${toName}`,
               lt.id
             );
+          }
+        }
+      }
+
+      // Pair historical transfer legs that predate transfer_pair_id so deleting one leg
+      // can never fall back to guessing (and deleting) an unrelated transfer.
+      const unpaired = await db.getAllAsync<{
+        id: string;
+        merchant_name: string;
+        type: TransactionType;
+        amount: number;
+        timestamp: string;
+      }>(
+        "SELECT id, merchant_name, type, amount, timestamp FROM transactions WHERE category = 'Transfer' AND transfer_pair_id IS NULL ORDER BY timestamp ASC"
+      );
+
+      if (unpaired.length > 1) {
+        const consumed = new Set<string>();
+        for (const out of unpaired) {
+          if (consumed.has(out.id) || out.type !== 'expense') continue;
+          const outTime = new Date(out.timestamp).getTime();
+          const match = unpaired.find(
+            (cand) =>
+              !consumed.has(cand.id) &&
+              cand.id !== out.id &&
+              cand.type === 'income' &&
+              cand.merchant_name === out.merchant_name &&
+              Math.abs(cand.amount - out.amount) < 0.01 &&
+              Math.abs(new Date(cand.timestamp).getTime() - outTime) <= 120000
+          );
+          if (match) {
+            consumed.add(out.id);
+            consumed.add(match.id);
+            await db.runAsync('UPDATE transactions SET transfer_pair_id = ? WHERE id = ?', match.id, out.id);
+            await db.runAsync('UPDATE transactions SET transfer_pair_id = ? WHERE id = ?', out.id, match.id);
           }
         }
       }
@@ -401,6 +447,14 @@ export async function getCategories(type?: TransactionType): Promise<Category[]>
 
 export async function createCategory(cat: Omit<Category, 'id' | 'isDefault'>): Promise<string> {
   const db = await getDatabase();
+  const existing = await db.getFirstAsync<{ id: string }>(
+    'SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(type)) = LOWER(TRIM(?))',
+    cat.name,
+    cat.type
+  );
+  if (existing) {
+    throw new Error(`A ${cat.type} category named "${cat.name.trim()}" already exists.`);
+  }
   const id = `cat_custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
   await db.runAsync(
     `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
@@ -508,6 +562,14 @@ export async function adjustWalletBalance(id: string, newBalance: number): Promi
 export async function deleteWallet(id: string): Promise<void> {
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
+    const remaining = await db.getFirstAsync<{ count: number }>(
+      'SELECT COUNT(*) as count FROM wallets'
+    );
+    if (!remaining || remaining.count <= 1) {
+      throw new Error(
+        'At least one account must remain. Create another account before deleting this one.'
+      );
+    }
     // 1. Clear transfer pair references pointing to transactions in this wallet
     await db.runAsync(
       'UPDATE transactions SET transfer_pair_id = NULL WHERE transfer_pair_id IN (SELECT id FROM transactions WHERE wallet_id = ?)',
@@ -560,6 +622,14 @@ export async function createPocket(pocket: Omit<Pocket, 'id'>): Promise<string> 
     const currentAllocated = allocatedRow ? allocatedRow.total : 0;
     const unallocated = Math.max(currentWalletBal - currentAllocated, 0);
 
+    if (safeBal > unallocated + 0.005) {
+      throw new InsufficientFundsError(
+        'allocate',
+        unallocated,
+        'The starting balance exceeds the unallocated funds in this account.'
+      );
+    }
+
     await db.runAsync(
       `INSERT INTO pockets (id, wallet_id, name, balance, target_amount, icon, color)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
@@ -571,15 +641,6 @@ export async function createPocket(pocket: Omit<Pocket, 'id'>): Promise<string> 
       pocket.icon || 'Briefcase',
       pocket.color || '#CC785C'
     );
-
-    if (safeBal > unallocated) {
-      const excess = safeBal - unallocated;
-      await db.runAsync(
-        'UPDATE wallets SET balance = balance + ? WHERE id = ?',
-        excess,
-        pocket.walletId
-      );
-    }
   });
   return id;
 }
@@ -591,7 +652,7 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
       'SELECT wallet_id, balance FROM pockets WHERE id = ?',
       pocketId
     );
-    if (!pocket) return;
+    if (!pocket) throw new Error('Pocket not found.');
 
     if (delta > 0) {
       const wallet = await db.getFirstAsync<{ balance: number }>(
@@ -606,17 +667,28 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
         (wallet ? wallet.balance : 0) - (allocatedRow ? allocatedRow.total : 0),
         0
       );
-      await db.runAsync('UPDATE pockets SET balance = balance + ? WHERE id = ?', delta, pocketId);
-      if (delta > unallocated) {
-        await db.runAsync(
-          'UPDATE wallets SET balance = balance + ? WHERE id = ?',
-          delta - unallocated,
-          pocket.wallet_id
+      if (delta > unallocated + 0.005) {
+        throw new InsufficientFundsError(
+          'allocate',
+          unallocated,
+          'The amount exceeds the unallocated funds in this account.'
         );
       }
+      await db.runAsync('UPDATE pockets SET balance = balance + ? WHERE id = ?', delta, pocketId);
     } else if (delta < 0) {
-      const nextBal = Math.max(pocket.balance + delta, 0);
-      await db.runAsync('UPDATE pockets SET balance = ? WHERE id = ?', nextBal, pocketId);
+      const releaseAmount = Math.abs(delta);
+      if (releaseAmount > pocket.balance + 0.005) {
+        throw new InsufficientFundsError(
+          'release',
+          pocket.balance,
+          'You cannot release more than the current pocket balance.'
+        );
+      }
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
+        releaseAmount,
+        pocketId
+      );
     }
   });
 }
@@ -751,8 +823,22 @@ export async function insertTransactionWithItems(
       );
     }
 
-    // Adjust wallet and optional pocket balance
+    // Adjust wallet and optional pocket balance (pure arithmetic so both stay in sync)
     const balanceDelta = tx.type === 'expense' ? -tx.amount : tx.amount;
+    if (tx.pocketId) {
+      const pocket = await db.getFirstAsync<{ balance: number }>(
+        'SELECT balance FROM pockets WHERE id = ?',
+        tx.pocketId
+      );
+      if (!pocket) throw new Error('The selected pocket no longer exists.');
+      if (pocket.balance + balanceDelta < -0.005) {
+        throw new InsufficientFundsError(
+          'pocket',
+          pocket.balance,
+          'This pocket does not have enough funds for the transaction.'
+        );
+      }
+    }
     await db.runAsync(
       'UPDATE wallets SET balance = balance + ? WHERE id = ?',
       balanceDelta,
@@ -760,7 +846,7 @@ export async function insertTransactionWithItems(
     );
     if (tx.pocketId) {
       await db.runAsync(
-        'UPDATE pockets SET balance = MAX(0, balance + ?) WHERE id = ?',
+        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
         balanceDelta,
         tx.pocketId
       );
@@ -790,28 +876,13 @@ export async function deleteTransaction(id: string): Promise<void> {
 
     if (!tx) return;
 
-    // Check if this is a transfer transaction with a paired counterpart
+    // Only an explicit pair id is trusted. Historical legs are paired during DB init,
+    // so we never guess (and delete) an unrelated transfer.
     let pairedTx: typeof tx | null = null;
     if (tx.transfer_pair_id) {
       pairedTx = await db.getFirstAsync<typeof tx>(
         'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id FROM transactions WHERE id = ?',
         tx.transfer_pair_id
-      );
-    } else if (
-      tx.category === 'Transfer' ||
-      tx.payment_method === 'Transfer' ||
-      /^Transfer (to|from)\s+/i.test(tx.merchant_name)
-    ) {
-      // Legacy fallback for transfers created before transfer_pair_id
-      pairedTx = await db.getFirstAsync<typeof tx>(
-        `SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id
-         FROM transactions
-         WHERE id != ?
-           AND (category = 'Transfer' OR payment_method = 'Transfer' OR merchant_name LIKE 'Transfer %')
-           AND type != ?
-         ORDER BY id DESC LIMIT 1`,
-        id,
-        tx.type
       );
     }
 
@@ -824,7 +895,7 @@ export async function deleteTransaction(id: string): Promise<void> {
       );
       if (targetTx.pocket_id) {
         await db.runAsync(
-          'UPDATE pockets SET balance = MAX(0, balance + ?) WHERE id = ?',
+          'UPDATE pockets SET balance = balance + ? WHERE id = ?',
           reverseDelta,
           targetTx.pocket_id
         );
@@ -884,7 +955,7 @@ export async function updateTransaction(
     );
     if (oldTx.pocket_id) {
       await db.runAsync(
-        'UPDATE pockets SET balance = MAX(0, balance + ?) WHERE id = ?',
+        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
         revertDelta,
         oldTx.pocket_id
       );
@@ -892,6 +963,20 @@ export async function updateTransaction(
 
     // 2. Apply new wallet & pocket balance effect
     const newDelta = updates.type === 'expense' ? -updates.amount : updates.amount;
+    if (updates.pocketId) {
+      const newPocket = await db.getFirstAsync<{ balance: number }>(
+        'SELECT balance FROM pockets WHERE id = ?',
+        updates.pocketId
+      );
+      if (!newPocket) throw new Error('The selected pocket no longer exists.');
+      if (newPocket.balance + newDelta < -0.005) {
+        throw new InsufficientFundsError(
+          'pocket',
+          newPocket.balance,
+          'This pocket does not have enough funds for the transaction.'
+        );
+      }
+    }
     await db.runAsync(
       'UPDATE wallets SET balance = balance + ? WHERE id = ?',
       newDelta,
@@ -899,7 +984,7 @@ export async function updateTransaction(
     );
     if (updates.pocketId) {
       await db.runAsync(
-        'UPDATE pockets SET balance = MAX(0, balance + ?) WHERE id = ?',
+        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
         newDelta,
         updates.pocketId
       );
@@ -989,6 +1074,12 @@ export async function transferFunds(
   let rateInfo = '';
 
   if (isCrossCurrency) {
+    if (
+      params.exchangeRate !== undefined &&
+      (isNaN(params.exchangeRate) || params.exchangeRate <= 0 || params.exchangeRate > 1e9)
+    ) {
+      throw new Error('That exchange rate looks invalid. Please check the rate value.');
+    }
     const rate = params.exchangeRate && params.exchangeRate > 0 ? params.exchangeRate : 16000;
     if (params.targetAmount && params.targetAmount > 0) {
       finalTargetAmount = params.targetAmount;
@@ -1090,18 +1181,30 @@ export async function setSetting(key: string, value: string): Promise<void> {
 }
 
 // Budgeting & Spending Limits
+// Budgets are stored per month so setting one month never rewrites another.
+// The legacy global key is only read as a fallback for data created by older versions.
 export async function getMonthlyBudget(
   currency: CurrencyType,
   month?: string
 ): Promise<number> {
-  if (month && month !== 'all') {
-    const specificVal = await getSetting(`monthly_budget_${month}_${currency}`, '');
-    if (specificVal && !isNaN(Number(specificVal))) {
-      return Number(specificVal);
-    }
+  const db = await getDatabase();
+  let monthKey = month;
+  if (!monthKey || monthKey === 'all') {
+    const now = new Date();
+    monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
-  const defaultVal = await getSetting(`monthly_budget_${currency}`, '0');
-  return Number(defaultVal) || 0;
+  const row = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    `monthly_budget_${monthKey}_${currency}`
+  );
+  if (row) return Number(row.value) || 0;
+
+  const legacy = await db.getFirstAsync<{ value: string }>(
+    'SELECT value FROM app_settings WHERE key = ?',
+    `monthly_budget_${currency}`
+  );
+  if (legacy) return Number(legacy.value) || 0;
+  return 0;
 }
 
 export async function setMonthlyBudget(
@@ -1109,10 +1212,12 @@ export async function setMonthlyBudget(
   currency: CurrencyType,
   month?: string
 ): Promise<void> {
-  if (month && month !== 'all') {
-    await setSetting(`monthly_budget_${month}_${currency}`, String(amount));
+  let monthKey = month;
+  if (!monthKey || monthKey === 'all') {
+    const now = new Date();
+    monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
-  await setSetting(`monthly_budget_${currency}`, String(amount));
+  await setSetting(`monthly_budget_${monthKey}_${currency}`, String(amount));
 }
 
 // Liquidity & Asset Allocation Plans & Notes
@@ -1274,108 +1379,164 @@ export async function exportTransactionsCSV(): Promise<string> {
   return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
 }
 
-// Import & restore unified database snapshot inside atomic transaction
-export async function importAllData(jsonString: string): Promise<void> {
+export interface ImportOptions {
+  skipSnapshot?: boolean;
+}
+
+// Import & restore unified database snapshot inside an atomic transaction.
+// The current data is snapshotted first so the restore can be undone.
+export async function importAllData(
+  jsonString: string,
+  options: ImportOptions = {}
+): Promise<void> {
   let data: any;
   try {
     data = JSON.parse(jsonString);
   } catch {
-    throw new Error('Invalid JSON format. Please paste valid backup data.');
+    throw new Error('Invalid JSON format. Please choose a valid REKA backup file.');
   }
 
-  if (!data || typeof data !== 'object') {
-    throw new Error('Invalid backup structure. Object expected.');
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('Invalid backup structure. A REKA backup object is expected.');
   }
 
-  if (!Array.isArray(data.wallets) && !Array.isArray(data.transactions)) {
-    throw new Error('Unrecognized backup format. Missing wallets or transactions array.');
+  if (data.version !== undefined && Number(data.version) > 1) {
+    throw new Error(
+      `This backup was created by a newer version of the app (v${data.version}) and cannot be restored here.`
+    );
   }
 
-  // Pre-validate wallets before touching the database
-  if (Array.isArray(data.wallets)) {
-    if (data.wallets.length === 0) {
-      throw new Error('Backup data contains 0 accounts. At least one account is required.');
+  if (!Array.isArray(data.wallets) || data.wallets.length === 0) {
+    throw new Error('Backup data contains no accounts. At least one account is required.');
+  }
+
+  // --- Strict structural validation before anything is deleted ---
+  const walletIds = new Set<string>();
+  for (const w of data.wallets) {
+    if (!w || typeof w.id !== 'string' || !w.id || typeof w.name !== 'string' || !w.name.trim()) {
+      throw new Error('The backup contains an invalid account record.');
     }
-    for (const w of data.wallets) {
-      if (!w || !w.id || !w.name) {
-        throw new Error('Invalid wallet record found in backup data.');
-      }
+    if (walletIds.has(w.id)) {
+      throw new Error('The backup contains duplicate account ids.');
     }
+    walletIds.add(w.id);
+  }
+
+  const pockets = Array.isArray(data.pockets) ? data.pockets : [];
+  for (const p of pockets) {
+    if (!p || !p.id || !walletIds.has(p.walletId)) {
+      throw new Error('The backup contains a pocket linked to a missing account.');
+    }
+  }
+
+  const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+  const txIds = new Set<string>();
+  for (const tx of transactions) {
+    if (!tx || !tx.id || !walletIds.has(tx.walletId)) {
+      throw new Error('The backup contains a transaction linked to a missing account.');
+    }
+    if (txIds.has(tx.id)) {
+      throw new Error('The backup contains duplicate transaction ids.');
+    }
+    txIds.add(tx.id);
+  }
+
+  const items = Array.isArray(data.transactionItems) ? data.transactionItems : [];
+  for (const it of items) {
+    if (!it || !it.id || !txIds.has(it.transactionId)) {
+      throw new Error('The backup contains a line item linked to a missing transaction.');
+    }
+  }
+
+  // Keep the pre-restore data so the user can undo an accidental restore
+  let previousSnapshot = '';
+  try {
+    previousSnapshot = options.skipSnapshot
+      ? await getSetting(PRE_RESTORE_KEY, '')
+      : await exportAllData();
+  } catch {
+    previousSnapshot = '';
   }
 
   const db = await getDatabase();
-  await db.withTransactionAsync(async () => {
-    // Clear current database contents cleanly
-    await db.runAsync('DELETE FROM transaction_items');
-    await db.runAsync('DELETE FROM transactions');
-    await db.runAsync('DELETE FROM pockets');
-    await db.runAsync('DELETE FROM wallets');
-    await db.runAsync('DELETE FROM app_settings');
+  try {
+    await db.withTransactionAsync(async () => {
+      // Clear current database contents cleanly
+      await db.runAsync('DELETE FROM transaction_items');
+      await db.runAsync('DELETE FROM transactions');
+      await db.runAsync('DELETE FROM pockets');
+      await db.runAsync('DELETE FROM wallets');
+      await db.runAsync('DELETE FROM app_settings');
 
-    // Restore settings
-    if (data.settings && typeof data.settings === 'object') {
-      for (const [k, v] of Object.entries(data.settings)) {
-        await db.runAsync(
-          'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
-          k,
-          String(v)
-        );
+      // Restore settings
+      if (data.settings && typeof data.settings === 'object') {
+        for (const [k, v] of Object.entries(data.settings)) {
+          await db.runAsync(
+            'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
+            k,
+            String(v)
+          );
+        }
       }
-    }
 
-    // Restore wallets
-    if (Array.isArray(data.wallets)) {
+      // Restore wallets (keep the user's custom ordering)
       for (const w of data.wallets) {
         await db.runAsync(
-          `INSERT INTO wallets (id, name, type, balance, currency, color, account_number)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO wallets (id, name, type, balance, currency, color, account_number, sort_order)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           w.id,
           w.name,
           w.type || 'bank',
-          w.balance || 0,
+          Number(w.balance) || 0,
           w.currency || 'IDR',
           w.color || '#CC785C',
-          w.accountNumber || ''
+          w.accountNumber || '',
+          Number.isFinite(Number(w.sortOrder)) ? Number(w.sortOrder) : 0
         );
       }
-    }
 
-    // Restore pockets
-    if (Array.isArray(data.pockets)) {
-      for (const p of data.pockets) {
+      // Restore pockets
+      for (const p of pockets) {
         await db.runAsync(
           `INSERT INTO pockets (id, wallet_id, name, balance, target_amount, icon, color)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           p.id,
           p.walletId,
           p.name,
-          p.balance || 0,
-          p.targetAmount || 0,
+          Number(p.balance) || 0,
+          Number(p.targetAmount) || 0,
           p.icon || 'Briefcase',
           p.color || '#CC785C'
         );
       }
-    }
 
-    // Restore custom categories if present
-    if (Array.isArray(data.categories)) {
-      for (const c of data.categories) {
-        await db.runAsync(
-          `INSERT OR REPLACE INTO categories (id, name, type, icon, color, is_default)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          c.id,
-          c.name,
-          c.type,
-          c.icon || 'HelpCircle',
-          c.color || '#CC785C',
-          c.isDefault ? 1 : 0
-        );
+      // Restore categories when the backup carries them
+      if (Array.isArray(data.categories) && data.categories.length > 0) {
+        for (const c of data.categories) {
+          await db.runAsync(
+            `INSERT OR REPLACE INTO categories (id, name, type, icon, color, is_default)
+             VALUES (?, ?, ?, ?, ?, ?)`,
+            c.id,
+            c.name,
+            c.type,
+            c.icon || 'HelpCircle',
+            c.color || '#CC785C',
+            c.isDefault ? 1 : 0
+          );
+        }
+      } else {
+        await db.runAsync('DELETE FROM categories');
+        await seedDefaultCategories(db, true);
       }
-    }
+      await ensureTransferCategory(db);
+      // Categories came from the backup, so never re-add defaults the user deleted
+      await db.runAsync(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('defaults_seeded_v1', '1')"
+      );
 
-    // Restore transactions
-    if (Array.isArray(data.transactions)) {
-      for (const tx of data.transactions) {
+      // Restore transactions
+      for (const tx of transactions) {
+        const pairId = tx.transferPairId || tx.transfer_pair_id || null;
         await db.runAsync(
           `INSERT INTO transactions 
            (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id)
@@ -1383,39 +1544,54 @@ export async function importAllData(jsonString: string): Promise<void> {
           tx.id,
           tx.walletId,
           tx.pocketId || '',
-          tx.merchantName,
-          tx.category,
-          tx.type,
-          tx.amount,
+          tx.merchantName || 'Transaction',
+          tx.category || 'Others',
+          tx.type === 'income' ? 'income' : 'expense',
+          Number(tx.amount) || 0,
           tx.currency || 'IDR',
-          tx.taxAmount || 0,
-          tx.discountAmount || 0,
-          tx.timestamp,
+          Number(tx.taxAmount) || 0,
+          Number(tx.discountAmount) || 0,
+          tx.timestamp || new Date().toISOString(),
           tx.paymentMethod || 'QRIS',
           tx.notes || '',
           tx.imageUri || '',
-          tx.transferPairId || tx.transfer_pair_id || null
+          pairId && txIds.has(pairId) ? pairId : null
         );
       }
-    }
 
-    // Restore transaction items
-    if (Array.isArray(data.transactionItems)) {
-      for (const it of data.transactionItems) {
+      // Restore transaction items
+      for (const it of items) {
         await db.runAsync(
           `INSERT INTO transaction_items (id, transaction_id, name, quantity, unit_price, total_price, category)
            VALUES (?, ?, ?, ?, ?, ?, ?)`,
           it.id,
           it.transactionId,
-          it.name,
-          it.quantity || 1,
-          it.unitPrice || 0,
-          it.totalPrice || 0,
+          it.name || 'Item',
+          Number(it.quantity) || 1,
+          Number(it.unitPrice) || 0,
+          Number(it.totalPrice) || 0,
           it.category || ''
         );
       }
+
+      // Re-store the snapshot so an accidental restore can be undone
+      if (previousSnapshot) {
+        await db.runAsync(
+          'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
+          PRE_RESTORE_KEY,
+          previousSnapshot
+        );
+      }
+    });
+  } catch (err: any) {
+    const message = String(err?.message || '');
+    if (message.includes('FOREIGN KEY') || message.includes('constraint')) {
+      throw new Error(
+        'This backup is inconsistent, so nothing was changed. Your current data is safe.'
+      );
     }
-  });
+    throw new Error(message || 'Failed to restore the backup. Nothing was changed.');
+  }
 }
 
 // Wipe all user transactions, accounts, and pockets, resetting to fresh state
@@ -1426,9 +1602,13 @@ export async function wipeAllData(): Promise<void> {
     await db.runAsync('DELETE FROM transactions');
     await db.runAsync('DELETE FROM pockets');
     await db.runAsync('DELETE FROM wallets');
-    await db.runAsync("DELETE FROM app_settings WHERE key != 'user_name'");
+    await db.runAsync('DELETE FROM categories');
+    await db.runAsync('DELETE FROM app_settings');
 
-    // Create fresh default primary account
+    // Restore factory categories and a clean default account
+    await seedDefaultCategories(db, true);
+    await ensureTransferCategory(db);
+
     const defaultWalletId = 'w_primary_' + Date.now();
     await db.runAsync(
       `INSERT INTO wallets (id, name, type, balance, currency, color, account_number)
@@ -1436,4 +1616,22 @@ export async function wipeAllData(): Promise<void> {
       defaultWalletId
     );
   });
+}
+
+// ---------------------------------------------------------------
+// Restore safety net: keep the data that existed right before an import
+// so an accidental restore can be undone from Settings.
+// ---------------------------------------------------------------
+const PRE_RESTORE_KEY = '__pre_restore_snapshot';
+
+export async function hasPreRestoreSnapshot(): Promise<boolean> {
+  const snapshot = await getSetting(PRE_RESTORE_KEY, '');
+  return snapshot.trim().length > 2;
+}
+
+export async function restorePreRestoreSnapshot(): Promise<void> {
+  const snapshot = await getSetting(PRE_RESTORE_KEY, '');
+  if (!snapshot) throw new Error('No previous data snapshot is available.');
+  // Keep the snapshot itself so the undo stays repeatable
+  await importAllData(snapshot, { skipSnapshot: true });
 }

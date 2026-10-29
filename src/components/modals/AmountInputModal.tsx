@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   TextInput,
@@ -26,7 +27,9 @@ export interface AmountInputModalProps {
   initialAmount?: string;
   currency: CurrencyType;
   maxDigits?: number;
-  onConfirm: (formattedStr: string, numericVal: number) => void;
+  /** Allow confirming a zero amount (budget / remove flows). Defaults to false. */
+  allowZero?: boolean;
+  onConfirm: (formattedStr: string, numericVal: number) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -37,12 +40,14 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   initialAmount = '',
   currency,
   maxDigits = currency === 'IDR' ? 13 : 9,
+  allowZero = false,
   onConfirm,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
   const [rawDigits, setRawDigits] = useState<string>('');
   const [isFocused, setIsFocused] = useState<boolean>(true);
+  const [saving, setSaving] = useState<boolean>(false);
   const [selection, setSelection] = useState<{ start: number; end: number }>({
     start: 0,
     end: 0,
@@ -78,6 +83,9 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   const numericValue = useMemo(() => {
     return parseAmount(displayFormatted, currency);
   }, [displayFormatted, currency]);
+
+  // Zero is invalid unless the calling flow explicitly allows it
+  const zeroBlocked = !allowZero && numericValue <= 0;
 
   const activeSelection = useMemo(() => ({
     start: Math.min(selection.start, displayFormatted.length),
@@ -247,9 +255,11 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     inputRef.current?.focus();
     setIsFocused(true);
     AppHaptics.selection();
-    const current = parseInt(rawDigits || '0', 10);
-    const sum = Math.min(current + addVal, Math.pow(10, maxDigits) - 1);
-    const nextRaw = sum > 0 ? String(sum) : '';
+    // Add to the parsed numeric value so USD cents are never truncated
+    const cap = currency === 'USD' ? Math.pow(10, maxDigits) - 0.01 : Math.pow(10, maxDigits) - 1;
+    const sum = Math.min(numericValue + addVal, cap);
+    const rounded = currency === 'USD' ? Math.round(sum * 100) / 100 : Math.round(sum);
+    const nextRaw = rounded > 0 ? String(rounded) : '';
     const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
     setRawDigits(nextRaw);
     setSelection({ start: nextFormatted.length, end: nextFormatted.length });
@@ -261,10 +271,16 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     setSelection({ start: 0, end: 0 });
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
+    if (saving || zeroBlocked) return;
     AppHaptics.light();
-    onConfirm(displayFormatted === '0' ? '' : displayFormatted, numericValue);
-    onClose();
+    setSaving(true);
+    try {
+      await onConfirm(displayFormatted === '0' ? '' : displayFormatted, numericValue);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   const presets = useMemo(() => {
@@ -462,14 +478,39 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
           </View>
         </View>
 
+        {/* Zero guard hint */}
+        {zeroBlocked ? (
+          <Text style={styles.zeroHint}>Enter an amount greater than zero.</Text>
+        ) : null}
+
         {/* Action Button */}
         <TouchableOpacity
-          style={styles.confirmBtn}
+          style={[
+            styles.confirmBtn,
+            (saving || zeroBlocked) && styles.confirmBtnDisabled,
+          ]}
           onPress={handleConfirm}
+          disabled={saving || zeroBlocked}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Save amount"
+          accessibilityState={{ disabled: saving || zeroBlocked, busy: saving }}
         >
-          <Check size={20} color={Palette.white} style={{ marginRight: 8 }} />
-          <Text style={styles.confirmBtnText}>Save Amount</Text>
+          {saving ? (
+            <>
+              <ActivityIndicator
+                size="small"
+                color={Palette.white}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.confirmBtnText}>Saving...</Text>
+            </>
+          ) : (
+            <>
+              <Check size={20} color={Palette.white} style={{ marginRight: 8 }} />
+              <Text style={styles.confirmBtnText}>Save Amount</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </BottomSheetModal>
@@ -602,6 +643,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 6,
     elevation: 3,
+  },
+  zeroHint: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.error,
+    marginBottom: 8,
+  },
+  confirmBtnDisabled: {
+    opacity: 0.5,
   },
   confirmBtnText: {
     ...Typography.body,

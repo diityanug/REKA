@@ -15,15 +15,22 @@ export const ModalHeader: React.FC<ModalHeaderProps> = ({ title, subtitle, onClo
     <View style={styles.headerContainer}>
       {/* Tier 1: Drag handle + top anchored close button */}
       <View style={styles.topBar}>
-        <View style={styles.dragHandle} />
+        {/* Decorative grab handle — hidden from screen readers */}
+        <View
+          style={styles.dragHandle}
+          accessibilityElementsHidden
+          importantForAccessibility="no"
+        />
         <TouchableOpacity
           style={styles.closeBtn}
           onPress={() => {
             AppHaptics.light();
             onClose();
           }}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
         >
           <X size={18} color={Palette.muted} />
         </TouchableOpacity>
@@ -47,12 +54,12 @@ const styles = StyleSheet.create({
     borderBottomColor: Palette.hairline,
   },
   topBar: {
-    height: 32,
+    height: 40,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
-    marginBottom: 6,
+    marginBottom: 2,
   },
   dragHandle: {
     width: 36,
@@ -63,10 +70,10 @@ const styles = StyleSheet.create({
   closeBtn: {
     position: 'absolute',
     right: 0,
-    top: 4,
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    top: 0,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: Palette.surfaceSoft,
     alignItems: 'center',
     justifyContent: 'center',

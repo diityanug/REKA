@@ -67,9 +67,9 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const currentTx = useLastDefined(tx);
-  const currentCategoryIcon = useLastDefined(
-    categoryIcon && categoryIcon !== 'HelpCircle' ? categoryIcon : undefined
-  ) ?? (categoryIcon && categoryIcon !== 'HelpCircle' ? categoryIcon : 'CircleEllipsis');
+  // Never inherit the previously viewed transaction's icon: fall back per render.
+  const currentCategoryIcon =
+    categoryIcon && categoryIcon !== 'HelpCircle' ? categoryIcon : 'CircleEllipsis';
   const currentPocketName = useLastDefined(pocketName);
 
   // Receipt line items are loaded on demand (kept out of the global transaction list to save memory)
@@ -111,31 +111,37 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   let toWallet: Wallet | undefined;
 
   if (isTransfer) {
+    // Names stored in the merchant field, used only as a fallback.
     const toMatch = currentTx.merchantName.match(/^(.+?)\s+to\s+(.+)$/i);
+    let parsedFromName = '';
+    let parsedToName = '';
     if (toMatch && !currentTx.merchantName.toLowerCase().startsWith('transfer to')) {
-      fromAccountName = toMatch[1].trim();
-      toAccountName = toMatch[2].trim();
-      fromWallet =
-        wallets.find((w) => w.name.toLowerCase() === fromAccountName.toLowerCase()) ||
-        (currentTx.type === 'expense' ? currentWallet : undefined);
-      toWallet =
-        wallets.find((w) => w.name.toLowerCase() === toAccountName.toLowerCase()) ||
-        (currentTx.type === 'income' ? currentWallet : undefined);
-    } else if (currentTx.type === 'expense') {
-      fromAccountName = currentWalletName;
-      fromWallet = currentWallet;
-      toAccountName = currentTx.merchantName.replace(/^Transfer to\s+/i, '').trim();
-      toWallet = wallets.find(
-        (w) => w.name.toLowerCase() === toAccountName.toLowerCase()
-      );
+      parsedFromName = toMatch[1].trim();
+      parsedToName = toMatch[2].trim();
+    } else if (currentTx.type === 'income') {
+      parsedFromName = currentTx.merchantName.replace(/^Transfer from\s+/i, '').trim();
     } else {
-      toAccountName = currentWalletName;
-      toWallet = currentWallet;
-      fromAccountName = currentTx.merchantName.replace(/^Transfer from\s+/i, '').trim();
-      fromWallet = wallets.find(
-        (w) => w.name.toLowerCase() === fromAccountName.toLowerCase()
-      );
+      parsedToName = currentTx.merchantName.replace(/^Transfer to\s+/i, '').trim();
     }
+
+    const byName = (name: string, excludeId?: string) =>
+      name
+        ? wallets.find(
+            (w) => w.name.toLowerCase() === name.toLowerCase() && w.id !== excludeId
+          )
+        : undefined;
+
+    // The transaction's own wallet is always one leg of the transfer.
+    const isIncoming = currentTx.type === 'income';
+    fromWallet = isIncoming ? undefined : currentWallet;
+    toWallet = isIncoming ? currentWallet : undefined;
+
+    // The other leg: match the parsed name against a wallet with a different id.
+    if (!fromWallet) fromWallet = byName(parsedFromName, currentWallet?.id);
+    if (!toWallet) toWallet = byName(parsedToName, currentWallet?.id);
+
+    fromAccountName = fromWallet?.name || parsedFromName;
+    toAccountName = toWallet?.name || parsedToName;
   }
 
   const isCrossCurrency = !!(fromWallet && toWallet && fromWallet.currency !== toWallet.currency);
@@ -154,7 +160,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 : 'Fund Transfer')
             : currentTx.merchantName
         }
-        subtitle={formatDateTime(currentTx.timestamp)}
+        subtitle={isTransfer ? undefined : currentTx.category}
         onClose={onClose}
       />
 
@@ -350,6 +356,8 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 style={styles.editBtn}
                 onPress={() => onEdit(currentTx)}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Edit transaction"
               >
                 <Pencil size={15} color={Palette.white} style={{ marginRight: 6 }} />
                 <Text style={styles.editText}>Edit</Text>
@@ -359,6 +367,8 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 style={styles.duplicateBtn}
                 onPress={() => onDuplicate(currentTx)}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Duplicate transaction"
               >
                 <Copy size={15} color={Palette.primary} style={{ marginRight: 6 }} />
                 <Text style={styles.duplicateText}>Duplicate</Text>
@@ -370,6 +380,8 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             style={styles.deleteBtn}
             onPress={() => onDelete(currentTx)}
             activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={isTransfer ? 'Delete transfer' : 'Delete transaction'}
           >
             <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
             <Text style={styles.deleteText}>

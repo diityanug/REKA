@@ -17,6 +17,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
+  Receipt,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Pocket, Transaction, CurrencyType } from '../../types';
@@ -55,7 +56,7 @@ interface OverviewTabProps {
   getPocketName: (pocketId?: string) => string;
 }
 
-export const OverviewTab: React.FC<OverviewTabProps> = ({
+export const OverviewTab = React.memo<OverviewTabProps>(({
   wallets,
   pockets,
   transactions,
@@ -81,7 +82,21 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   getCategoryIconName,
   getPocketName,
 }) => {
-  const currencyWallets = wallets.filter((w) => w.currency === activeCurrency);
+  const currencyWallets = useMemo(
+    () => wallets.filter((w) => w.currency === activeCurrency),
+    [wallets, activeCurrency]
+  );
+
+  // Same month-key rule the finance hook uses, computed locally so the stepper can be bounded
+  const currentMonthKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  // Oldest month with recorded activity (availableMonths is sorted newest first)
+  const oldestMonthKey = availableMonths.length > 0
+    ? availableMonths[availableMonths.length - 1]
+    : null;
 
   // Filter transactions for active currency (deduplicating same-currency paired transfers so only 1 card is displayed)
   const currencyTransactions = useMemo(() => {
@@ -142,12 +157,18 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
   }, [monthTransactions]);
 
   // Stepper navigation logic (Clean calendar month math, no skipping or jumping)
+  const isNextDisabled = selectedMonth === 'all' || selectedMonth >= currentMonthKey;
+  const isPrevDisabled =
+    selectedMonth !== 'all' && oldestMonthKey !== null && selectedMonth <= oldestMonthKey;
+
   const handlePrevMonth = () => {
+    if (isPrevDisabled) return;
     AppHaptics.selection();
     onSelectMonth(getPrevMonthKey(selectedMonth));
   };
 
   const handleNextMonth = () => {
+    if (isNextDisabled) return;
     AppHaptics.selection();
     onSelectMonth(getNextMonthKey(selectedMonth));
   };
@@ -177,9 +198,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         {/* Monthly Period Navigator */}
         <View style={styles.periodBar}>
           <TouchableOpacity
-            style={styles.stepperBtn}
+            style={[styles.stepperBtn, isPrevDisabled && styles.stepperBtnDisabled]}
             onPress={handlePrevMonth}
             activeOpacity={0.7}
+            disabled={isPrevDisabled}
+            accessibilityRole="button"
+            accessibilityLabel="Previous month"
+            accessibilityState={{ disabled: isPrevDisabled }}
           >
             <ChevronLeft size={16} color={Palette.ink} />
           </TouchableOpacity>
@@ -202,9 +227,13 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.stepperBtn}
+            style={[styles.stepperBtn, isNextDisabled && styles.stepperBtnDisabled]}
             onPress={handleNextMonth}
             activeOpacity={0.7}
+            disabled={isNextDisabled}
+            accessibilityRole="button"
+            accessibilityLabel="Next month"
+            accessibilityState={{ disabled: isNextDisabled }}
           >
             <ChevronRight size={16} color={Palette.ink} />
           </TouchableOpacity>
@@ -248,24 +277,34 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         {/* Minimalist Flow Ratio Track */}
         <View style={styles.flowRatioSection}>
           <View style={styles.dualFlowTrack}>
-            <View
-              style={[
-                styles.dualFlowSegment,
-                {
-                  flex: Math.max(currentMonthlyStats.incomePct, 4),
-                  backgroundColor: Palette.success,
-                },
-              ]}
-            />
-            <View
-              style={[
-                styles.dualFlowSegment,
-                {
-                  flex: Math.max(currentMonthlyStats.expensePct, 4),
-                  backgroundColor: Palette.error,
-                },
-              ]}
-            />
+            {currentMonthlyStats.totalVolume > 0 ? (
+              <>
+                {currentMonthlyStats.income > 0 ? (
+                  <View
+                    style={[
+                      styles.dualFlowSegment,
+                      {
+                        flex: currentMonthlyStats.income,
+                        backgroundColor: Palette.success,
+                      },
+                    ]}
+                  />
+                ) : null}
+                {currentMonthlyStats.expense > 0 ? (
+                  <View
+                    style={[
+                      styles.dualFlowSegment,
+                      {
+                        flex: currentMonthlyStats.expense,
+                        backgroundColor: Palette.error,
+                      },
+                    ]}
+                  />
+                ) : null}
+              </>
+            ) : (
+              <View style={styles.dualFlowNeutral} />
+            )}
           </View>
           <View style={styles.flowRatioMetaRow}>
             <Text style={styles.flowRatioMetaText}>
@@ -420,8 +459,22 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       </View>
 
       {/* Accounts & Wallets */}
-      <View style={styles.sectionHeader}>
+      <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>Accounts & Wallets</Text>
+        {onNavigateToAccounts ? (
+          <TouchableOpacity
+            onPress={() => {
+              AppHaptics.selection();
+              onNavigateToAccounts();
+            }}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="See all accounts"
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Text style={styles.viewAllPlansLink}>See all</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {wallets.length === 0 ? (
@@ -466,6 +519,7 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
                 pockets={pockets}
                 totalLiquidity={positiveLiquidityTotal}
                 privacyMode={privacyMode}
+                selected={w.id === selectedWalletId}
                 onPress={onOpenAccountDetail}
                 variant="horizontal"
               />
@@ -496,12 +550,30 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
         </Text>
       </View>
 
-      {recentTransactions.length === 0 ? (
+      {monthTransactions.length === 0 ? (
         <View style={styles.emptyTransactionsCard}>
-          <Text style={styles.emptyTitle}>No transactions in {periodTitle}</Text>
-          <Text style={styles.emptyDesc}>
-            Record an expense or income using Quick Actions above.
+          <View style={styles.emptyTransactionsIconCircle}>
+            <Receipt size={20} color={Palette.primary} />
+          </View>
+          <Text style={styles.emptyTitle}>
+            {selectedMonth === 'all'
+              ? 'No transactions yet'
+              : `No transactions in ${periodTitle}`}
           </Text>
+          <Text style={styles.emptyDesc}>Add your first expense or income for this period.</Text>
+          <TouchableOpacity
+            style={styles.emptyPrimaryBtn}
+            onPress={() => {
+              AppHaptics.light();
+              onOpenManualModal();
+            }}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Add transaction"
+          >
+            <Plus size={15} color={Palette.white} style={{ marginRight: 6 }} />
+            <Text style={styles.emptyPrimaryBtnText}>Add Transaction</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         recentTransactions.map((tx) => (
@@ -517,7 +589,9 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
       )}
     </View>
   );
-};
+});
+
+OverviewTab.displayName = 'OverviewTab';
 
 const styles = StyleSheet.create({
   container: {
@@ -591,6 +665,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
+  stepperBtnDisabled: {
+    opacity: 0.35,
+  },
   periodCenterBtn: {
     flex: 1,
     alignItems: 'center',
@@ -659,6 +736,11 @@ const styles = StyleSheet.create({
   dualFlowSegment: {
     height: '100%',
   },
+  dualFlowNeutral: {
+    flex: 1,
+    height: '100%',
+    backgroundColor: Palette.hairline,
+  },
   flowRatioMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -678,6 +760,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 10,
   },
   sectionTitle: {
     ...Typography.subheading,
@@ -883,6 +967,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.hairline,
     marginBottom: 16,
+  },
+  emptyTransactionsIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FDF0ED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginTop: 12,
+  },
+  emptyPrimaryBtnText: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.white,
   },
   emptyTitle: {
     ...Typography.subheading,

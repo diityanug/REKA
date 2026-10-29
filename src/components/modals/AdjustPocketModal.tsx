@@ -5,12 +5,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Pocket, Wallet, CurrencyType } from '../../types';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
@@ -21,19 +22,21 @@ import { AmountInputModal } from './AmountInputModal';
 interface AdjustPocketModalProps {
   pocket: Pocket | null;
   wallets: Wallet[];
+  pockets?: Pocket[];
   activeCurrency: CurrencyType;
   privacyMode: boolean;
   mode: 'allocate' | 'release';
   amount: string;
   onChangeMode: (mode: 'allocate' | 'release') => void;
   onChangeAmount: (text: string) => void;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
   onClose: () => void;
 }
 
 export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
   pocket: propPocket,
   wallets,
+  pockets = [],
   activeCurrency,
   privacyMode,
   mode,
@@ -45,11 +48,38 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [showAmountModal, setShowAmountModal] = React.useState<boolean>(false);
+  const [saving, setSaving] = React.useState<boolean>(false);
   const pocket = useLastDefined(propPocket);
   if (!pocket) return null;
 
   const parentWallet = wallets.find((w) => w.id === pocket.walletId);
   const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
+
+  // Funds of the parent account that are not assigned to any pocket yet.
+  const walletPockets =
+    pockets.length > 0 ? pockets : [pocket];
+  const allocatedInWallet = walletPockets
+    .filter((p) => p.walletId === pocket.walletId)
+    .reduce((sum, p) => sum + p.balance, 0);
+  const availableToAllocate = Math.max(
+    (parentWallet ? parentWallet.balance : 0) - allocatedInWallet,
+    0
+  );
+  const releaseLimit = pocket.balance;
+  const limit = mode === 'allocate' ? availableToAllocate : releaseLimit;
+
+  const typedAmount = parseAmount(amount, pCurrency);
+  const exceedsLimit = !!amount && !isNaN(typedAmount) && typedAmount > limit;
+
+  const submit = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onConfirm();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <BottomSheetModal
@@ -70,6 +100,19 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                 <Text style={styles.summaryAmount}>
                   {formatCurrency(pocket.balance, pCurrency, privacyMode)}
                 </Text>
+                <View style={styles.divider} />
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>
+                    {mode === 'allocate' ? 'Available to allocate' : 'Can release up to'}
+                  </Text>
+                  <Text style={styles.metaValue}>
+                    {formatCurrency(
+                      mode === 'allocate' ? availableToAllocate : releaseLimit,
+                      pCurrency,
+                      privacyMode
+                    )}
+                  </Text>
+                </View>
                 {pocket.targetAmount > 0 ? (
                   <>
                     <View style={styles.divider} />
@@ -93,6 +136,9 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                     AppHaptics.selection();
                     onChangeMode('allocate');
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Allocate funds into this pocket"
+                  accessibilityState={{ selected: mode === 'allocate' }}
                 >
                   <Text
                     style={[
@@ -112,6 +158,9 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                     AppHaptics.selection();
                     onChangeMode('release');
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Release funds from this pocket"
+                  accessibilityState={{ selected: mode === 'release' }}
                 >
                   <Text
                     style={[
@@ -135,6 +184,8 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                   setShowAmountModal(true);
                 }}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Amount to ${mode === 'allocate' ? 'allocate' : 'release'}, ${amount || '0'} ${pCurrency}`}
               >
                 <View style={styles.amountPrefixTag}>
                   <Text style={styles.amountPrefixTagText}>
@@ -151,6 +202,14 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                   {amount || (pCurrency === 'IDR' ? '0' : '0.00')}
                 </Text>
               </TouchableOpacity>
+
+              {exceedsLimit ? (
+                <Text style={styles.inlineError}>
+                  {mode === 'allocate'
+                    ? 'More than the available unallocated funds.'
+                    : 'More than the pocket balance.'}
+                </Text>
+              ) : null}
             </KeyboardSafeContainer>
 
             <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
@@ -161,14 +220,28 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                     backgroundColor:
                       mode === 'allocate' ? Palette.accentTeal : Palette.primary,
                   },
+                  (exceedsLimit || saving) && styles.confirmBtnDisabled,
                 ]}
-                onPress={onConfirm}
+                onPress={submit}
+                disabled={exceedsLimit || saving}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={mode === 'allocate' ? 'Confirm allocation' : 'Confirm release'}
+                accessibilityState={{ disabled: exceedsLimit || saving }}
               >
-                <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.confirmBtnText}>
-                  {mode === 'allocate' ? 'Confirm Allocation' : 'Confirm Release'}
-                </Text>
+                {saving ? (
+                  <>
+                    <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>Saving...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>
+                      {mode === 'allocate' ? 'Confirm Allocation' : 'Confirm Release'}
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -189,19 +262,6 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '88%',
-    maxHeight: '92%',
-    overflow: 'hidden',
-  },
   summaryCard: {
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 16,
@@ -284,16 +344,12 @@ const styles = StyleSheet.create({
     color: Palette.primary,
     fontWeight: '700',
   },
-  textInputBox: {
-    ...Typography.body,
-    fontSize: 14,
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    color: Palette.ink,
+  inlineError: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Palette.error,
+    marginTop: 6,
   },
   amountPickerBox: {
     flexDirection: 'row',
@@ -342,6 +398,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 13,
     borderRadius: 14,
+  },
+  confirmBtnDisabled: {
+    opacity: 0.5,
   },
   confirmBtnText: {
     ...Typography.body,

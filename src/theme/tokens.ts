@@ -34,6 +34,37 @@ export const Palette = {
   onDark: '#FAF9F5',
   onDarkSoft: '#A09D96',
   white: '#FFFFFF',
+
+  // Semantic tints — prefer these over new raw hex literals in components
+  tintExpense: '#FDF0ED',
+  tintExpenseBorder: '#F9DCD5',
+  tintIncome: '#EBF7F4',
+  tintIncomeBorder: '#CDEBE3',
+  tintWarning: '#FFFBEB',
+  tintWarningBorder: '#FCE8B2',
+  tintInfo: '#EDF5FF',
+  tintInfoBorder: '#D0E4FF',
+};
+
+// Spacing scale (4pt grid) — keeps padding consistent across screens
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  xxl: 24,
+  xxxl: 32,
+};
+
+// Corner radius scale
+export const Radius = {
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  sheet: 24,
+  pill: 999,
 };
 
 export const Typography = {

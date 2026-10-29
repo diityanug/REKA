@@ -9,7 +9,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, X, Receipt, RotateCcw, SlidersHorizontal } from 'lucide-react-native';
+import { Search, X, Receipt, RotateCcw, SlidersHorizontal, Plus } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, CurrencyType, FilterType } from '../../types';
 import { formatCurrency, formatMonthYear, formatMonthShort } from '../../utils/formatters';
@@ -48,7 +48,7 @@ interface HistoryTabProps {
   getPocketName: (pocketId?: string) => string;
 }
 
-export const HistoryTab: React.FC<HistoryTabProps> = ({
+export const HistoryTab = React.memo<HistoryTabProps>(({
   transactions,
   activeCurrency,
   privacyMode,
@@ -68,6 +68,7 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
   onChangeMonth,
   onOpenMonthPicker,
   onResetAllFilters,
+  onOpenManualModal,
   onSelectTransaction,
   getCategoryIconName,
   getPocketName,
@@ -139,8 +140,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
       }
       const group = map.get(key)!;
       group.transactions.push(tx);
-      group.count += 1;
+      // Count only transactions that feed the amounts below (transfers excluded)
       if (tx.category !== 'Transfer' && !tx.transferPairId) {
+        group.count += 1;
         if (tx.type === 'expense') group.totalExpense += tx.amount;
         if (tx.type === 'income') group.totalIncome += tx.amount;
       }
@@ -212,9 +214,17 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             onChangeText={setLocalSearch}
             returnKeyType="search"
             onSubmitEditing={Keyboard.dismiss}
+            accessibilityRole="search"
+            accessibilityLabel="Search transactions"
           />
           {localSearch.length > 0 ? (
-            <TouchableOpacity onPress={handleClearSearch} activeOpacity={0.7}>
+            <TouchableOpacity
+              onPress={handleClearSearch}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Clear search"
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            >
               <X size={16} color={Palette.muted} />
             </TouchableOpacity>
           ) : null}
@@ -230,6 +240,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
             setFilterModalVisible(true);
           }}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Filter transactions"
+          accessibilityState={{ selected: activeFilterCount > 0 }}
         >
           <SlidersHorizontal
             size={16}
@@ -325,31 +338,61 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
     onResetAllFilters,
   ]);
 
-  const renderEmpty = useCallback(() => (
-    <View style={styles.emptyCard}>
-      <Receipt size={32} color={Palette.mutedSoft} />
-      <Text style={styles.emptyTitle}>No matching transactions</Text>
-      <Text style={styles.emptyDesc}>Try adjusting search query or active filters.</Text>
-      {isFilterActive ? (
-        <TouchableOpacity
-          style={styles.emptyResetBtn}
-          onPress={onResetAllFilters}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.emptyResetBtnText}>Clear All Filters</Text>
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  ), [isFilterActive, onResetAllFilters]);
+  // Two distinct empty states: filters/search hid everything vs. no records at all
+  const renderEmpty = useCallback(() => {
+    if (isFilterActive) {
+      return (
+        <View style={styles.emptyCard}>
+          <Receipt size={32} color={Palette.mutedSoft} />
+          <Text style={styles.emptyTitle}>No matching transactions</Text>
+          <Text style={styles.emptyDesc}>Try adjusting search query or active filters.</Text>
+          <TouchableOpacity
+            style={styles.emptyResetBtn}
+            onPress={onResetAllFilters}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Clear all filters"
+          >
+            <Text style={styles.emptyResetBtnText}>Clear All Filters</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.emptyCard}>
+        <Receipt size={32} color={Palette.mutedSoft} />
+        <Text style={styles.emptyTitle}>No transactions yet</Text>
+        <Text style={styles.emptyDesc}>
+          Record your first {activeCurrency} expense or income to build your history.
+        </Text>
+        {onOpenManualModal ? (
+          <TouchableOpacity
+            style={styles.emptyPrimaryBtn}
+            onPress={() => {
+              AppHaptics.light();
+              onOpenManualModal();
+            }}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Add transaction"
+          >
+            <Plus size={15} color={Palette.white} style={{ marginRight: 6 }} />
+            <Text style={styles.emptyPrimaryBtnText}>Add Transaction</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  }, [isFilterActive, onResetAllFilters, activeCurrency, onOpenManualModal]);
 
   const renderSectionHeader = useCallback(({ section }: { section: any }) => (
     <View style={styles.monthHeaderRow}>
       <Text style={styles.monthHeaderTitle}>{section.title}</Text>
       <Text style={styles.monthHeaderMeta} numberOfLines={1}>
-        {section.count} tx • {formatCurrency(section.totalExpense, activeCurrency)}
+        {section.count} tx • {formatCurrency(section.totalExpense, activeCurrency, privacyMode)}
       </Text>
     </View>
-  ), [activeCurrency]);
+  ), [activeCurrency, privacyMode]);
 
   const renderItem = useCallback(({ item }: { item: Transaction }) => (
     <TransactionItemRow
@@ -401,7 +444,9 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
       />
     </View>
   );
-};
+});
+
+HistoryTab.displayName = 'HistoryTab';
 
 const styles = StyleSheet.create({
   container: {
@@ -609,5 +654,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.primary,
+  },
+  emptyPrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  emptyPrimaryBtnText: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.white,
   },
 });

@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -38,9 +39,20 @@ interface NewAccountModalProps {
   onChangeCurrency: (currency: CurrencyType) => void;
   onChangeBalance: (text: string) => void;
   onChangeAccountNumber: (text: string) => void;
-  onCreate: () => void;
+  onCreate: () => void | Promise<void>;
   onClose: () => void;
 }
+
+// A preset fills name, type AND currency together so no stale value survives.
+const PRESET_CONFIG: Record<string, { type: AccountType; currency: CurrencyType }> = {
+  BCA: { type: 'Bank', currency: 'IDR' },
+  Mandiri: { type: 'Bank', currency: 'IDR' },
+  'Cash Wallet': { type: 'Cash', currency: 'IDR' },
+  GoPay: { type: 'E-Wallet', currency: 'IDR' },
+  'Credit Card': { type: 'Credit Card', currency: 'IDR' },
+  'Flazz / E-Toll': { type: 'E-Money', currency: 'IDR' },
+  'USD Vault': { type: 'Bank', currency: 'USD' },
+};
 
 export const NewAccountModal: React.FC<NewAccountModalProps> = ({
   visible,
@@ -59,6 +71,17 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [amountModalVisible, setAmountModalVisible] = useState(false);
+  const [saving, setSaving] = useState<boolean>(false);
+
+  const submit = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onCreate();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <BottomSheetModal
@@ -98,13 +121,12 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                     ]}
                     onPress={() => {
                       AppHaptics.selection();
+                      const config = PRESET_CONFIG[preset];
                       onChangeName(preset);
-                      if (preset === 'Cash Wallet') onChangeType('Cash');
-                      else if (preset === 'GoPay') onChangeType('E-Wallet');
-                      else if (preset === 'Credit Card') onChangeType('Credit Card');
-                      else if (preset === 'Flazz / E-Toll') onChangeType('E-Money');
-                      else if (preset === 'USD Vault') onChangeCurrency('USD');
-                      else onChangeType('Bank');
+                      if (config) {
+                        onChangeType(config.type);
+                        onChangeCurrency(config.currency);
+                      }
                     }}
                   >
                     <Text
@@ -155,6 +177,9 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                         onChangeType(key);
                       }}
                       activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${label} account type`}
+                      accessibilityState={{ selected: isSelected }}
                     >
                       <View
                         style={[
@@ -199,12 +224,18 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                     AppHaptics.selection();
                     onChangeCurrency('IDR');
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Currency IDR, Indonesian Rupiah"
+                  accessibilityState={{ selected: currency === 'IDR' }}
                 >
                   <Text
                     style={[
                       styles.segmentBtnText,
                       currency === 'IDR' && styles.segmentBtnTextActive,
                     ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
                   >
                     IDR (Indonesian Rupiah)
                   </Text>
@@ -218,12 +249,18 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                     AppHaptics.selection();
                     onChangeCurrency('USD');
                   }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Currency USD, US Dollar"
+                  accessibilityState={{ selected: currency === 'USD' }}
                 >
                   <Text
                     style={[
                       styles.segmentBtnText,
                       currency === 'USD' && styles.segmentBtnTextActive,
                     ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
                   >
                     USD (US Dollar)
                   </Text>
@@ -232,7 +269,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 
               {/* Starting Balance */}
               <Text style={[styles.inputLabel, { marginTop: 10 }]}>
-                Starting Balance
+                Starting Balance <Text style={styles.optionalTag}>(optional)</Text>
               </Text>
               <TouchableOpacity
                 style={styles.amountPickerBox}
@@ -242,6 +279,8 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                   setAmountModalVisible(true);
                 }}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Starting balance, ${balance || '0'} ${currency}`}
               >
                 <View style={styles.amountPrefixTag}>
                   <Text style={styles.amountPrefixTagText}>
@@ -259,29 +298,44 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
-              {/* Note */}
+              {/* Account Number */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Note
+                Account Number <Text style={styles.optionalTag}>(optional)</Text>
               </Text>
               <TextInput
                 style={styles.textInputBox}
-                placeholder="e.g. •••• 9812 or Main Savings"
+                placeholder="e.g. 1234 5678"
                 placeholderTextColor={Palette.mutedSoft}
                 value={accountNumber}
                 onChangeText={onChangeAccountNumber}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
+                maxLength={30}
+                accessibilityLabel="Account number"
+                accessibilityHint="Optional account or card number ending"
               />
             </KeyboardSafeContainer>
 
             <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
               <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={onCreate}
+                style={[styles.confirmBtn, saving && { opacity: 0.7 }]}
+                onPress={submit}
+                disabled={saving}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Save account"
               >
-                <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.confirmBtnText}>Save Account</Text>
+                {saving ? (
+                  <>
+                    <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>Saving...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>Save Account</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -291,6 +345,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
         subtitle={`Account balance in ${currency}`}
         initialAmount={balance}
         currency={currency}
+        allowZero
         onConfirm={(formatted) => onChangeBalance(formatted)}
         onClose={() => setAmountModalVisible(false)}
       />
@@ -299,19 +354,6 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   inputLabel: {
     ...Typography.caption,
     fontSize: 12,
@@ -322,6 +364,10 @@ const styles = StyleSheet.create({
   requiredStar: {
     color: Palette.primary,
     fontWeight: '700',
+  },
+  optionalTag: {
+    color: Palette.mutedSoft,
+    fontWeight: '500',
   },
   textInputBox: {
     ...Typography.body,
@@ -400,8 +446,10 @@ const styles = StyleSheet.create({
   },
   segmentBtn: {
     flex: 1,
-    paddingVertical: 9,
+    height: 38,
+    paddingHorizontal: 4,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 10,
   },
   segmentBtnActiveExpense: {
@@ -415,6 +463,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.muted,
+    textAlign: 'center',
   },
   segmentBtnTextActive: {
     color: Palette.white,

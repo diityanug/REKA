@@ -33,6 +33,10 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
       style={styles.txCard}
       onPress={() => onPress(tx)}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={`${tx.merchantName}, ${tx.category}${pocketName ? `, ${pocketName}` : ''}, ${
+        privacyMode ? 'amount hidden' : formattedAmount
+      }. Open details.`}
     >
       <View style={styles.txRow}>
         {/* Leading Category Icon */}
@@ -41,10 +45,10 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
             styles.txIconBox,
             {
               backgroundColor: isTransfer
-                ? '#F5EFEB'
+                ? Palette.surfaceSoft
                 : isExpense
-                  ? '#FDF0ED'
-                  : '#EBF7F4',
+                  ? Palette.tintExpense
+                  : Palette.tintIncome,
             },
           ]}
         >

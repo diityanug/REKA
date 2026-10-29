@@ -31,7 +31,9 @@ export interface CustomAlertModalProps {
   message?: string;
   buttons?: AlertButton[];
   type?: AlertType;
-  onClose: () => void;
+  /** Identifies this dialog so a chained alert is not closed by the previous one */
+  alertId?: string;
+  onClose: (alertId?: string) => void;
 }
 
 export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
@@ -40,6 +42,7 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   message,
   buttons = [{ text: 'OK', style: 'default' }],
   type = 'info',
+  alertId,
   onClose,
 }) => {
   if (!visible) return null;
@@ -80,12 +83,19 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
     }
   };
 
+  // A destructive or non-cancel action makes the backdrop non-dismissable,
+  // so an accidental tap can never silently cancel a confirm.
+  const hasBlockingAction = buttons.some((btn) => btn.style !== 'cancel');
+  const requestClose = hasBlockingAction ? undefined : () => onClose(alertId);
+
   const handleButtonPress = (btn: AlertButton) => {
     AppHaptics.light();
-    onClose();
+    // Run the action BEFORE closing, so a confirm is never cancelled by the close.
     if (btn.onPress) {
       btn.onPress();
     }
+    // Pass our own id: if the action opened a newer alert, that one stays visible
+    onClose(alertId);
   };
 
   return (
@@ -94,9 +104,11 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
       transparent={true}
       animationType="fade"
       statusBarTranslucent={true}
-      onRequestClose={onClose}
+      onRequestClose={() => {
+        if (!hasBlockingAction) onClose();
+      }}
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
+      <Pressable style={styles.overlay} onPress={requestClose}>
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <View style={styles.topSection}>
             {renderIcon()}
@@ -133,6 +145,8 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
                   ]}
                   onPress={() => handleButtonPress(btn)}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={btn.text}
                 >
                   <Text style={[styles.buttonText, { color: textCol }]}>
                     {btn.text}

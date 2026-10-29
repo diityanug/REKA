@@ -7,12 +7,14 @@ import {
   ScrollView,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Wallet } from '../../types';
+import { Wallet, CurrencyType } from '../../types';
 import { POCKET_PRESETS } from '../../constants/presets';
+import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
@@ -28,12 +30,14 @@ interface NewPocketModalProps {
   balance: string;
   target: string;
   icon: string;
+  availableAmount: number;
+  currency: CurrencyType;
   onSelectWallet: (id: string) => void;
   onChangeName: (text: string) => void;
   onChangeBalance: (text: string) => void;
   onChangeTarget: (text: string) => void;
   onChangeIcon: (icon: string) => void;
-  onCreate: () => void;
+  onCreate: () => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -45,6 +49,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
   balance,
   target,
   icon,
+  availableAmount,
+  currency,
   onSelectWallet,
   onChangeName,
   onChangeBalance,
@@ -55,8 +61,22 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [amountModalType, setAmountModalType] = useState<'balance' | 'target' | null>(null);
+  const [saving, setSaving] = useState<boolean>(false);
   const selectedWallet = wallets.find((w) => w.id === selectedWalletId);
-  const currency = selectedWallet ? selectedWallet.currency : 'IDR';
+
+  // Warn before submit; the hook still validates on its own.
+  const allocatedValue = parseAmount(balance, currency);
+  const exceedsAvailable = !!balance && !isNaN(allocatedValue) && allocatedValue > availableAmount;
+
+  const submit = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onCreate();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <BottomSheetModal
@@ -75,30 +95,37 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               <Text style={styles.inputLabel}>
                 Main Account <Text style={styles.requiredStar}>*</Text>
               </Text>
-              <View style={styles.chipsRow}>
-                {wallets.map((w) => (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={[
-                      styles.presetChip,
-                      selectedWalletId === w.id && styles.presetChipActive,
-                    ]}
-                    onPress={() => {
-                      AppHaptics.selection();
-                      onSelectWallet(w.id);
-                    }}
-                  >
-                    <Text
+              {wallets.length === 0 ? (
+                <Text style={styles.emptyText}>Create an account first.</Text>
+              ) : (
+                <View style={styles.chipsRow}>
+                  {wallets.map((w) => (
+                    <TouchableOpacity
+                      key={w.id}
                       style={[
-                        styles.presetChipText,
-                        selectedWalletId === w.id && styles.presetChipTextActive,
+                        styles.presetChip,
+                        selectedWalletId === w.id && styles.presetChipActive,
                       ]}
+                      onPress={() => {
+                        AppHaptics.selection();
+                        onSelectWallet(w.id);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${w.name}, ${w.currency}`}
+                      accessibilityState={{ selected: selectedWalletId === w.id }}
                     >
-                      {w.name} ({w.currency})
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
+                      <Text
+                        style={[
+                          styles.presetChipText,
+                          selectedWalletId === w.id && styles.presetChipTextActive,
+                        ]}
+                      >
+                        {w.name} ({w.currency})
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
 
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Pocket Name <Text style={styles.requiredStar}>*</Text>
@@ -125,6 +152,9 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                       AppHaptics.selection();
                       onChangeName(preset);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Pocket preset ${preset}`}
+                    accessibilityState={{ selected: name === preset }}
                   >
                     <Text
                       style={[
@@ -149,6 +179,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                   setAmountModalType('balance');
                 }}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Allocated balance, ${balance || '0'} ${currency}`}
               >
                 <View style={styles.amountPrefixTag}>
                   <Text style={styles.amountPrefixTagText}>
@@ -166,6 +198,14 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
+              {/* The legal allocation ceiling, shown before submit */}
+              <Text style={styles.availableHint}>
+                Available to allocate: {formatCurrency(availableAmount, currency)}
+              </Text>
+              {exceedsAvailable ? (
+                <Text style={styles.inlineError}>More than the available unallocated funds.</Text>
+              ) : null}
+
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Target Goal
               </Text>
@@ -177,6 +217,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                   setAmountModalType('target');
                 }}
                 activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Target goal, ${target || 'none'} ${currency}`}
               >
                 <View style={styles.amountPrefixTag}>
                   <Text style={styles.amountPrefixTagText}>
@@ -220,6 +262,9 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                           AppHaptics.selection();
                           onChangeIcon(ic);
                         }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Icon ${ic}`}
+                        accessibilityState={{ selected: active }}
                       >
                         <CategoryIcon
                           name={ic}
@@ -235,12 +280,24 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 
             <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
               <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={onCreate}
+                style={[styles.confirmBtn, saving && { opacity: 0.7 }]}
+                onPress={submit}
+                disabled={saving}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Save pocket"
               >
-                <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.confirmBtnText}>Save Pocket</Text>
+                {saving ? (
+                  <>
+                    <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>Saving...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>Save Pocket</Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
 
@@ -250,6 +307,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
         subtitle={amountModalType === 'balance' ? `Allocated from ${selectedWallet?.name || 'Account'}` : 'Savings goal target'}
         initialAmount={amountModalType === 'balance' ? balance : target}
         currency={currency}
+        allowZero
         onConfirm={(formatted) => {
           if (amountModalType === 'balance') {
             onChangeBalance(formatted);
@@ -265,19 +323,6 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   inputLabel: {
     ...Typography.caption,
     fontSize: 12,
@@ -299,6 +344,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.hairline,
     color: Palette.ink,
+  },
+  emptyText: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.muted,
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
   },
   chipsRow: {
     flexDirection: 'row',
@@ -327,6 +383,19 @@ const styles = StyleSheet.create({
   presetChipTextActive: {
     color: Palette.white,
   },
+  availableHint: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 6,
+  },
+  inlineError: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Palette.error,
+    marginTop: 3,
+  },
   iconScrollBox: {
     maxHeight: 160,
     backgroundColor: Palette.surfaceSoft,
@@ -348,6 +417,8 @@ const styles = StyleSheet.create({
   iconCell: {
     width: 46,
     height: 46,
+    minWidth: 44,
+    minHeight: 44,
     borderRadius: 12,
     backgroundColor: Palette.white,
     borderWidth: 1,

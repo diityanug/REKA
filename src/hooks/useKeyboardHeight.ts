@@ -30,3 +30,12 @@ export function useKeyboardHeight(): number {
 
   return keyboardHeight;
 }
+
+/**
+ * Offset a sticky footer needs to clear the iOS keyboard.
+ * Android resizes the window itself, so the offset stays 0 there.
+ */
+export function useFooterKeyboardOffset(): number {
+  const keyboardHeight = useKeyboardHeight();
+  return Platform.OS === 'ios' ? keyboardHeight : 0;
+}

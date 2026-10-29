@@ -13,6 +13,7 @@ interface KeyboardSafeContainerProps {
   style?: StyleProp<ViewStyle>;
   contentContainerStyle?: StyleProp<ViewStyle>;
   extraBottomSpace?: number;
+  keyboardDismissMode?: 'none' | 'on-drag' | 'interactive';
 }
 
 // Scrollable container protecting fields from keyboard obstruction across iOS and Android
@@ -21,12 +22,15 @@ export const KeyboardSafeContainer: React.FC<KeyboardSafeContainerProps> = ({
   style,
   contentContainerStyle,
   extraBottomSpace = 40,
+  keyboardDismissMode = 'none',
 }) => {
   const keyboardHeight = useKeyboardHeight();
 
-  // Dynamically provide clearance for keyboard on both platforms
+  // Dynamic bottom padding for both iOS and Android in modal dialogs so fields can be scrolled into view
   const dynamicBottomPadding =
-    keyboardHeight > 0 ? keyboardHeight + extraBottomSpace : extraBottomSpace;
+    keyboardHeight > 0
+      ? keyboardHeight + extraBottomSpace
+      : extraBottomSpace;
 
   return (
     <View style={styles.outerContainer}>
@@ -37,8 +41,8 @@ export const KeyboardSafeContainer: React.FC<KeyboardSafeContainerProps> = ({
           contentContainerStyle,
           { paddingBottom: dynamicBottomPadding },
         ]}
-        keyboardShouldPersistTaps="always"
-        keyboardDismissMode="none"
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={keyboardDismissMode}
         showsVerticalScrollIndicator={false}
         automaticallyAdjustKeyboardInsets={false}
       >

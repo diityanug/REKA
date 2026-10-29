@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   TextInput,
@@ -8,7 +9,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Check, FolderTree, Calendar } from 'lucide-react-native';
+import { Plus, Check, FolderTree, Calendar, Calculator } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import {
   Wallet,
@@ -19,6 +20,8 @@ import {
 } from '../../types';
 import { PAYMENT_METHODS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
+import { formatCurrency, parseAmount } from '../../utils/formatters';
+import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon } from '../CategoryIcon';
@@ -36,10 +39,12 @@ interface ManualTxModalProps {
   manCurrency: CurrencyType;
   manMethod: string;
   manDate: string;
+  manTime: string;
   manNotes: string;
   wallets: Wallet[];
   pockets: Pocket[];
   categories: Category[];
+  privacyMode: boolean;
   selectedWalletId: string;
   selectedPocketId: string;
   onChangeMerchant: (text: string) => void;
@@ -49,17 +54,18 @@ interface ManualTxModalProps {
   onChangeCurrency: (currency: CurrencyType) => void;
   onChangeMethod: (method: string) => void;
   onChangeDate: (dateString: string) => void;
+  onChangeTime: (time: string) => void;
   onChangeNotes: (notes: string) => void;
   onSelectWallet: (id: string) => void;
   onSelectPocket: (id: string) => void;
   onOpenAddAccount: () => void;
   onOpenAddPocket: () => void;
   onOpenCategoryManager: () => void;
-  onSave: () => void;
+  onSave: () => Promise<void>;
   onClose: () => void;
 }
 
-export const ManualTxModal: React.FC<ManualTxModalProps> = ({
+export const ManualTxModal = React.memo<ManualTxModalProps>(({
   visible,
   isEditing = false,
   manMerchant,
@@ -69,10 +75,12 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
   manCurrency,
   manMethod,
   manDate,
+  manTime,
   manNotes,
   wallets,
   pockets,
   categories,
+  privacyMode,
   selectedWalletId,
   selectedPocketId,
   onChangeMerchant,
@@ -82,6 +90,7 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
   onChangeCurrency,
   onChangeMethod,
   onChangeDate,
+  onChangeTime,
   onChangeNotes,
   onSelectWallet,
   onSelectPocket,
@@ -97,6 +106,48 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
   const activeCategories = categories.filter((c) => c.type === manType);
 
   const [datePickerVisible, setDatePickerVisible] = useState<boolean>(false);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [keypadOpen, setKeypadOpen] = useState<boolean>(false);
+  const footerKeyboardOffset = useFooterKeyboardOffset();
+
+  const selectedWallet = relevantWallets.find((w) => w.id === selectedWalletId);
+  const parsedAmount = useMemo(
+    () => parseAmount(manAmount, manCurrency),
+    [manAmount, manCurrency]
+  );
+  const exceedsBalance =
+    manType === 'expense' && !!selectedWallet && parsedAmount > selectedWallet.balance;
+  const categoryMissing = !activeCategories.some((c) => c.name === manCategory);
+
+  // Keep the last strictly valid HH:mm so an invalid blur can revert to it
+  const lastValidTimeRef = useRef<string>(manTime || '00:00');
+  useEffect(() => {
+    if (/^([01]\d|2[0-3]):[0-5]\d$/.test(manTime)) {
+      lastValidTimeRef.current = manTime;
+    }
+  }, [manTime]);
+
+  const handleTimeBlur = () => {
+    const trimmed = (manTime || '').trim();
+    if (/^([01]?\d|2[0-3]):[0-5]\d$/.test(trimmed)) {
+      const [hour, minute] = trimmed.split(':');
+      const normalized = `${hour.padStart(2, '0')}:${minute}`;
+      lastValidTimeRef.current = normalized;
+      if (normalized !== manTime) onChangeTime(normalized);
+      return;
+    }
+    onChangeTime(lastValidTimeRef.current);
+  };
+
+  const handleSubmit = async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await onSave();
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const todayStr = useMemo(() => {
     const now = new Date();
@@ -129,6 +180,7 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
       onClose={onClose}
       height="92%"
       maxHeight="94%"
+      dismissOnBackdropPress={false}
     >
       <ModalHeader
         title={isEditing ? 'Edit Transaction' : 'New Transaction'}
@@ -189,6 +241,7 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                 placeholderTextColor={Palette.mutedSoft}
                 value={manMerchant}
                 onChangeText={onChangeMerchant}
+                onFocus={() => setKeypadOpen(false)}
                 maxLength={50}
                 returnKeyType="next"
               />
@@ -234,21 +287,70 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Amount Input with Custom Calculator Keypad */}
+              {/* Amount Input with Collapsible Calculator Keypad */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Amount <Text style={styles.requiredStar}>*</Text>
               </Text>
+              <View style={styles.amountToolsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.presetChip,
+                    styles.calculatorChip,
+                    keypadOpen && styles.presetChipActive,
+                  ]}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    if (!keypadOpen) {
+                      Keyboard.dismiss();
+                    }
+                    setKeypadOpen((open) => !open);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Toggle calculator keypad"
+                  accessibilityState={{ expanded: keypadOpen, selected: keypadOpen }}
+                  activeOpacity={0.7}
+                >
+                  <Calculator
+                    size={13}
+                    color={keypadOpen ? Palette.white : Palette.primary}
+                    style={{ marginRight: 4 }}
+                  />
+                  <Text
+                    style={[
+                      styles.presetChipText,
+                      keypadOpen && styles.presetChipTextActive,
+                    ]}
+                  >
+                    {keypadOpen ? 'Hide' : 'Calculator'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
               <CalculatorKeypad
                 value={manAmount}
                 currency={manCurrency}
                 onChangeValue={onChangeAmount}
                 showDisplay={true}
+                showKeypad={keypadOpen}
+                onPressDisplay={() => {
+                  Keyboard.dismiss();
+                  setKeypadOpen(true);
+                }}
+                onCloseKeypad={() => setKeypadOpen(false)}
               />
+              {/* Dedicated fixed-height warning slot so layout never shifts/janks */}
+              <View style={styles.balanceWarningSlot}>
+                {exceedsBalance ? (
+                  <Text style={styles.balanceWarning}>
+                    This expense is larger than the account balance.
+                  </Text>
+                ) : null}
+              </View>
 
-              {/* Transaction Date */}
+              {/* Transaction Date & Time */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Date <Text style={styles.requiredStar}>*</Text>
               </Text>
+              <View style={styles.dateTimeRow}>
               <View style={styles.dateSelectorCard}>
                 <TouchableOpacity
                   style={[
@@ -320,6 +422,23 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                 </TouchableOpacity>
               </View>
 
+                <View style={styles.timeBox}>
+                  <Text style={styles.timeLabel}>Time</Text>
+                  <TextInput
+                    style={styles.timeInput}
+                    value={manTime}
+                    onChangeText={onChangeTime}
+                    onFocus={() => setKeypadOpen(false)}
+                    onBlur={handleTimeBlur}
+                    placeholder="HH:mm"
+                    placeholderTextColor={Palette.mutedSoft}
+                    maxLength={5}
+                    keyboardType="numbers-and-punctuation"
+                    returnKeyType="done"
+                  />
+                </View>
+              </View>
+
               <DatePickerModal
                 visible={datePickerVisible}
                 selectedDate={manDate}
@@ -340,20 +459,37 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                     key={w.id}
                     style={[
                       styles.presetChip,
+                      styles.accountChip,
                       selectedWalletId === w.id && styles.presetChipActive,
                     ]}
                     onPress={() => {
                       AppHaptics.selection();
                       onSelectWallet(w.id);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${w.name}, balance ${formatCurrency(
+                      w.balance,
+                      w.currency,
+                      privacyMode
+                    )}`}
+                    accessibilityState={{ selected: selectedWalletId === w.id }}
                   >
                     <Text
                       style={[
                         styles.presetChipText,
                         selectedWalletId === w.id && styles.presetChipTextActive,
                       ]}
+                      numberOfLines={1}
                     >
                       {w.name}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.accountChipBalance,
+                        selectedWalletId === w.id && styles.presetChipTextActive,
+                      ]}
+                    >
+                      {formatCurrency(w.balance, w.currency, privacyMode)}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -382,6 +518,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                         AppHaptics.selection();
                         onSelectPocket('');
                       }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Main Balance"
+                      accessibilityState={{ selected: selectedPocketId === '' }}
                     >
                       <Text
                         style={[
@@ -403,6 +542,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                           AppHaptics.selection();
                           onSelectPocket(p.id);
                         }}
+                        accessibilityRole="button"
+                        accessibilityLabel={p.name}
+                        accessibilityState={{ selected: selectedPocketId === p.id }}
                       >
                         <Text
                           style={[
@@ -429,6 +571,11 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Category <Text style={styles.requiredStar}>*</Text>
               </Text>
+              {categoryMissing ? (
+                <Text style={styles.categoryHint}>
+                  Choose a category for this transaction.
+                </Text>
+              ) : null}
               <View style={styles.bentoGrid2Col}>
                 {activeCategories.map((cat) => {
                   const isSelected = manCategory === cat.name;
@@ -448,6 +595,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                         AppHaptics.selection();
                         onChangeCategory(cat.name);
                       }}
+                      accessibilityRole="button"
+                      accessibilityLabel={cat.name}
+                      accessibilityState={{ selected: isSelected }}
                       activeOpacity={0.8}
                     >
                       <View
@@ -502,6 +652,9 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                       AppHaptics.selection();
                       onChangeMethod(method);
                     }}
+                    accessibilityRole="button"
+                    accessibilityLabel={method}
+                    accessibilityState={{ selected: manMethod === method }}
                   >
                     <Text
                       style={[
@@ -523,27 +676,55 @@ export const ManualTxModal: React.FC<ManualTxModalProps> = ({
                 placeholderTextColor={Palette.mutedSoft}
                 value={manNotes}
                 onChangeText={onChangeNotes}
+                onFocus={() => setKeypadOpen(false)}
                 maxLength={100}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
             </KeyboardSafeContainer>
 
-            <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+            <View
+              style={[
+                styles.stickyFooter,
+                {
+                  paddingBottom:
+                    Math.max(insets.bottom, 14) + footerKeyboardOffset,
+                },
+              ]}
+            >
               <TouchableOpacity
-                style={styles.confirmBtn}
-                onPress={onSave}
+                style={[styles.confirmBtn, saving && styles.confirmBtnDisabled]}
+                onPress={handleSubmit}
+                disabled={saving}
                 activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel={isEditing ? 'Save changes' : 'Save transaction'}
+                accessibilityState={{ disabled: saving, busy: saving }}
               >
-                <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.confirmBtnText}>
-                  {isEditing ? 'Save Changes' : 'Save Transaction'}
-                </Text>
+                {saving ? (
+                  <>
+                    <ActivityIndicator
+                      size="small"
+                      color={Palette.white}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text style={styles.confirmBtnText}>Saving...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.confirmBtnText}>
+                      {isEditing ? 'Save Changes' : 'Save Transaction'}
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
     </BottomSheetModal>
   );
-};
+});
+
+ManualTxModal.displayName = 'ManualTxModal';
 
 const styles = StyleSheet.create({
   modalOverlay: {
@@ -684,7 +865,13 @@ const styles = StyleSheet.create({
   currencyMiniTextActive: {
     color: Palette.ink,
   },
+  dateTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   dateSelectorCard: {
+    flex: 1,
     flexDirection: 'row',
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
@@ -721,6 +908,36 @@ const styles = StyleSheet.create({
     color: Palette.white,
     fontWeight: '700',
   },
+  timeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    height: 44,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  timeLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+  },
+  timeInput: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.ink,
+    width: 38,
+    padding: 0,
+    margin: 0,
+  },
+  amountToolsRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+  },
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -728,11 +945,28 @@ const styles = StyleSheet.create({
   },
   presetChip: {
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 10,
+    minHeight: 40,
+    justifyContent: 'center',
     borderRadius: 10,
     backgroundColor: Palette.surfaceSoft,
     borderWidth: 1,
     borderColor: Palette.hairline,
+  },
+  calculatorChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  accountChip: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  accountChipBalance: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '500',
+    color: Palette.muted,
+    marginTop: 2,
   },
   presetChipActive: {
     backgroundColor: Palette.primary,
@@ -752,7 +986,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 10,
+    minHeight: 40,
+    justifyContent: 'center',
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -773,8 +1009,9 @@ const styles = StyleSheet.create({
     width: '48.5%',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 10,
+    minHeight: 40,
     borderRadius: 12,
     backgroundColor: Palette.white,
     borderWidth: 1,
@@ -793,6 +1030,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Palette.ink,
     flex: 1,
+  },
+  categoryHint: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.error,
+    marginBottom: 6,
+  },
+  balanceWarningSlot: {
+    height: 22,
+    justifyContent: 'center',
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  balanceWarning: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.error,
   },
   manageCategoryBtn: {
     flexDirection: 'row',
@@ -826,6 +1080,9 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
     paddingVertical: 13,
     borderRadius: 14,
+  },
+  confirmBtnDisabled: {
+    opacity: 0.6,
   },
   confirmBtnText: {
     ...Typography.body,

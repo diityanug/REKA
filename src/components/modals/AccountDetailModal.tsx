@@ -433,9 +433,24 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         subtitle={`Reconcile actual balance for ${wallet.name}`}
         initialAmount={String(wallet.balance)}
         currency={wallet.currency}
+        allowZero
         onConfirm={async (_str, num) => {
           setShowAdjustAmountModal(false);
-          await onAdjustWalletBalance(wallet.id, num);
+          // Overwriting a balance is destructive: always confirm the new value
+          showAlert(
+            'Update Balance',
+            `Set "${wallet.name}" balance to ${formatCurrency(num, wallet.currency)}? This replaces the current balance.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Update',
+                onPress: async () => {
+                  await onAdjustWalletBalance(wallet.id, num);
+                },
+              },
+            ],
+            'confirm'
+          );
         }}
         onClose={() => setShowAdjustAmountModal(false)}
       />

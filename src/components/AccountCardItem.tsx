@@ -18,20 +18,25 @@ interface AccountCardItemProps {
   pockets?: Pocket[];
   totalLiquidity?: number;
   privacyMode: boolean;
+  selected?: boolean;
   onPress: (w: Wallet) => void;
   variant?: 'horizontal' | 'full';
 }
 
-export const AccountCardItem: React.FC<AccountCardItemProps> = ({
+export const AccountCardItem = React.memo<AccountCardItemProps>(({
   wallet: w,
+  pockets = [],
   privacyMode,
+  selected = false,
   onPress,
   variant = 'full',
 }) => {
+  const pocketCount = pockets.filter((p) => p.walletId === w.id).length;
+
   if (variant === 'horizontal') {
     return (
       <TouchableOpacity
-        style={styles.cardHorizontal}
+        style={[styles.cardHorizontal, selected && styles.cardSelected]}
         onPress={() => onPress(w)}
         activeOpacity={0.8}
       >
@@ -78,10 +83,13 @@ export const AccountCardItem: React.FC<AccountCardItemProps> = ({
             })()}
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.fullTitle}>{w.name}</Text>
-            <Text style={styles.fullMeta}>
+            <Text style={styles.fullTitle} numberOfLines={1} ellipsizeMode="tail">
+              {w.name}
+            </Text>
+            <Text style={styles.fullMeta} numberOfLines={1}>
               {w.currency} • {w.type.toUpperCase()}
               {w.accountNumber ? ` • ${w.accountNumber}` : ''}
+              {pocketCount > 0 ? ` · ${pocketCount} pockets` : ''}
             </Text>
           </View>
         </View>
@@ -90,13 +98,15 @@ export const AccountCardItem: React.FC<AccountCardItemProps> = ({
 
       <View style={styles.fullBottomRow}>
         <Text style={styles.balanceCaption}>Total Balance</Text>
-        <Text style={styles.fullBalance}>
+        <Text style={styles.fullBalance} numberOfLines={1} adjustsFontSizeToFit>
           {formatCurrency(w.balance, w.currency, privacyMode)}
         </Text>
       </View>
     </TouchableOpacity>
   );
-};
+});
+
+AccountCardItem.displayName = 'AccountCardItem';
 
 const styles = StyleSheet.create({
   cardHorizontal: {
@@ -107,6 +117,9 @@ const styles = StyleSheet.create({
     marginRight: 10,
     borderWidth: 1,
     borderColor: Palette.hairline,
+  },
+  cardSelected: {
+    borderColor: Palette.primary,
   },
   cardTop: {
     flexDirection: 'row',

@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowUp, ArrowDown, Check } from 'lucide-react-native';
@@ -15,6 +16,7 @@ import { AppHaptics } from '../../utils/haptics';
 import { formatCurrency } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
+import { CustomAlertModal } from '../CustomAlertModal';
 
 interface ManageAccountOrderModalProps {
   visible: boolean;
@@ -35,12 +37,17 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
 }) => {
   const insets = useSafeAreaInsets();
   const [orderedList, setOrderedList] = useState<Wallet[]>([]);
+  const [saving, setSaving] = useState<boolean>(false);
+  const [discardAlertVisible, setDiscardAlertVisible] = useState<boolean>(false);
 
   useSyncOnChange([visible, wallets], () => {
     if (visible) {
       setOrderedList([...wallets]);
     }
   });
+
+  const idsOf = (list: Wallet[]) => list.map((w) => w.id).join('|');
+  const hasChanges = idsOf(orderedList) !== idsOf(wallets);
 
   const moveItem = (fromIndex: number, toIndex: number) => {
     if (toIndex < 0 || toIndex >= orderedList.length) return;
@@ -51,22 +58,38 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
     setOrderedList(updated);
   };
 
-  const handleSave = async () => {
-    AppHaptics.light();
-    await onSaveOrder(orderedList);
+  // Closing with a rearranged list would silently drop the work.
+  const requestClose = () => {
+    if (saving) return;
+    if (hasChanges) {
+      setDiscardAlertVisible(true);
+      return;
+    }
     onClose();
+  };
+
+  const submit = async () => {
+    if (saving) return;
+    AppHaptics.light();
+    setSaving(true);
+    try {
+      await onSaveOrder(orderedList);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <BottomSheetModal
       visible={visible}
-      onClose={onClose}
+      onClose={requestClose}
       height="80%"
       maxHeight="88%"
     >
       <ModalHeader
         title="Manage Account Order"
-        onClose={onClose}
+        onClose={requestClose}
       />
 
       <ScrollView
@@ -101,9 +124,11 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
               <View style={styles.actionButtons}>
                 <TouchableOpacity
                   style={[styles.arrowBtn, isFirst && styles.arrowBtnDisabled]}
-                  disabled={isFirst}
+                  disabled={isFirst || saving}
                   onPress={() => moveItem(index, index - 1)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Move up"
+                  accessibilityState={{ disabled: isFirst || saving }}
                 >
                   <ArrowUp
                     size={18}
@@ -113,9 +138,11 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
 
                 <TouchableOpacity
                   style={[styles.arrowBtn, isLast && styles.arrowBtnDisabled]}
-                  disabled={isLast}
+                  disabled={isLast || saving}
                   onPress={() => moveItem(index, index + 1)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Move down"
+                  accessibilityState={{ disabled: isLast || saving }}
                 >
                   <ArrowDown
                     size={18}
@@ -130,14 +157,42 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <TouchableOpacity
-          style={styles.saveBtn}
-          onPress={handleSave}
+          style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+          onPress={submit}
+          disabled={saving}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel="Save account order"
         >
-          <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-          <Text style={styles.saveBtnText}>Save Order</Text>
+          {saving ? (
+            <>
+              <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+              <Text style={styles.saveBtnText}>Saving...</Text>
+            </>
+          ) : (
+            <>
+              <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+              <Text style={styles.saveBtnText}>Save Order</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
+
+      <CustomAlertModal
+        visible={discardAlertVisible}
+        title="Discard changes?"
+        message="Your account order changes have not been saved."
+        type="confirm"
+        buttons={[
+          { text: 'Keep Editing', style: 'cancel' },
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: () => onClose(),
+          },
+        ]}
+        onClose={() => setDiscardAlertVisible(false)}
+      />
     </BottomSheetModal>
   );
 };
@@ -196,8 +251,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   arrowBtn: {
-    width: 34,
-    height: 34,
+    width: 44,
+    height: 44,
     borderRadius: 10,
     backgroundColor: Palette.surfaceSoft,
     borderWidth: 1,

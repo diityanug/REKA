@@ -210,3 +210,27 @@ export const getTodayDateStr = (): string => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 };
+
+// Get the current local time as HH:mm (24h)
+export const getCurrentTimeStr = (): string => {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+};
+
+// Extract local HH:mm from an ISO timestamp, falling back to the current time
+export const getTimeStrFromTimestamp = (timestamp?: string): string => {
+  if (!timestamp) return getCurrentTimeStr();
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return getCurrentTimeStr();
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+};
+
+// Format HH:mm into a friendly 12h label when the platform locale allows it
+export const formatTimeLabel = (time: string): string => {
+  const parts = time.split(':').map(Number);
+  if (parts.length !== 2 || isNaN(parts[0]) || isNaN(parts[1])) return time;
+  const [h, m] = parts;
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}:${String(m).padStart(2, '0')} ${suffix}`;
+};

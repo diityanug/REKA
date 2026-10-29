@@ -43,12 +43,22 @@ const INCOME_PALETTE = [
   '#06B6D4', // Aquamarine
 ];
 
+// Simple deterministic hash so a category keeps its colour across periods and sorts
+const hashCategoryName = (name: string): number => {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) % 100000;
+  }
+  return hash;
+};
+
 interface AnalyticsTabProps {
   transactions: Transaction[];
   activeCurrency: CurrencyType;
   privacyMode: boolean;
   totalBalance: number;
   selectedMonth: string;
+  budgetMonthKey: string;
   monthlyBudget?: number;
   onSelectMonth: (month: string) => void;
   onOpenMonthPicker: () => void;
@@ -57,12 +67,13 @@ interface AnalyticsTabProps {
   getCategoryIconName: (category: string, type?: TransactionType) => string;
 }
 
-export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
+export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   transactions,
   activeCurrency,
   privacyMode,
   totalBalance,
   selectedMonth,
+  budgetMonthKey,
   monthlyBudget = 0,
   onSelectMonth,
   onOpenMonthPicker,
@@ -71,6 +82,12 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
   getCategoryIconName,
 }) => {
   const [analyticsType, setAnalyticsType] = useState<TransactionType>('expense');
+
+  // Same month-key rule the finance hook uses, so the stepper cannot go into the future
+  const currentMonthKey = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
 
   // Filter transactions matching active currency
   const currencyTransactions = useMemo(() => {
@@ -280,8 +297,18 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     };
   }, [currencyTransactions, prevMonthKey, selectedMonth, periodTransactions.length, financialHealth.expense, financialHealth.income]);
 
-  // Monthly Budget & Safe Daily Spend calculations (Krom Bank Pacing)
-  const budgetSpent = financialHealth.expense;
+  // Budget is always evaluated for one concrete calendar month (budgetMonthKey), never all-time
+  const budgetSpent = useMemo(() => {
+    return currencyTransactions.reduce((sum, tx) => {
+      if (tx.type !== 'expense') return sum;
+      if (tx.category === 'Transfer' || tx.transferPairId) return sum;
+      const d = new Date(tx.timestamp);
+      if (isNaN(d.getTime())) return sum;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      return key === budgetMonthKey ? sum + tx.amount : sum;
+    }, 0);
+  }, [currencyTransactions, budgetMonthKey]);
+
   const budgetPercentage = monthlyBudget > 0 ? (budgetSpent / monthlyBudget) * 100 : 0;
   const remainingBudget = monthlyBudget - budgetSpent;
   const budgetColor =
@@ -303,28 +330,30 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
       ? '#FFFBEB'
       : '#EBF7F4';
 
-  const safeDailySpend = useMemo(() => {
-    if (monthlyBudget <= 0) return null;
-    const now = new Date();
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    let daysRemaining = 1;
+  const isPastBudgetMonth = budgetMonthKey < currentMonthKey;
 
-    if (selectedMonth === currentMonthKey) {
-      const totalDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-      daysRemaining = Math.max(1, totalDays - now.getDate());
-    } else if (selectedMonth !== 'all') {
-      const parts = selectedMonth.split('-');
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      daysRemaining = new Date(y, m, 0).getDate();
-    } else {
-      daysRemaining = 30;
+  // Safe daily spend only makes sense for the current month; past months show realized average
+  const pacing = useMemo(() => {
+    if (monthlyBudget <= 0) return null;
+    const parts = budgetMonthKey.split('-');
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const daysInMonth =
+      isFinite(y) && isFinite(m) && m >= 1 && m <= 12 ? new Date(y, m, 0).getDate() : 30;
+
+    if (isPastBudgetMonth) {
+      return {
+        kind: 'average' as const,
+        value: Math.round(budgetSpent / Math.max(daysInMonth, 1)),
+      };
     }
 
-    const remaining = monthlyBudget - financialHealth.expense;
-    if (remaining <= 0) return 0;
-    return Math.round(remaining / daysRemaining);
-  }, [monthlyBudget, financialHealth.expense, selectedMonth]);
+    const now = new Date();
+    const daysRemaining = Math.max(1, daysInMonth - now.getDate());
+    const remaining = monthlyBudget - budgetSpent;
+    if (remaining <= 0) return { kind: 'exhausted' as const, value: 0 };
+    return { kind: 'safe' as const, value: Math.round(remaining / daysRemaining) };
+  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth]);
 
   // Category breakdown for selected period & type
   const categoryBreakdown = useMemo(() => {
@@ -346,12 +375,13 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
 
     return Object.entries(map)
       .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([cat, data], idx) => ({
+      .map(([cat, data]) => ({
         category: cat,
         amount: data.amount,
         count: data.count,
         percentage: total > 0 ? (data.amount / total) * 100 : 0,
-        color: palette[idx % palette.length],
+        // Stable per category name, independent of its rank in the list
+        color: palette[hashCategoryName(cat) % palette.length],
       }));
   }, [periodTransactions, analyticsType]);
 
@@ -375,12 +405,15 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
   }, [categoryBreakdown]);
 
   // Stepper navigation logic (Clean calendar month math, no skipping or jumping)
+  const isNextDisabled = selectedMonth === 'all' || selectedMonth >= currentMonthKey;
+
   const handlePrevMonth = () => {
     AppHaptics.selection();
     onSelectMonth(getPrevMonthKey(selectedMonth));
   };
 
   const handleNextMonth = () => {
+    if (isNextDisabled) return;
     AppHaptics.selection();
     onSelectMonth(getNextMonthKey(selectedMonth));
   };
@@ -396,7 +429,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
       {/* Title Header */}
       <View style={styles.headerRow}>
         <View>
-          <Text style={styles.headerTitle}>Money Journey</Text>
+          <Text style={styles.headerTitle}>Analytics</Text>
         </View>
         <View style={styles.currencyBadge}>
           <Text style={styles.currencyBadgeText}>{activeCurrency}</Text>
@@ -409,6 +442,8 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
           style={styles.stepperBtn}
           onPress={handlePrevMonth}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Previous month"
         >
           <ChevronLeft
             size={18}
@@ -436,9 +471,13 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.stepperBtn}
+          style={[styles.stepperBtn, isNextDisabled && styles.stepperBtnDisabled]}
           onPress={handleNextMonth}
           activeOpacity={0.7}
+          disabled={isNextDisabled}
+          accessibilityRole="button"
+          accessibilityLabel="Next month"
+          accessibilityState={{ disabled: isNextDisabled }}
         >
           <ChevronRight
             size={18}
@@ -447,9 +486,9 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
         </TouchableOpacity>
       </View>
 
-      {/* 1. Net Worth Hero Card (Clean, Symmetrical, Uncluttered) */}
+      {/* 1. Total Balance Hero Card (Clean, Symmetrical, Uncluttered) */}
       <View style={styles.journeyHeroCard}>
-        <Text style={styles.journeyHeroLabel}>Total Net Worth</Text>
+        <Text style={styles.journeyHeroLabel}>Total Balance</Text>
 
         <Text style={styles.journeyHeroAmount} numberOfLines={1} adjustsFontSizeToFit>
           {formatCurrency(totalBalance, activeCurrency, privacyMode)}
@@ -482,7 +521,9 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
               numberOfLines={1}
             >
               {financialHealth.runwayMonths === null
-                ? 'No active burn'
+                ? financialHealth.expense > 0 && totalBalance <= 0
+                  ? 'No liquidity buffer'
+                  : 'No active burn'
                 : financialHealth.runwayMonths >= 99
                 ? '> 12 Months'
                 : `${financialHealth.runwayMonths.toFixed(1)} Months`}
@@ -903,7 +944,9 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
             {/* Symmetrical 50/50 Spent & Limit Row */}
             <View style={styles.budgetMainRow}>
               <View style={[styles.budgetMainCol, { paddingRight: 8 }]}>
-                <Text style={styles.budgetMainLabel} numberOfLines={1}>Spent this Month</Text>
+                <Text style={styles.budgetMainLabel} numberOfLines={1}>
+                  Spent in {formatMonthYear(budgetMonthKey)}
+                </Text>
                 <Text
                   style={styles.budgetMainAmount}
                   numberOfLines={1}
@@ -950,24 +993,26 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
                   numberOfLines={1}
                   adjustsFontSizeToFit={true}
                 >
-                  {remainingBudget >= 0
-                    ? `${formatCurrency(remainingBudget, activeCurrency, privacyMode)}`
-                    : `${formatCurrency(Math.abs(remainingBudget), activeCurrency, privacyMode)}`}
+                  {formatCurrency(remainingBudget, activeCurrency, privacyMode)}
                 </Text>
               </View>
 
               {/* Tile 2: Daily Allowance / Pacing */}
               <View style={styles.budgetBentoTile}>
                 <Text style={styles.budgetBentoLabel} numberOfLines={1}>
-                  {safeDailySpend !== null && safeDailySpend > 0 ? 'Daily Safe Spend' : 'Pacing Status'}
+                  {pacing?.kind === 'safe'
+                    ? 'Daily Safe Spend'
+                    : pacing?.kind === 'average'
+                    ? 'Avg Daily Spend'
+                    : 'Pacing Status'}
                 </Text>
                 <Text
                   style={[styles.budgetBentoValue, { color: Palette.ink }]}
                   numberOfLines={1}
                   adjustsFontSizeToFit={true}
                 >
-                  {safeDailySpend !== null && safeDailySpend > 0
-                    ? `${formatCurrency(safeDailySpend, activeCurrency, privacyMode)}`
+                  {pacing !== null && pacing.kind !== 'exhausted'
+                    ? `${formatCurrency(pacing.value, activeCurrency, privacyMode)}`
                     : budgetStatusLabel}
                 </Text>
               </View>
@@ -990,7 +1035,9 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
             <View style={styles.emptyBudgetIconCircle}>
               <Target size={20} color={Palette.primary} />
             </View>
-            <Text style={styles.emptyBudgetTitle}>No Budget Set for {periodTitle}</Text>
+            <Text style={styles.emptyBudgetTitle}>
+              No Budget Set for {formatMonthYear(budgetMonthKey)}
+            </Text>
             <Text style={styles.emptyBudgetDesc}>
               Set a monthly spending limit to monitor whether your expenses stay on target.
             </Text>
@@ -1008,6 +1055,13 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
           </View>
         )}
       </View>
+
+      {/* Budget is monthly; explain the mismatch when the viewed period is not that month */}
+      {selectedMonth !== budgetMonthKey ? (
+        <Text style={styles.budgetMonthNote}>
+          Budget is set per month — showing {formatMonthYear(budgetMonthKey)}
+        </Text>
+      ) : null}
 
       {/* 5. Category Breakdown Header */}
       <View style={styles.sectionHeaderBox}>
@@ -1139,7 +1193,9 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
       </TouchableOpacity>
     </View>
   );
-};
+});
+
+AnalyticsTab.displayName = 'AnalyticsTab';
 
 const styles = StyleSheet.create({
   container: {
@@ -1544,6 +1600,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderWidth: 1,
     borderColor: Palette.hairline,
+  },
+  budgetMonthNote: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.muted,
+    marginTop: -12,
+    marginBottom: 16,
+    paddingHorizontal: 2,
   },
   budgetHeaderRow: {
     flexDirection: 'row',
