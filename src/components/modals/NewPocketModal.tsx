@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,168 @@ import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
 
+export interface PocketIconCategory {
+  key: string;
+  name: string;
+  icons: string[];
+}
+
+export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
+  {
+    key: 'savings',
+    name: 'Savings & Goals',
+    icons: [
+      'PiggyBank',
+      'Landmark',
+      'TrendingUp',
+      'DollarSign',
+      'CircleDollarSign',
+      'Coins',
+      'HandCoins',
+      'Wallet',
+      'Award',
+      'CreditCard',
+      'Banknote',
+      'Building2',
+      'Percent',
+      'Receipt',
+    ],
+  },
+  {
+    key: 'bills',
+    name: 'Bills & Living',
+    icons: [
+      'Home',
+      'Zap',
+      'Droplet',
+      'Flame',
+      'Lightbulb',
+      'Wifi',
+      'Tv',
+      'Smartphone',
+      'Trash2',
+      'Armchair',
+      'Bed',
+      'BedDouble',
+    ],
+  },
+  {
+    key: 'safety',
+    name: 'Safety & Health',
+    icons: [
+      'ShieldCheck',
+      'Shield',
+      'Lock',
+      'Key',
+      'Umbrella',
+      'HeartPulse',
+      'Stethoscope',
+      'Pill',
+      'Activity',
+      'Syringe',
+    ],
+  },
+  {
+    key: 'travel',
+    name: 'Travel & Transport',
+    icons: [
+      'Plane',
+      'Luggage',
+      'Hotel',
+      'Car',
+      'Fuel',
+      'CircleParking',
+      'Bus',
+      'Bike',
+      'Compass',
+      'MapPin',
+    ],
+  },
+  {
+    key: 'shopping',
+    name: 'Shopping & Goods',
+    icons: [
+      'ShoppingBag',
+      'ShoppingCart',
+      'Tag',
+      'Shirt',
+      'Watch',
+      'Sparkles',
+      'Package',
+      'Glasses',
+      'Scissors',
+    ],
+  },
+  {
+    key: 'food',
+    name: 'Food & Drinks',
+    icons: [
+      'Utensils',
+      'Coffee',
+      'Pizza',
+      'Sandwich',
+      'Cake',
+      'Soup',
+      'Apple',
+      'Beer',
+      'Wine',
+    ],
+  },
+  {
+    key: 'work',
+    name: 'Work & Education',
+    icons: [
+      'Briefcase',
+      'GraduationCap',
+      'Laptop',
+      'Monitor',
+      'Book',
+      'BookOpen',
+      'PenTool',
+      'Newspaper',
+      'Calendar',
+      'Clock',
+    ],
+  },
+  {
+    key: 'leisure',
+    name: 'Entertainment & Fun',
+    icons: [
+      'Film',
+      'Gamepad2',
+      'Camera',
+      'Palette',
+      'Ticket',
+      'Music2',
+      'Headphones',
+      'Mic',
+      'PartyPopper',
+      'Gift',
+      'Dumbbell',
+      'Trophy',
+    ],
+  },
+  {
+    key: 'family',
+    name: 'Family & Pets',
+    icons: [
+      'Users',
+      'User',
+      'Baby',
+      'Heart',
+      'HeartHandshake',
+      'SmilePlus',
+      'PawPrint',
+      'Footprints',
+    ],
+  },
+];
+
+const getCategoryForIcon = (iconName: string): string => {
+  const found = POCKET_ICON_CATEGORIES.find((grp) => grp.icons.includes(iconName));
+  return found ? found.name : 'General';
+};
+
 interface NewPocketModalProps {
   visible: boolean;
   wallets: Wallet[];
@@ -32,7 +194,7 @@ interface NewPocketModalProps {
   icon: string;
   availableAmount: number;
   currency: CurrencyType;
-  onSelectWallet: (id: string) => void;
+  onSelectWallet?: (id: string) => void;
   onChangeName: (text: string) => void;
   onChangeBalance: (text: string) => void;
   onChangeTarget: (text: string) => void;
@@ -51,7 +213,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
   icon,
   availableAmount,
   currency,
-  onSelectWallet,
+  onSelectWallet: _onSelectWallet,
   onChangeName,
   onChangeBalance,
   onChangeTarget,
@@ -61,8 +223,17 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [amountModalType, setAmountModalType] = useState<'balance' | 'target' | null>(null);
+  const [selectedGroupKey, setSelectedGroupKey] = useState<string>('all');
   const [saving, setSaving] = useState<boolean>(false);
   const selectedWallet = wallets.find((w) => w.id === selectedWalletId);
+
+  const displayedIcons = useMemo(() => {
+    if (selectedGroupKey === 'all') {
+      return AVAILABLE_ICONS;
+    }
+    const group = POCKET_ICON_CATEGORIES.find((g) => g.key === selectedGroupKey);
+    return group ? group.icons : AVAILABLE_ICONS;
+  }, [selectedGroupKey]);
 
   // Warn before submit; the hook still validates on its own.
   const allocatedValue = parseAmount(balance, currency);
@@ -82,50 +253,37 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="82%"
-      maxHeight="86%"
+      height="92%"
+      maxHeight="95%"
     >
       <ModalHeader
         title="New Pocket"
-        subtitle="Allocate funds for specific goals"
+        subtitle={selectedWallet ? `Inside ${selectedWallet.name}` : 'Allocate funds for specific goals'}
         onClose={onClose}
       />
 
           <KeyboardSafeContainer extraBottomSpace={16}>
               <Text style={styles.inputLabel}>
-                Main Account <Text style={styles.requiredStar}>*</Text>
+                Account
               </Text>
-              {wallets.length === 0 ? (
-                <Text style={styles.emptyText}>Create an account first.</Text>
-              ) : (
-                <View style={styles.chipsRow}>
-                  {wallets.map((w) => (
-                    <TouchableOpacity
-                      key={w.id}
-                      style={[
-                        styles.presetChip,
-                        selectedWalletId === w.id && styles.presetChipActive,
-                      ]}
-                      onPress={() => {
-                        AppHaptics.selection();
-                        onSelectWallet(w.id);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`${w.name}, ${w.currency}`}
-                      accessibilityState={{ selected: selectedWalletId === w.id }}
-                    >
-                      <Text
-                        style={[
-                          styles.presetChipText,
-                          selectedWalletId === w.id && styles.presetChipTextActive,
-                        ]}
-                      >
-                        {w.name} ({w.currency})
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              <View style={styles.targetAccountCard}>
+                <View style={styles.targetAccountLeft}>
+                  <View
+                    style={[
+                      styles.targetAccountColorDot,
+                      { backgroundColor: selectedWallet?.color || Palette.primary },
+                    ]}
+                  />
+                  <Text style={styles.targetAccountName} numberOfLines={1}>
+                    {selectedWallet?.name || 'Selected Account'}
+                  </Text>
                 </View>
-              )}
+                <View style={styles.targetAccountBadge}>
+                  <Text style={styles.targetAccountBadgeText}>
+                    {selectedWallet?.currency || currency}
+                  </Text>
+                </View>
+              </View>
 
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Pocket Name <Text style={styles.requiredStar}>*</Text>
@@ -236,9 +394,85 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Pocket Icon <Text style={styles.requiredStar}>*</Text> ({AVAILABLE_ICONS.length} available)
-              </Text>
+              <View style={styles.iconSectionHeader}>
+                <Text style={styles.inputLabel}>
+                  Pocket Icon <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <Text style={styles.iconCountTag}>
+                  {displayedIcons.length} available
+                </Text>
+              </View>
+
+              {/* Selected Icon Detail Card */}
+              <View style={styles.selectedIconCard}>
+                <View style={styles.selectedIconBadge}>
+                  <CategoryIcon name={icon} size={22} color={Palette.white} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.selectedIconName}>{icon}</Text>
+                  <Text style={styles.selectedIconCategory}>
+                    Category: {getCategoryForIcon(icon)}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Category Filter Chips */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.categoryChipsScroll}
+                contentContainerStyle={styles.categoryChipsContent}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.categoryFilterChip,
+                    selectedGroupKey === 'all' && styles.categoryFilterChipActive,
+                  ]}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    setSelectedGroupKey('all');
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.categoryFilterChipText,
+                      selectedGroupKey === 'all' && styles.categoryFilterChipTextActive,
+                    ]}
+                  >
+                    All
+                  </Text>
+                </TouchableOpacity>
+
+                {POCKET_ICON_CATEGORIES.map((cat) => {
+                  const isCatActive = selectedGroupKey === cat.key;
+                  return (
+                    <TouchableOpacity
+                      key={cat.key}
+                      style={[
+                        styles.categoryFilterChip,
+                        isCatActive && styles.categoryFilterChipActive,
+                      ]}
+                      onPress={() => {
+                        AppHaptics.selection();
+                        setSelectedGroupKey(cat.key);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryFilterChipText,
+                          isCatActive && styles.categoryFilterChipTextActive,
+                        ]}
+                      >
+                        {cat.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              {/* Icon Grid Box */}
               <View style={styles.iconScrollBox}>
                 <ScrollView
                   style={styles.iconScrollView}
@@ -246,30 +480,28 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                   nestedScrollEnabled={true}
                   showsVerticalScrollIndicator={false}
                 >
-                  {AVAILABLE_ICONS.map((ic) => {
+                  {displayedIcons.map((ic) => {
                     const active = icon === ic;
                     return (
                       <TouchableOpacity
                         key={ic}
                         style={[
                           styles.iconCell,
-                          active && {
-                            backgroundColor: Palette.accentTeal,
-                            borderColor: Palette.accentTeal,
-                          },
+                          active && styles.iconCellActive,
                         ]}
                         onPress={() => {
                           AppHaptics.selection();
                           onChangeIcon(ic);
                         }}
+                        activeOpacity={0.7}
                         accessibilityRole="button"
-                        accessibilityLabel={`Icon ${ic}`}
+                        accessibilityLabel={`${ic}, ${getCategoryForIcon(ic)}`}
                         accessibilityState={{ selected: active }}
                       >
                         <CategoryIcon
                           name={ic}
-                          size={20}
-                          color={active ? Palette.white : Palette.body}
+                          size={22}
+                          color={active ? Palette.white : Palette.ink}
                         />
                       </TouchableOpacity>
                     );
@@ -396,35 +628,148 @@ const styles = StyleSheet.create({
     color: Palette.error,
     marginTop: 3,
   },
-  iconScrollBox: {
-    maxHeight: 160,
+  targetAccountCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  targetAccountLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  targetAccountColorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  targetAccountName: {
+    ...Typography.body,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  targetAccountBadge: {
+    backgroundColor: Palette.white,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  targetAccountBadgeText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.muted,
+  },
+  iconSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  iconCountTag: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+  },
+  selectedIconCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 10,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  selectedIconBadge: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: Palette.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectedIconName: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  selectedIconCategory: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  categoryChipsScroll: {
+    marginBottom: 10,
+  },
+  categoryChipsContent: {
+    gap: 6,
+  },
+  categoryFilterChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  categoryFilterChipActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  categoryFilterChipText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.body,
+  },
+  categoryFilterChipTextActive: {
+    color: Palette.white,
+  },
+  iconScrollBox: {
+    height: 240,
+    maxHeight: 280,
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Palette.hairline,
     padding: 10,
     marginBottom: 10,
   },
   iconScrollView: {
-    flexGrow: 0,
+    flex: 1,
   },
   iconGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
-    paddingBottom: 4,
+    paddingBottom: 10,
   },
   iconCell: {
-    width: 46,
-    height: 46,
-    minWidth: 44,
-    minHeight: 44,
+    width: 48,
+    height: 48,
     borderRadius: 12,
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  iconCellActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
   },
   stickyFooter: {
     paddingHorizontal: 20,
