@@ -9,7 +9,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Check, FolderTree, Calendar, Calculator } from 'lucide-react-native';
+import { Plus, Check, FolderTree, Calendar } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import {
   Wallet,
@@ -25,7 +25,7 @@ import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon } from '../CategoryIcon';
-import { CalculatorKeypad } from '../CalculatorKeypad';
+import { AmountInputModal } from './AmountInputModal';
 import { DatePickerModal } from './DatePickerModal';
 import { BottomSheetModal } from '../BottomSheetModal';
 
@@ -107,7 +107,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
 
   const [datePickerVisible, setDatePickerVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
-  const [keypadOpen, setKeypadOpen] = useState<boolean>(false);
+  const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const footerKeyboardOffset = useFooterKeyboardOffset();
 
   const selectedWallet = relevantWallets.find((w) => w.id === selectedWalletId);
@@ -241,7 +241,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 placeholderTextColor={Palette.mutedSoft}
                 value={manMerchant}
                 onChangeText={onChangeMerchant}
-                onFocus={() => setKeypadOpen(false)}
                 maxLength={50}
                 returnKeyType="next"
               />
@@ -287,53 +286,36 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 </TouchableOpacity>
               </View>
 
-              {/* Amount Input with Collapsible Calculator Keypad */}
+              {/* Amount Input with Calculator Modal */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Amount <Text style={styles.requiredStar}>*</Text>
               </Text>
-              <View style={styles.amountToolsRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.presetChip,
-                    styles.calculatorChip,
-                    keypadOpen && styles.presetChipActive,
-                  ]}
-                  onPress={() => {
-                    AppHaptics.selection();
-                    if (!keypadOpen) {
-                      Keyboard.dismiss();
-                    }
-                    setKeypadOpen((open) => !open);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Toggle calculator keypad"
-                  accessibilityState={{ expanded: keypadOpen, selected: keypadOpen }}
-                  activeOpacity={0.7}
-                >
-                  <Calculator
-                    size={13}
-                    color={keypadOpen ? Palette.white : Palette.primary}
-                    style={{ marginRight: 4 }}
-                  />
-                  <Text
-                    style={[
-                      styles.presetChipText,
-                      keypadOpen && styles.presetChipTextActive,
-                    ]}
-                  >
-                    {keypadOpen ? 'Hide' : 'Calculator'}
+              <TouchableOpacity
+                style={styles.amountInputContainer}
+                onPress={() => {
+                  AppHaptics.light();
+                  Keyboard.dismiss();
+                  setAmountModalVisible(true);
+                }}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Transaction amount, ${manAmount || '0'} ${manCurrency}`}
+              >
+                <View style={styles.currencyPrefixBadge}>
+                  <Text style={styles.currencyPrefixText}>
+                    {manCurrency === 'IDR' ? 'Rp' : '$'}
                   </Text>
-                </TouchableOpacity>
-              </View>
-              <CalculatorKeypad
-                value={manAmount}
-                currency={manCurrency}
-                onChangeValue={onChangeAmount}
-                showDisplay={true}
-                showKeypad={keypadOpen}
-                onPressDisplay={() => setKeypadOpen(true)}
-                onCloseKeypad={() => setKeypadOpen(false)}
-              />
+                </View>
+                <Text
+                  style={[
+                    styles.amountDisplayText,
+                    !manAmount && styles.amountPlaceholderText,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {manAmount || '0'}
+                </Text>
+              </TouchableOpacity>
               {/* Dedicated fixed-height warning slot so layout never shifts/janks */}
               <View style={styles.balanceWarningSlot}>
                 {exceedsBalance ? (
@@ -425,7 +407,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                     style={styles.timeInput}
                     value={manTime}
                     onChangeText={onChangeTime}
-                    onFocus={() => setKeypadOpen(false)}
                     onBlur={handleTimeBlur}
                     placeholder="HH:mm"
                     placeholderTextColor={Palette.mutedSoft}
@@ -673,7 +654,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 placeholderTextColor={Palette.mutedSoft}
                 value={manNotes}
                 onChangeText={onChangeNotes}
-                onFocus={() => setKeypadOpen(false)}
                 maxLength={100}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
@@ -717,6 +697,16 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 )}
               </TouchableOpacity>
             </View>
+
+      <AmountInputModal
+        visible={amountModalVisible}
+        title={isEditing ? 'Edit Amount' : 'Enter Amount'}
+        subtitle={`Transaction amount in ${manCurrency}`}
+        initialAmount={manAmount}
+        currency={manCurrency}
+        onConfirm={(formatted) => onChangeAmount(formatted)}
+        onClose={() => setAmountModalVisible(false)}
+      />
     </BottomSheetModal>
   );
 });
@@ -931,9 +921,42 @@ const styles = StyleSheet.create({
     padding: 0,
     margin: 0,
   },
-  amountToolsRow: {
+  amountInputContainer: {
     flexDirection: 'row',
-    marginBottom: 8,
+    alignItems: 'center',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    overflow: 'hidden',
+    height: 48,
+  },
+  currencyPrefixBadge: {
+    paddingHorizontal: 14,
+    height: '100%',
+    backgroundColor: '#EBE5DF',
+    borderRightWidth: 1,
+    borderRightColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currencyPrefixText: {
+    ...Typography.body,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  amountDisplayText: {
+    flex: 1,
+    ...Typography.heading,
+    fontSize: 18,
+    fontWeight: '700',
+    color: Palette.ink,
+    paddingHorizontal: 14,
+  },
+  amountPlaceholderText: {
+    color: Palette.muted,
+    fontWeight: '400',
   },
   chipsRow: {
     flexDirection: 'row',
@@ -949,10 +972,6 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surfaceSoft,
     borderWidth: 1,
     borderColor: Palette.hairline,
-  },
-  calculatorChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   accountChip: {
     alignItems: 'flex-start',
