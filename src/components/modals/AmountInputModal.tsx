@@ -42,6 +42,12 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [rawDigits, setRawDigits] = useState<string>('');
+  const [isFocused, setIsFocused] = useState<boolean>(true);
+  const [selection, setSelection] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
+  const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
 
   useSyncOnChange([visible, initialAmount, maxDigits, currency], () => {
     if (visible) {
@@ -72,13 +78,6 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   const numericValue = useMemo(() => {
     return parseAmount(displayFormatted, currency);
   }, [displayFormatted, currency]);
-
-  const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
-  const [isFocused, setIsFocused] = useState<boolean>(true);
-  const [selection, setSelection] = useState<{ start: number; end: number }>({
-    start: displayFormatted.length,
-    end: displayFormatted.length,
-  });
 
   const activeSelection = useMemo(() => ({
     start: Math.min(selection.start, displayFormatted.length),

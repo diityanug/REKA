@@ -83,16 +83,19 @@ export const OverviewTab: React.FC<OverviewTabProps> = ({
 }) => {
   const currencyWallets = wallets.filter((w) => w.currency === activeCurrency);
 
-  // Filter transactions for active currency (deduplicating paired transfers so only 1 card is displayed)
+  // Filter transactions for active currency (deduplicating same-currency paired transfers so only 1 card is displayed)
   const currencyTransactions = useMemo(() => {
     return transactions.filter((tx) => {
-      // Exclude incoming mirror leg of a paired transfer so only 1 card represents the transfer
+      // Exclude incoming mirror leg only if the paired counterpart shares the exact same currency
       if (
         tx.type === 'income' &&
         tx.transferPairId &&
         (tx.category === 'Transfer' || tx.merchantName.toLowerCase().startsWith('transfer '))
       ) {
-        return false;
+        const counterpart = transactions.find((c) => c.id === tx.transferPairId);
+        if (counterpart && counterpart.currency === tx.currency) {
+          return false;
+        }
       }
       return tx.currency === activeCurrency;
     });

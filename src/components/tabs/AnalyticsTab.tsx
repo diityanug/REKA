@@ -95,6 +95,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     const categoryExpenseMap: Record<string, number> = {};
 
     periodTransactions.forEach((tx) => {
+      if (tx.category === 'Transfer' || tx.transferPairId) return;
       if (tx.type === 'income') income += tx.amount;
       if (tx.type === 'expense') {
         expense += tx.amount;
@@ -246,6 +247,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
       if (isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       if (key === prevMonthKey) {
+        if (tx.category === 'Transfer' || tx.transferPairId) return;
         if (tx.type === 'expense') prevExpense += tx.amount;
         if (tx.type === 'income') prevIncome += tx.amount;
       }
@@ -330,7 +332,7 @@ export const AnalyticsTab: React.FC<AnalyticsTabProps> = ({
     let total = 0;
 
     periodTransactions
-      .filter((tx) => tx.type === analyticsType)
+      .filter((tx) => tx.type === analyticsType && tx.category !== 'Transfer' && !tx.transferPairId)
       .forEach((tx) => {
         if (!map[tx.category]) {
           map[tx.category] = { amount: 0, count: 0 };

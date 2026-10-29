@@ -170,14 +170,17 @@ function MainApp() {
     const q = searchQuery.toLowerCase().trim();
     const cleanDigits = q.replace(/[^0-9]/g, '');
 
-    // Exclude the incoming mirror leg of a paired transfer so only 1 card represents the transfer
+    // Exclude the incoming mirror leg only for same-currency transfers so cross-currency transfers remain visible in both currencies
     const deduplicated = finance.transactions.filter((tx) => {
       if (
         tx.type === 'income' &&
         tx.transferPairId &&
         (tx.category === 'Transfer' || tx.merchantName.toLowerCase().startsWith('transfer '))
       ) {
-        return false;
+        const counterpart = finance.transactions.find((c) => c.id === tx.transferPairId);
+        if (counterpart && counterpart.currency === tx.currency) {
+          return false;
+        }
       }
       return true;
     });
@@ -401,10 +404,16 @@ function MainApp() {
         };
       });
 
+      const finalWalletId = targetWallet.id;
+      const validPocket = finance.pockets.find(
+        (p) => p.id === modals.selectedPocketId && p.walletId === finalWalletId
+      );
+      const finalPocketId = validPocket ? validPocket.id : '';
+
       await insertTransactionWithItems(
         {
-          walletId: modals.selectedWalletId,
-          pocketId: modals.selectedPocketId || '',
+          walletId: finalWalletId,
+          pocketId: finalPocketId,
           merchantName: finalMerchantName,
           category: modals.extractedData.category,
           type: modals.extractedData.type,
@@ -492,10 +501,16 @@ function MainApp() {
         txTimestamp = new Date().toISOString();
       }
 
+      const finalWalletId = targetWallet.id;
+      const validPocket = finance.pockets.find(
+        (p) => p.id === modals.selectedPocketId && p.walletId === finalWalletId
+      );
+      const finalPocketId = validPocket ? validPocket.id : '';
+
       if (modals.editingTransaction) {
         await updateTransaction(modals.editingTransaction.id, {
-          walletId: modals.selectedWalletId,
-          pocketId: modals.selectedPocketId || '',
+          walletId: finalWalletId,
+          pocketId: finalPocketId,
           merchantName: modals.manMerchant.trim(),
           category: modals.manCategory,
           type: modals.manType,
@@ -508,8 +523,8 @@ function MainApp() {
       } else {
         await insertTransactionWithItems(
           {
-            walletId: modals.selectedWalletId,
-            pocketId: modals.selectedPocketId || '',
+            walletId: finalWalletId,
+            pocketId: finalPocketId,
             merchantName: modals.manMerchant.trim(),
             category: modals.manCategory,
             type: modals.manType,

@@ -49,18 +49,21 @@ const CANDIDATE_MODELS = [
 ];
 
 function parseSafeAmount(val: any, currency: 'IDR' | 'USD' = 'IDR'): number {
-  if (typeof val === 'number') return Math.abs(val);
+  if (typeof val === 'number') {
+    return currency === 'IDR' ? Math.round(Math.abs(val)) : Math.round(Math.abs(val) * 100) / 100;
+  }
   if (!val) return 0;
   let str = String(val).trim();
   if (currency === 'IDR') {
-    str = str.replace(/,\d{1,2}$/, '');
+    // Strip trailing sen/decimal cents (.00, ,00, .50) before stripping dots
+    str = str.replace(/[.,]\d{1,2}$/, '');
     const cleaned = str.replace(/\./g, '').replace(/[^0-9]/g, '');
-    const parsed = parseFloat(cleaned);
+    const parsed = parseInt(cleaned, 10);
     return isNaN(parsed) ? 0 : Math.abs(parsed);
   } else {
     const cleaned = str.replace(/,/g, '').replace(/[^0-9.]/g, '');
     const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : Math.abs(parsed);
+    return isNaN(parsed) ? 0 : Math.round(Math.abs(parsed) * 100) / 100;
   }
 }
 

@@ -508,6 +508,12 @@ export async function adjustWalletBalance(id: string, newBalance: number): Promi
 export async function deleteWallet(id: string): Promise<void> {
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
+    // 1. Clear transfer pair references pointing to transactions in this wallet
+    await db.runAsync(
+      'UPDATE transactions SET transfer_pair_id = NULL WHERE transfer_pair_id IN (SELECT id FROM transactions WHERE wallet_id = ?)',
+      id
+    );
+    // 2. Delete child items, transactions, pockets, and the wallet
     await db.runAsync(
       'DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE wallet_id = ?)',
       id
