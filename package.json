@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@google/genai": "^2.30.0",
     "expo": "~58.0.21",
     "expo-document-picker": "~58.0.4",
