@@ -323,12 +323,6 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
               </TouchableOpacity>
             </View>
 
-            {/* Honest explanation of what the presets do */}
-            <Text style={styles.templateHint}>
-              Percentage presets — shares must total 100% (50+30+20 or 40+30+20+10). Amounts
-              are calculated from the current total.
-            </Text>
-
             {/* Column Headers */}
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.colHeader, { flex: 1.1 }]}>DESCRIPTION</Text>
