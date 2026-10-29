@@ -111,12 +111,14 @@ AccountCardItem.displayName = 'AccountCardItem';
 const styles = StyleSheet.create({
   cardHorizontal: {
     width: 172,
+    height: 130,
     backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 14,
     marginRight: 10,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
+    justifyContent: 'space-between',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
   cardSelected: {
     borderColor: Palette.primary,

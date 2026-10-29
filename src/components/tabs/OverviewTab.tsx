@@ -189,7 +189,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           </View>
         </View>
 
-        <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit>
+        <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
           {formatCurrency(totalBalance, activeCurrency, privacyMode)}
         </Text>
 
@@ -602,13 +602,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 18,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
   },
   heroTopRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    height: 24,
   },
   heroLabel: {
     ...Typography.caption,
@@ -623,8 +622,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
   },
   currencyBadgeText: {
     ...Typography.caption,
@@ -635,10 +632,13 @@ const styles = StyleSheet.create({
   heroAmount: {
     ...Typography.display,
     fontSize: 30,
+    lineHeight: 36,
+    height: 40,
     fontWeight: '700',
     color: Palette.ink,
-    marginTop: 12,
+    marginTop: 10,
     marginBottom: 6,
+    textAlignVertical: 'center',
   },
   heroDivider: {
     height: 1,
@@ -652,7 +652,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
     paddingHorizontal: 8,
-    paddingVertical: 6,
+    height: 44,
     marginBottom: 12,
   },
   stepperBtn: {
@@ -662,8 +662,6 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.white,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Palette.hairline,
   },
   stepperBtnDisabled: {
     opacity: 0.35,
@@ -672,7 +670,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 2,
+    height: 36,
   },
   periodCenterRow: {
     flexDirection: 'row',
@@ -694,13 +692,15 @@ const styles = StyleSheet.create({
   flowMetricsRow: {
     flexDirection: 'row',
     gap: 10,
+    height: 56,
     marginBottom: 12,
   },
   flowPill: {
     flex: 1,
+    height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
+    paddingHorizontal: 10,
     borderRadius: 14,
     gap: 8,
   },
@@ -722,9 +722,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     marginTop: 1,
+    height: 18,
+    lineHeight: 18,
   },
   flowRatioSection: {
     marginTop: 2,
+    height: 28,
   },
   dualFlowTrack: {
     height: 6,
@@ -746,6 +749,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 6,
+    height: 16,
   },
   flowRatioMetaText: {
     ...Typography.caption,
@@ -778,17 +782,18 @@ const styles = StyleSheet.create({
   actionRow4Col: {
     flexDirection: 'row',
     gap: 8,
+    height: 84,
     marginBottom: 14,
   },
   actionTile: {
     flex: 1,
     backgroundColor: Palette.white,
     borderRadius: 14,
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 4,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Palette.hairline,
+    justifyContent: 'center',
+    height: 84,
   },
   actionIconBadge: {
     width: 36,
@@ -815,8 +820,8 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
     marginBottom: 16,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
+    height: 162,
+    justifyContent: 'space-between',
   },
   weeklyBarsContainer: {
     flexDirection: 'row',
@@ -871,20 +876,18 @@ const styles = StyleSheet.create({
   accountsScroll: {
     marginHorizontal: -20,
     paddingHorizontal: 20,
+    height: 134,
     marginBottom: 6,
   },
   addAccountCardHorizontal: {
-    width: 140,
+    width: 130,
+    height: 130,
     backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    borderStyle: 'dashed',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
-    minHeight: 140,
   },
   addAccountCardTitle: {
     ...Typography.caption,
@@ -894,17 +897,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   emptyAddCardCompact: {
-    width: 250,
+    width: 260,
+    height: 130,
     backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    borderStyle: 'dashed',
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 12,
-    minHeight: 140,
   },
   emptyAddIconCircleSmall: {
     width: 36,
@@ -932,9 +932,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 24,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    borderStyle: 'dashed',
     marginBottom: 16,
   },
   emptyAddIconCircle: {
@@ -964,8 +961,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 20,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Palette.hairline,
     marginBottom: 16,
   },
   emptyTransactionsIconCircle: {

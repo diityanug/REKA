@@ -109,8 +109,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 8,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
   },
   txRow: {
     flexDirection: 'row',
