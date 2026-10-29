@@ -8,6 +8,7 @@ import {
   StyleSheet,
   Keyboard,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus } from 'lucide-react-native';
@@ -222,6 +223,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const { width: screenWidth } = useWindowDimensions();
+  const [gridWidth, setGridWidth] = useState<number>(() => Math.max(screenWidth - 40 - 20, 260));
   const [amountModalType, setAmountModalType] = useState<'balance' | 'target' | null>(null);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>('all');
   const [saving, setSaving] = useState<boolean>(false);
@@ -234,6 +237,19 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
     const group = POCKET_ICON_CATEGORIES.find((g) => g.key === selectedGroupKey);
     return group ? group.icons : AVAILABLE_ICONS;
   }, [selectedGroupKey]);
+
+  const iconRows = useMemo(() => {
+    const rows: string[][] = [];
+    for (let i = 0; i < displayedIcons.length; i += 6) {
+      rows.push(displayedIcons.slice(i, i + 6));
+    }
+    return rows;
+  }, [displayedIcons]);
+
+  const cellWidth = useMemo(() => {
+    const baseW = Math.max(gridWidth, 260);
+    return Math.max(Math.floor((baseW - 5 * 8) / 6), 36);
+  }, [gridWidth]);
 
   // Warn before submit; the hook still validates on its own.
   const allocatedValue = parseAmount(balance, currency);
@@ -472,40 +488,60 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                 })}
               </ScrollView>
 
-              {/* Icon Grid Box */}
-              <View style={styles.iconScrollBox}>
+              {/* Icon Grid Box (6 Columns per Row, Filling Width) */}
+              <View
+                style={styles.iconScrollBox}
+                onLayout={(e) => {
+                  const w = Math.round(e.nativeEvent.layout.width - 20);
+                  if (w > 0 && Math.abs(w - gridWidth) > 1) {
+                    setGridWidth(w);
+                  }
+                }}
+              >
                 <ScrollView
                   style={styles.iconScrollView}
-                  contentContainerStyle={styles.iconGrid}
+                  contentContainerStyle={styles.iconGridContent}
                   nestedScrollEnabled={true}
                   showsVerticalScrollIndicator={false}
                 >
-                  {displayedIcons.map((ic) => {
-                    const active = icon === ic;
-                    return (
-                      <TouchableOpacity
-                        key={ic}
-                        style={[
-                          styles.iconCell,
-                          active && styles.iconCellActive,
-                        ]}
-                        onPress={() => {
-                          AppHaptics.selection();
-                          onChangeIcon(ic);
-                        }}
-                        activeOpacity={0.7}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${ic}, ${getCategoryForIcon(ic)}`}
-                        accessibilityState={{ selected: active }}
-                      >
-                        <CategoryIcon
-                          name={ic}
-                          size={22}
-                          color={active ? Palette.white : Palette.ink}
-                        />
-                      </TouchableOpacity>
-                    );
-                  })}
+                  {iconRows.map((row, rowIndex) => (
+                    <View key={`row-${rowIndex}`} style={styles.iconRow}>
+                      {row.map((ic) => {
+                        const active = icon === ic;
+                        return (
+                          <TouchableOpacity
+                            key={ic}
+                            style={[
+                              styles.iconCell,
+                              { width: cellWidth, height: cellWidth },
+                              active && styles.iconCellActive,
+                            ]}
+                            onPress={() => {
+                              AppHaptics.selection();
+                              onChangeIcon(ic);
+                            }}
+                            activeOpacity={0.7}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${ic}, ${getCategoryForIcon(ic)}`}
+                            accessibilityState={{ selected: active }}
+                          >
+                            <CategoryIcon
+                              name={ic}
+                              size={Math.min(22, Math.floor(cellWidth * 0.48))}
+                              color={active ? Palette.white : Palette.ink}
+                            />
+                          </TouchableOpacity>
+                        );
+                      })}
+                      {row.length < 6 &&
+                        Array.from({ length: 6 - row.length }).map((_, i) => (
+                          <View
+                            key={`placeholder-${i}`}
+                            style={{ width: cellWidth, height: cellWidth }}
+                          />
+                        ))}
+                    </View>
+                  ))}
                 </ScrollView>
               </View>
             </KeyboardSafeContainer>
@@ -751,15 +787,16 @@ const styles = StyleSheet.create({
   iconScrollView: {
     flex: 1,
   },
-  iconGrid: {
+  iconGridContent: {
+    paddingBottom: 4,
+  },
+  iconRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    paddingBottom: 10,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   iconCell: {
-    width: 48,
-    height: 48,
     borderRadius: 12,
     backgroundColor: Palette.white,
     borderWidth: 1,
