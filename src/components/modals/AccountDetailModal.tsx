@@ -349,11 +349,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                                 </TouchableOpacity>
                               </View>
                             )}
-                            <Text style={styles.pocketMeta}>
-                              {p.targetAmount > 0
-                                ? `Goal: ${formatCurrency(p.targetAmount, wallet.currency, privacyMode)}`
-                                : 'Allocated Pocket'}
-                            </Text>
+                            
                           </View>
                         </View>
 

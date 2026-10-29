@@ -146,7 +146,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                       mode === 'allocate' && styles.segmentBtnTextActive,
                     ]}
                   >
-                    Allocate (+ Add)
+                    ( + ) Allocate
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -168,7 +168,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                       mode === 'release' && styles.segmentBtnTextActive,
                     ]}
                   >
-                    Release (- Withdraw)
+                    ( - ) Release
                   </Text>
                 </TouchableOpacity>
               </View>
