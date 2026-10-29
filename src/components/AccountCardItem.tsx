@@ -36,7 +36,7 @@ export const AccountCardItem = React.memo<AccountCardItemProps>(({
   if (variant === 'horizontal') {
     return (
       <TouchableOpacity
-        style={[styles.cardHorizontal, selected && styles.cardSelected]}
+        style={styles.cardHorizontal}
         onPress={() => onPress(w)}
         activeOpacity={0.8}
       >
@@ -117,11 +117,6 @@ const styles = StyleSheet.create({
     padding: 14,
     marginRight: 10,
     justifyContent: 'space-between',
-    borderWidth: 1.5,
-    borderColor: 'transparent',
-  },
-  cardSelected: {
-    borderColor: Palette.primary,
   },
   cardTop: {
     flexDirection: 'row',
@@ -166,8 +161,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 10,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
   },
   fullTopRow: {
     flexDirection: 'row',
