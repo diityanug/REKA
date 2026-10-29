@@ -331,10 +331,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 onChangeValue={onChangeAmount}
                 showDisplay={true}
                 showKeypad={keypadOpen}
-                onPressDisplay={() => {
-                  Keyboard.dismiss();
-                  setKeypadOpen(true);
-                }}
+                onPressDisplay={() => setKeypadOpen(true)}
                 onCloseKeypad={() => setKeypadOpen(false)}
               />
               {/* Dedicated fixed-height warning slot so layout never shifts/janks */}

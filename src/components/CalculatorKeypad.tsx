@@ -74,11 +74,13 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
   }, [currentExpr, currency]);
 
   const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
-  const [isFocused, setIsFocused] = useState<boolean>(true);
+  const [isFocused, setIsFocused] = useState<boolean>(false);
   const [selection, setSelection] = useState<{ start: number; end: number }>(() => ({
     start: formattedExpr.length,
     end: formattedExpr.length,
   }));
+
+  const isCardHighlighted = showKeypad !== undefined ? showKeypad : isFocused;
 
   const isKeypadActionRef = useRef<boolean>(false);
 
@@ -188,13 +190,15 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
         <Pressable
           style={[
             styles.displayCard,
-            isFocused && styles.displayCardFocused,
+            isCardHighlighted && styles.displayCardFocused,
           ]}
           onPress={() => {
-            Keyboard.dismiss();
-            inputRef.current?.focus();
+            if (Keyboard.isVisible && Keyboard.isVisible()) {
+              Keyboard.dismiss();
+            }
             setIsFocused(true);
             setSelection({ start: formattedExpr.length, end: formattedExpr.length });
+            inputRef.current?.focus();
             onPressDisplay?.();
           }}
         >
@@ -223,7 +227,6 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
                 if (selection.start <= 1 && formattedExpr.length > 1) {
                   setSelection({ start: formattedExpr.length, end: formattedExpr.length });
                 }
-                onPressDisplay?.();
               }}
               onBlur={() => setIsFocused(false)}
               cursorColor={Palette.primary}

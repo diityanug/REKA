@@ -579,10 +579,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
                     onChangeValue={setAmountStr}
                     showDisplay={true}
                     showKeypad={keypadOpen}
-                    onPressDisplay={() => {
-                      Keyboard.dismiss();
-                      setKeypadOpen(true);
-                    }}
+                    onPressDisplay={() => setKeypadOpen(true)}
                     onCloseKeypad={() => setKeypadOpen(false)}
                   />
                 </View>
