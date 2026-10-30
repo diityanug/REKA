@@ -12,6 +12,7 @@ import {
   Pencil,
   Copy,
   ArrowDown,
+  ArrowRight,
   Building2,
   Smartphone,
   Banknote,
@@ -33,6 +34,7 @@ interface TxDetailModalProps {
   categoryIcon: string;
   pocketName?: string;
   wallets?: Wallet[];
+  transactions?: Transaction[];
   privacyMode: boolean;
   onEdit: (tx: Transaction) => void;
   onDuplicate: (tx: Transaction) => void;
@@ -59,6 +61,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   categoryIcon,
   pocketName,
   wallets = [],
+  transactions = [],
   privacyMode,
   onEdit,
   onDuplicate,
@@ -133,10 +136,17 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
 
     // The transaction's own wallet is always one leg of the transfer.
     const isIncoming = currentTx.type === 'income';
-    fromWallet = isIncoming ? undefined : currentWallet;
-    toWallet = isIncoming ? currentWallet : undefined;
+    const pairedTx = currentTx.transferPairId
+      ? transactions.find((t) => t.id === currentTx.transferPairId)
+      : undefined;
+    const pairedWallet = pairedTx
+      ? wallets.find((w) => w.id === pairedTx.walletId)
+      : undefined;
 
-    // The other leg: match the parsed name against a wallet with a different id.
+    fromWallet = isIncoming ? pairedWallet : currentWallet;
+    toWallet = isIncoming ? currentWallet : pairedWallet;
+
+    // Fallback to matching the parsed name when no paired transaction exists
     if (!fromWallet) fromWallet = byName(parsedFromName, currentWallet?.id);
     if (!toWallet) toWallet = byName(parsedToName, currentWallet?.id);
 
@@ -144,7 +154,77 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     toAccountName = toWallet?.name || parsedToName;
   }
 
-  const isCrossCurrency = !!(fromWallet && toWallet && fromWallet.currency !== toWallet.currency);
+  const pairedTransferTx =
+    isTransfer && currentTx.transferPairId
+      ? transactions.find((t) => t.id === currentTx.transferPairId)
+      : undefined;
+
+  const isCrossCurrency = !!(
+    (fromWallet && toWallet && fromWallet.currency !== toWallet.currency) ||
+    (pairedTransferTx && pairedTransferTx.currency !== currentTx.currency)
+  );
+
+  // Extract clean user notes (strip any legacy auto-generated conversion/rate strings)
+  const rawNotes = currentTx.notes || '';
+  const cleanDisplayNotes = isTransfer
+    ? rawNotes
+        .split(/\s*•\s*/)
+        .map((part) => part.trim())
+        .filter(
+          (part) =>
+            part.length > 0 &&
+            !/^Converted\s+(to|from)\s+(USD|IDR)$/i.test(part) &&
+            !/^Rate:\s*1\s*USD\s*=/i.test(part) &&
+            !/^Transfer\s+(to|from)\s+/i.test(part)
+        )
+        .join(' • ')
+    : rawNotes;
+
+  // Resolve cross-currency conversion rate & amounts
+  const resolvedExchangeRate = (() => {
+    if (currentTx.exchangeRate && currentTx.exchangeRate > 0) return currentTx.exchangeRate;
+    if (pairedTransferTx?.exchangeRate && pairedTransferTx.exchangeRate > 0) {
+      return pairedTransferTx.exchangeRate;
+    }
+    const rateMatch = rawNotes.match(/Rate:\s*1\s*USD\s*=\s*Rp\s*([\d.,]+)/i);
+    if (rateMatch && rateMatch[1]) {
+      const parsed = Number(rateMatch[1].replace(/\./g, '').replace(',', '.'));
+      if (isFinite(parsed) && parsed > 0) return parsed;
+    }
+    if (pairedTransferTx && pairedTransferTx.currency !== currentTx.currency) {
+      const idrAmt =
+        currentTx.currency === 'IDR' ? Math.abs(currentTx.amount) : Math.abs(pairedTransferTx.amount);
+      const usdAmt =
+        currentTx.currency === 'USD' ? Math.abs(currentTx.amount) : Math.abs(pairedTransferTx.amount);
+      if (usdAmt > 0) return Math.round(idrAmt / usdAmt);
+    }
+    return 0;
+  })();
+
+  const fromCurrency = fromWallet?.currency || (isExpense ? currentTx.currency : pairedTransferTx?.currency || 'IDR');
+  const toCurrency = toWallet?.currency || (!isExpense ? currentTx.currency : pairedTransferTx?.currency || 'USD');
+  const fromTransferAmount = isExpense
+    ? Math.abs(currentTx.amount)
+    : pairedTransferTx
+      ? Math.abs(pairedTransferTx.amount)
+      : resolvedExchangeRate > 0
+        ? fromCurrency === 'IDR'
+          ? Math.round(Math.abs(currentTx.amount) * resolvedExchangeRate)
+          : Math.round((Math.abs(currentTx.amount) / resolvedExchangeRate) * 100) / 100
+        : null;
+  const toTransferAmount = !isExpense
+    ? Math.abs(currentTx.amount)
+    : pairedTransferTx
+      ? Math.abs(pairedTransferTx.amount)
+      : resolvedExchangeRate > 0
+        ? toCurrency === 'IDR'
+          ? Math.round(Math.abs(currentTx.amount) * resolvedExchangeRate)
+          : Math.round((Math.abs(currentTx.amount) / resolvedExchangeRate) * 100) / 100
+        : null;
+
+  const conversionBadgeLabel = isExpense
+    ? `Converted to ${toCurrency}`
+    : `Converted from ${fromCurrency}`;
 
   return (
     <BottomSheetModal
@@ -228,7 +308,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               </View>
               {isCrossCurrency && (
                 <View style={styles.fxBadge}>
-                  <Text style={styles.fxBadgeText}>Cross-Currency FX</Text>
+                  <Text style={styles.fxBadgeText}>Cross - Currency Transfer</Text>
                 </View>
               )}
             </View>
@@ -252,6 +332,51 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
           </View>
         )}
 
+        {/* 2.5 Dedicated Cross-Currency Conversion Section */}
+        {isTransfer && isCrossCurrency && (
+          <View style={styles.conversionCard}>
+            <View style={styles.conversionHeaderRow}>
+              <Text style={styles.conversionTitle}>Currency Conversion</Text>
+              <View style={styles.conversionDirectionPill}>
+                <Text style={styles.conversionDirectionText}>{conversionBadgeLabel}</Text>
+              </View>
+            </View>
+
+            {fromTransferAmount !== null && toTransferAmount !== null && (
+              <View style={styles.conversionAmountsBox}>
+                <View style={styles.conversionAmountCol}>
+                  <Text style={styles.conversionAmountLabel}>Sent ({fromCurrency})</Text>
+                  <Text style={styles.conversionAmountFrom} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatCurrency(fromTransferAmount, fromCurrency, privacyMode)}
+                  </Text>
+                </View>
+
+                <View style={styles.conversionArrowCircle}>
+                  <ArrowRight size={14} color={Palette.muted} />
+                </View>
+
+                <View style={[styles.conversionAmountCol, { alignItems: 'flex-end' }]}>
+                  <Text style={styles.conversionAmountLabel}>Received ({toCurrency})</Text>
+                  <Text style={styles.conversionAmountTo} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatCurrency(toTransferAmount, toCurrency, privacyMode)}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {resolvedExchangeRate > 0 && (
+              <View style={styles.conversionRateRow}>
+                <Text style={styles.conversionRateLabel}>Exchange Rate</Text>
+                <Text style={styles.conversionRateValue}>
+                  {privacyMode
+                    ? '••••••'
+                    : `1 USD = Rp ${resolvedExchangeRate.toLocaleString('id-ID')}`}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
+
         {/* 3. Transaction Details Card */}
         <View style={styles.detailsCard}>
           {isTransfer ? (
@@ -260,8 +385,8 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 <Text style={styles.metaLabel}>Transfer Type</Text>
                 <Text style={styles.metaValue}>
                   {isCrossCurrency
-                    ? `Cross-Currency (${fromWallet?.currency} → ${toWallet?.currency})`
-                    : 'Internal Account Transfer'}
+                    ? `Cross - Currency (${fromCurrency} → ${toCurrency})`
+                    : 'Account Transfer'}
                 </Text>
               </View>
 
@@ -270,11 +395,11 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 <Text style={styles.metaValue}>{formatDateTime(currentTx.timestamp)}</Text>
               </View>
 
-              {currentTx.notes ? (
+              {cleanDisplayNotes ? (
                 <View style={[styles.metaRow, { alignItems: 'flex-start' }]}>
                   <Text style={[styles.metaLabel, { marginTop: 1 }]}>Notes</Text>
                   <Text style={styles.metaValue}>
-                    {currentTx.notes}
+                    {cleanDisplayNotes}
                   </Text>
                 </View>
               ) : null}
@@ -508,6 +633,102 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     color: '#92400E',
+  },
+  conversionCard: {
+    backgroundColor: Palette.white,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  conversionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  conversionTitle: {
+    ...Typography.subheading,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  conversionDirectionPill: {
+    backgroundColor: '#EDF5FF',
+    borderWidth: 1,
+    borderColor: '#D0E4FF',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  conversionDirectionText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.primary,
+  },
+  conversionAmountsBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  conversionAmountCol: {
+    flex: 1,
+  },
+  conversionAmountLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginBottom: 2,
+  },
+  conversionAmountFrom: {
+    ...Typography.mono,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  conversionAmountTo: {
+    ...Typography.mono,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.success,
+  },
+  conversionArrowCircle: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: 8,
+  },
+  conversionRateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Palette.hairline,
+  },
+  conversionRateLabel: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.muted,
+  },
+  conversionRateValue: {
+    ...Typography.mono,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.ink,
   },
   detailsCard: {
     backgroundColor: Palette.white,

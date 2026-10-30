@@ -200,14 +200,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 6,
   },
-  message: {
-    ...Typography.body,
-    fontSize: 13,
-    color: Palette.muted,
-    textAlign: 'center',
-    lineHeight: 18,
-    marginBottom: 18,
-  },
   indicatorRow: {
     flexDirection: 'row',
     alignItems: 'center',

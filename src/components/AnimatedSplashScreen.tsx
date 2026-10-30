@@ -333,11 +333,4 @@ const styles = StyleSheet.create({
     letterSpacing: 3,
     marginBottom: 3,
   },
-  footerTagline: {
-    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif',
-    fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.65)',
-    fontWeight: '400',
-    letterSpacing: 0.4,
-  },
 });

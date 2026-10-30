@@ -64,6 +64,7 @@ interface AnalyticsTabProps {
   onOpenMonthPicker: () => void;
   onOpenCategoryManager: (type?: TransactionType) => void;
   onOpenSetBudget: () => void;
+  onCurrencyChange?: (currency: CurrencyType) => void;
   getCategoryIconName: (category: string, type?: TransactionType) => string;
 }
 
@@ -79,6 +80,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   onOpenMonthPicker,
   onOpenCategoryManager,
   onOpenSetBudget,
+  onCurrencyChange,
   getCategoryIconName,
 }) => {
   const [analyticsType, setAnalyticsType] = useState<TransactionType>('expense');
@@ -385,15 +387,18 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       }));
   }, [periodTransactions, analyticsType]);
 
-  const { totalBreakdownAmount, totalBreakdownTxCount } = useMemo(() => {
+  const totalBreakdownAmount = useMemo(() => {
     let sum = 0;
-    let count = 0;
     categoryBreakdown.forEach((item) => {
       sum += item.amount;
-      count += item.count;
     });
-    return { totalBreakdownAmount: sum, totalBreakdownTxCount: count };
+    return sum;
   }, [categoryBreakdown]);
+
+  const hasMultiCurrency = useMemo(
+    () => transactions.some((tx) => tx.currency === 'USD') || activeCurrency === 'USD',
+    [transactions, activeCurrency]
+  );
 
   const donutData = useMemo(() => {
     return categoryBreakdown.map((item) => ({
@@ -431,9 +436,40 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
         <View>
           <Text style={styles.headerTitle}>Analytics</Text>
         </View>
-        <View style={styles.currencyBadge}>
-          <Text style={styles.currencyBadgeText}>{activeCurrency}</Text>
-        </View>
+        {hasMultiCurrency && onCurrencyChange ? (
+          <View style={styles.analyticsCurrencyToggle}>
+            {(['IDR', 'USD'] as const).map((curr) => {
+              const active = activeCurrency === curr;
+              return (
+                <TouchableOpacity
+                  key={curr}
+                  style={[
+                    styles.analyticsCurrencyBtn,
+                    active && styles.analyticsCurrencyBtnActive,
+                  ]}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    onCurrencyChange(curr);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.analyticsCurrencyBtnText,
+                      active && styles.analyticsCurrencyBtnTextActive,
+                    ]}
+                  >
+                    {curr}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        ) : (
+          <View style={styles.currencyBadge}>
+            <Text style={styles.currencyBadgeText}>{activeCurrency}</Text>
+          </View>
+        )}
       </View>
 
       {/* Monthly Period Navigator */}
@@ -1124,7 +1160,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                 strokeWidth={20}
                 centerTitle={`Total ${analyticsType === 'expense' ? 'Expense' : 'Income'}`}
                 centerValue={formatCurrency(totalBreakdownAmount, activeCurrency, privacyMode)}
-                centerSubtitle={`${categoryBreakdown.length} Categories • ${totalBreakdownTxCount} tx`}
+                centerSubtitle={`${categoryBreakdown.length} Categories`}
               />
             </View>
 
@@ -1213,11 +1249,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.ink,
   },
-  headerSubtitle: {
+  analyticsCurrencyToggle: {
+    flexDirection: 'row',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  analyticsCurrencyBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 9,
+  },
+  analyticsCurrencyBtnActive: {
+    backgroundColor: Palette.white,
+  },
+  analyticsCurrencyBtnText: {
     ...Typography.caption,
-    fontSize: 12,
+    fontSize: 11,
+    fontWeight: '600',
     color: Palette.muted,
-    marginTop: 2,
+  },
+  analyticsCurrencyBtnTextActive: {
+    color: Palette.ink,
+    fontWeight: '700',
   },
   journeyHeroCard: {
     backgroundColor: Palette.white,
@@ -1416,12 +1472,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
-  healthHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
   healthHeaderTitleBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1433,17 +1483,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: Palette.ink,
-  },
-  healthBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  healthBadgeText: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '700',
   },
   meterContainer: {
     flexDirection: 'row',

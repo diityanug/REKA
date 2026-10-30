@@ -13,6 +13,8 @@ web-build/
 expo-env.d.ts
 
 # Internal & Scratch Notes
+AGENTS.md
+CLAUDE.md
 NOTES.md
 DESIGN.md
 focus.md
@@ -20,6 +22,9 @@ error.txt
 text.txt
 QA-*.md
 .agents/
+.claude/
+.cursor/
+.gemini/
 scripts/
 
 # Native builds & Signing Credentials

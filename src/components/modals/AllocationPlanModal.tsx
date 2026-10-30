@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Trash2, Check, Layers, Edit3 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { CurrencyType, AllocationPlan, AllocationItem } from '../../types';
 import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -66,6 +67,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [title, setTitle] = useState<string>('');
+  const [planCurrency, setPlanCurrency] = useState<CurrencyType>(activeCurrency);
   const [rows, setRows] = useState<DraftRow[]>([
     { id: '1', label: '', amountStr: '' },
   ]);
@@ -105,17 +107,21 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const activeRow = useMemo(() => {
     return rows.find((r) => r.id === activeAmountRowId) || null;
   }, [rows, activeAmountRowId]);
+  const lastActiveRow = useLastDefined(activeRow);
 
-  useSyncOnChange([visible, plan, activeCurrency], () => {
+  // Sync only when modal opens (never while saving or closing)
+  useSyncOnChange([visible], () => {
     if (visible) {
       if (plan) {
+        const initCurr: CurrencyType = plan.currency || activeCurrency;
         setTitle(plan.title);
+        setPlanCurrency(initCurr);
         if (plan.items && plan.items.length > 0) {
           setRows(
             plan.items.map((it) => ({
               id: it.id,
               label: it.label,
-              amountStr: it.amount > 0 ? formatCurrencyInput(String(it.amount), activeCurrency, 9) : '',
+              amountStr: it.amount > 0 ? formatCurrencyInput(String(it.amount), initCurr, 9) : '',
             }))
           );
         } else {
@@ -123,6 +129,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         }
       } else {
         setTitle('');
+        setPlanCurrency('IDR');
         setRows([
           { id: '1', label: '', amountStr: '' },
           { id: '2', label: '', amountStr: '' },
@@ -130,6 +137,24 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
       }
     }
   });
+
+  const handleChangePlanCurrency = (nextCurrency: CurrencyType) => {
+    if (nextCurrency === planCurrency) return;
+    AppHaptics.selection();
+    setRows((prev) =>
+      prev.map((r) => {
+        if (!r.amountStr.trim()) return r;
+        const parsed = parseAmount(r.amountStr, planCurrency);
+        if (isNaN(parsed) || parsed <= 0) return { ...r, amountStr: '' };
+        const normalizedVal = nextCurrency === 'IDR' ? Math.round(parsed) : parsed;
+        return {
+          ...r,
+          amountStr: formatCurrencyInput(String(normalizedVal), nextCurrency, 9),
+        };
+      })
+    );
+    setPlanCurrency(nextCurrency);
+  };
 
   const handleAddRow = () => {
     AppHaptics.selection();
@@ -159,7 +184,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     if (digitsOnly.length > 9) {
       return;
     }
-    const formatted = formatCurrencyInput(text, activeCurrency, 9);
+    const formatted = formatCurrencyInput(text, planCurrency, 9);
     setRows((prev) => {
       const current = prev.find((r) => r.id === id);
       if (current && current.amountStr === formatted) {
@@ -183,14 +208,14 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         label: it.label,
         amountStr:
           base > 0
-            ? formatCurrencyInput(String(Math.round((base * it.pct) / 100)), activeCurrency, 9)
+            ? formatCurrencyInput(String(Math.round((base * it.pct) / 100)), planCurrency, 9)
             : '',
       }))
     );
   };
 
   const totalAllocated = rows.reduce((sum, r) => {
-    const val = parseAmount(r.amountStr, activeCurrency);
+    const val = parseAmount(r.amountStr, planCurrency);
     return sum + (isNaN(val) ? 0 : val);
   }, 0);
 
@@ -208,7 +233,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     }
 
     const validItems: AllocationItem[] = filledRows.map((r) => {
-      const amt = parseAmount(r.amountStr, activeCurrency);
+      const amt = parseAmount(r.amountStr, planCurrency);
       return {
         id: r.id,
         label: r.label.trim() || 'Untitled Allocation',
@@ -227,7 +252,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     const planToSave: AllocationPlan = {
       id: plan ? plan.id : `plan_${Date.now()}`,
       title: trimmedTitle,
-      currency: activeCurrency,
+      currency: planCurrency,
       items: validItems,
     };
 
@@ -274,7 +299,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     >
       <ModalHeader
         title={plan ? 'Edit Allocation Plan' : 'New Allocation Plan'}
-        subtitle={`(${activeCurrency})`}
+        subtitle={`(${planCurrency})`}
         onClose={onClose}
       />
 
@@ -294,6 +319,47 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
                 returnKeyType="next"
                 maxLength={40}
               />
+            </View>
+
+            {/* Currency Selector */}
+            <Text style={styles.sectionTitle}>
+              Currency <Text style={styles.requiredStar}>*</Text>
+            </Text>
+            <View style={styles.currencyToggleRow}>
+              <TouchableOpacity
+                style={[
+                  styles.currencyOptionBtn,
+                  planCurrency === 'IDR' && styles.currencyOptionBtnActive,
+                ]}
+                onPress={() => handleChangePlanCurrency('IDR')}
+                activeOpacity={0.75}
+              >
+                <Text
+                  style={[
+                    styles.currencyOptionText,
+                    planCurrency === 'IDR' && styles.currencyOptionTextActive,
+                  ]}
+                >
+                  IDR (Rp)
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.currencyOptionBtn,
+                  planCurrency === 'USD' && styles.currencyOptionBtnActive,
+                ]}
+                onPress={() => handleChangePlanCurrency('USD')}
+                activeOpacity={0.75}
+              >
+                <Text
+                  style={[
+                    styles.currencyOptionText,
+                    planCurrency === 'USD' && styles.currencyOptionTextActive,
+                  ]}
+                >
+                  USD ($)
+                </Text>
+              </TouchableOpacity>
             </View>
 
             {/* Quick Templates */}
@@ -356,7 +422,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
                   activeOpacity={0.75}
                 >
                   <Text style={styles.currencyPrefixText}>
-                    {activeCurrency === 'IDR' ? 'Rp' : '$'}
+                    {planCurrency === 'IDR' ? 'Rp' : '$'}
                   </Text>
                   <Text
                     style={[
@@ -398,7 +464,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             <View style={styles.totalCard}>
               <Text style={styles.totalLabel}>Total Allocated ({filledRows.length} items):</Text>
               <Text style={styles.totalValue}>
-                {formatCurrency(totalAllocated, activeCurrency)}
+                {formatCurrency(totalAllocated, planCurrency)}
               </Text>
             </View>
           </KeyboardSafeContainer>
@@ -451,9 +517,9 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
       <AmountInputModal
         visible={!!activeAmountRowId}
         title="Set Allocation Amount"
-        subtitle={activeRow ? `For "${activeRow.label || 'Allocation Item'}"` : undefined}
-        initialAmount={activeRow ? activeRow.amountStr : ''}
-        currency={activeCurrency}
+        subtitle={lastActiveRow ? `For "${lastActiveRow.label || 'Allocation Item'}"` : undefined}
+        initialAmount={lastActiveRow ? lastActiveRow.amountStr : ''}
+        currency={planCurrency}
         maxDigits={9}
         allowZero
         onConfirm={(formatted) => {
@@ -479,19 +545,6 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   sectionTitle: {
     ...Typography.caption,
     fontSize: 12,
@@ -523,6 +576,40 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     paddingVertical: 11,
   },
+  currencyToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginBottom: 12,
+  },
+  currencyOptionBtn: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currencyOptionBtnActive: {
+    backgroundColor: Palette.white,
+    shadowColor: Palette.ink,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  currencyOptionText: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Palette.muted,
+  },
+  currencyOptionTextActive: {
+    color: Palette.ink,
+    fontWeight: '700',
+  },
   templateRow: {
     flexDirection: 'row',
     gap: 8,
@@ -541,14 +628,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
     color: Palette.primary,
-  },
-  templateHint: {
-    ...Typography.caption,
-    fontSize: 11,
-    lineHeight: 16,
-    color: Palette.muted,
-    marginTop: -8,
-    marginBottom: 14,
   },
   tableHeaderRow: {
     flexDirection: 'row',

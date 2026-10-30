@@ -57,16 +57,6 @@ export const Spacing = {
   xxxl: 32,
 };
 
-// Corner radius scale
-export const Radius = {
-  sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  sheet: 24,
-  pill: 999,
-};
-
 export const Typography = {
   display: {
     fontSize: 32,

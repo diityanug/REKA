@@ -70,6 +70,7 @@ export interface Transaction {
   notes?: string;
   imageUri?: string;
   transferPairId?: string;
+  exchangeRate?: number;
   items?: TransactionItem[];
 }
 
@@ -267,6 +268,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
           notes TEXT,
           image_uri TEXT,
           transfer_pair_id TEXT DEFAULT NULL,
+          exchange_rate REAL DEFAULT 0,
           FOREIGN KEY (wallet_id) REFERENCES wallets (id) ON DELETE CASCADE
         );
 
@@ -308,6 +310,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'transactions', 'notes', "TEXT DEFAULT ''");
       await ensureColumn(db, 'transactions', 'image_uri', "TEXT DEFAULT ''");
       await ensureColumn(db, 'transactions', 'transfer_pair_id', 'TEXT DEFAULT NULL');
+      await ensureColumn(db, 'transactions', 'exchange_rate', 'REAL DEFAULT 0');
 
       await ensureColumn(db, 'pockets', 'target_amount', 'REAL NOT NULL DEFAULT 0');
       await ensureColumn(db, 'pockets', 'icon', "TEXT NOT NULL DEFAULT 'Briefcase'");
@@ -403,6 +406,42 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
         }
       }
 
+      // Clean up legacy transfer notes that had "Converted to/from ..." or "Rate: ..." or default "Transfer to/from ..." stuffed into notes
+      const legacyNoteTransfers = await db.getAllAsync<{
+        id: string;
+        notes: string;
+        exchange_rate: number;
+      }>(
+        "SELECT id, notes, COALESCE(exchange_rate, 0) as exchange_rate FROM transactions WHERE category = 'Transfer' AND notes IS NOT NULL AND notes != ''"
+      );
+      for (const row of legacyNoteTransfers) {
+        let extractedRate = row.exchange_rate || 0;
+        const rateMatch = row.notes.match(/Rate:\s*1\s*USD\s*=\s*Rp\s*([\d.,]+)/i);
+        if (!extractedRate && rateMatch && rateMatch[1]) {
+          const digits = Number(rateMatch[1].replace(/\./g, '').replace(',', '.'));
+          if (isFinite(digits) && digits > 0) extractedRate = digits;
+        }
+        const cleanedParts = row.notes
+          .split(/\s*•\s*/)
+          .map((part) => part.trim())
+          .filter(
+            (part) =>
+              part.length > 0 &&
+              !/^Converted\s+(to|from)\s+(USD|IDR)$/i.test(part) &&
+              !/^Rate:\s*1\s*USD\s*=/i.test(part) &&
+              !/^Transfer\s+(to|from)\s+/i.test(part)
+          );
+        const cleanedNote = cleanedParts.join(' • ');
+        if (cleanedNote !== row.notes || extractedRate !== (row.exchange_rate || 0)) {
+          await db.runAsync(
+            'UPDATE transactions SET notes = ?, exchange_rate = ? WHERE id = ?',
+            cleanedNote,
+            extractedRate,
+            row.id
+          );
+        }
+      }
+
       dbInstance = db;
       return db;
     } catch (err) {
@@ -412,15 +451,6 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
   })();
 
   return dbInitPromise;
-}
-
-export async function clearAllSampleData(): Promise<void> {
-  const db = await getDatabase();
-  await db.withTransactionAsync(async () => {
-    await db.runAsync("DELETE FROM transaction_items WHERE transaction_id LIKE 'tx_seed_%'");
-    await db.runAsync("DELETE FROM transactions WHERE id LIKE 'tx_seed_%'");
-    await db.runAsync("DELETE FROM wallets WHERE id IN ('w_checking', 'w_savings', 'w_cash', 'w_main')");
-  });
 }
 
 // Categories Management
@@ -544,11 +574,40 @@ export async function updateWalletsOrder(orderedWalletIds: string[]): Promise<vo
   });
 }
 
-export async function updateWalletName(id: string, newName: string): Promise<void> {
+export async function updateWalletName(
+  id: string,
+  newName: string,
+  newType?: string,
+  newAccountNumber?: string
+): Promise<void> {
   const db = await getDatabase();
   const trimmed = newName.trim();
   if (!trimmed) throw new Error('Account name cannot be empty.');
-  await db.runAsync('UPDATE wallets SET name = ? WHERE id = ?', trimmed, id);
+  if (newType !== undefined && newAccountNumber !== undefined) {
+    await db.runAsync(
+      'UPDATE wallets SET name = ?, type = ?, account_number = ? WHERE id = ?',
+      trimmed,
+      newType.trim() || 'Bank',
+      newAccountNumber.trim(),
+      id
+    );
+  } else if (newType !== undefined) {
+    await db.runAsync(
+      'UPDATE wallets SET name = ?, type = ? WHERE id = ?',
+      trimmed,
+      newType.trim() || 'Bank',
+      id
+    );
+  } else if (newAccountNumber !== undefined) {
+    await db.runAsync(
+      'UPDATE wallets SET name = ?, account_number = ? WHERE id = ?',
+      trimmed,
+      newAccountNumber.trim(),
+      id
+    );
+  } else {
+    await db.runAsync('UPDATE wallets SET name = ? WHERE id = ?', trimmed, id);
+  }
 }
 
 export async function adjustWalletBalance(id: string, newBalance: number): Promise<void> {
@@ -693,11 +752,24 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
   });
 }
 
-export async function updatePocketName(id: string, newName: string): Promise<void> {
+export async function updatePocketName(
+  id: string,
+  newName: string,
+  newIcon?: string
+): Promise<void> {
   const db = await getDatabase();
   const trimmed = newName.trim();
   if (!trimmed) throw new Error('Pocket name cannot be empty.');
-  await db.runAsync('UPDATE pockets SET name = ? WHERE id = ?', trimmed, id);
+  if (newIcon !== undefined && newIcon.trim()) {
+    await db.runAsync(
+      'UPDATE pockets SET name = ?, icon = ? WHERE id = ?',
+      trimmed,
+      newIcon.trim(),
+      id
+    );
+  } else {
+    await db.runAsync('UPDATE pockets SET name = ? WHERE id = ?', trimmed, id);
+  }
 }
 
 export async function deletePocket(id: string): Promise<void> {
@@ -750,6 +822,7 @@ export async function getTransactions(): Promise<Transaction[]> {
       notes: r.notes,
       imageUri: r.image_uri,
       transferPairId: r.transfer_pair_id || undefined,
+      exchangeRate: r.exchange_rate ? Number(r.exchange_rate) : undefined,
     };
   });
 }
@@ -1071,7 +1144,7 @@ export async function transferFunds(
 
   const isCrossCurrency = fromWallet.currency !== toWallet.currency;
   let finalTargetAmount = amount;
-  let rateInfo = '';
+  let appliedExchangeRate = 0;
 
   if (isCrossCurrency) {
     if (
@@ -1081,6 +1154,7 @@ export async function transferFunds(
       throw new Error('That exchange rate looks invalid. Please check the rate value.');
     }
     const rate = params.exchangeRate && params.exchangeRate > 0 ? params.exchangeRate : 16000;
+    appliedExchangeRate = rate;
     if (params.targetAmount && params.targetAmount > 0) {
       finalTargetAmount = params.targetAmount;
     } else {
@@ -1090,7 +1164,6 @@ export async function transferFunds(
         finalTargetAmount = Math.round((amount / rate) * 100) / 100;
       }
     }
-    rateInfo = `Rate: 1 USD = Rp ${rate.toLocaleString('id-ID')}`;
   }
 
   const outTxId = 'tx_tr_out_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
@@ -1111,50 +1184,39 @@ export async function transferFunds(
       toWalletId
     );
 
-    const outNoteText = [
-      notes ? notes.trim() : '',
-      isCrossCurrency ? `Converted to ${toWallet.currency} • ${rateInfo}` : '',
-    ]
-      .filter(Boolean)
-      .join(' • ') || `Transfer to ${toWallet.name}`;
-
-    const inNoteText = [
-      notes ? notes.trim() : '',
-      isCrossCurrency ? `Converted from ${fromWallet.currency} • ${rateInfo}` : '',
-    ]
-      .filter(Boolean)
-      .join(' • ') || `Transfer from ${fromWallet.name}`;
-
+    const cleanUserNote = notes ? notes.trim() : '';
     const transferTitle = `${fromWallet.name} to ${toWallet.name}`;
 
     // Record outgoing transaction
     await db.runAsync(
       `INSERT INTO transactions
-       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id)
-       VALUES (?, ?, '', ?, 'Transfer', 'expense', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?)`,
+       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate)
+       VALUES (?, ?, '', ?, 'Transfer', 'expense', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?, ?)`,
       outTxId,
       fromWalletId,
       transferTitle,
       amount,
       fromWallet.currency,
       txTimestamp,
-      outNoteText,
-      inTxId
+      cleanUserNote,
+      inTxId,
+      appliedExchangeRate
     );
 
     // Record incoming transaction
     await db.runAsync(
       `INSERT INTO transactions
-       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id)
-       VALUES (?, ?, '', ?, 'Transfer', 'income', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?)`,
+       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate)
+       VALUES (?, ?, '', ?, 'Transfer', 'income', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?, ?)`,
       inTxId,
       toWalletId,
       transferTitle,
       finalTargetAmount,
       toWallet.currency,
       txTimestamp,
-      inNoteText,
-      outTxId
+      cleanUserNote,
+      outTxId,
+      appliedExchangeRate
     );
   });
 
@@ -1265,17 +1327,6 @@ export async function saveAllocationPlans(
   currency: CurrencyType
 ): Promise<void> {
   await setSetting(`allocation_plans_${currency}`, JSON.stringify(plans));
-}
-
-export async function getAllocationNote(currency: CurrencyType): Promise<string> {
-  return await getSetting(`allocation_note_${currency}`, '');
-}
-
-export async function setAllocationNote(
-  note: string,
-  currency: CurrencyType
-): Promise<void> {
-  await setSetting(`allocation_note_${currency}`, note.trim());
 }
 
 export interface AppExportData {
@@ -1539,8 +1590,8 @@ export async function importAllData(
         const pairId = tx.transferPairId || tx.transfer_pair_id || null;
         await db.runAsync(
           `INSERT INTO transactions 
-           (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           tx.id,
           tx.walletId,
           tx.pocketId || '',
@@ -1555,7 +1606,8 @@ export async function importAllData(
           tx.paymentMethod || 'QRIS',
           tx.notes || '',
           tx.imageUri || '',
-          pairId && txIds.has(pairId) ? pairId : null
+          pairId && txIds.has(pairId) ? pairId : null,
+          Number(tx.exchangeRate || tx.exchange_rate) || 0
         );
       }
 

@@ -1,5 +1,7 @@
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
+  Animated,
+  Easing,
   View,
   Text,
   TextInput,
@@ -13,7 +15,11 @@ import { Delete } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { CurrencyType } from '../types';
 import { AppHaptics } from '../utils/haptics';
-import { formatCurrency } from '../utils/formatters';
+import {
+  formatCurrency,
+  parsePastedAmountInput,
+  extractPastedSubstring,
+} from '../utils/formatters';
 import {
   formatExpressionDisplay,
   evaluateMathExpression,
@@ -73,12 +79,27 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
     return formatExpressionDisplay(currentExpr, currency);
   }, [currentExpr, currency]);
 
+  const inputDisplayValue = currentExpr === '0' ? '' : formattedExpr;
+
   const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   const [isFocused, setIsFocused] = useState<boolean>(false);
-  const [selection, setSelection] = useState<{ start: number; end: number }>(() => ({
-    start: formattedExpr.length,
-    end: formattedExpr.length,
-  }));
+  const selectionRef = useRef<{ start: number; end: number }>({
+    start: inputDisplayValue.length,
+    end: inputDisplayValue.length,
+  });
+  const isTextInputFocusedRef = useRef<boolean>(false);
+  const pressStartTimeRef = useRef<number>(0);
+  const [pasteAnim] = useState(() => new Animated.Value(1));
+
+  const runSmoothPasteTransition = useCallback(() => {
+    pasteAnim.setValue(0.65);
+    Animated.timing(pasteAnim, {
+      toValue: 1,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [pasteAnim]);
 
   const isCardHighlighted = showKeypad !== undefined ? showKeypad : isFocused;
 
@@ -87,31 +108,31 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
   // Synchronize cursor position: when value or currency changes externally, ensure cursor starts at the very end
   useEffect(() => {
     if (!isKeypadActionRef.current) {
-      const formatted = formatExpressionDisplay(currentExpr, currency);
-      setSelection({ start: formatted.length, end: formatted.length });
+      const formatted = currentExpr === '0' ? '' : formatExpressionDisplay(currentExpr, currency);
+      selectionRef.current = { start: formatted.length, end: formatted.length };
     }
     isKeypadActionRef.current = false;
   }, [value, currency, currentExpr]);
 
-  const activeSelection = useMemo(() => ({
-    start: Math.min(selection.start, formattedExpr.length),
-    end: Math.min(selection.end, formattedExpr.length),
-  }), [selection.start, selection.end, formattedExpr.length]);
-
   const handleSelectionChange = (e: TextInputSelectionChangeEvent) => {
-    setSelection(e.nativeEvent.selection);
-    setIsFocused(true);
+    selectionRef.current = e.nativeEvent.selection;
   };
 
   const handleKeyPress = useCallback((key: string) => {
     isKeypadActionRef.current = true;
-    inputRef.current?.focus();
     setIsFocused(true);
+
+    const sel = isTextInputFocusedRef.current
+      ? {
+          start: Math.min(selectionRef.current.start, formattedExpr.length),
+          end: Math.min(selectionRef.current.end, formattedExpr.length),
+        }
+      : { start: formattedExpr.length, end: formattedExpr.length };
 
     const rawCursor = formattedToRawCursor(
       formattedExpr,
       currentExpr,
-      selection.start,
+      sel.start,
       currency
     );
 
@@ -119,11 +140,11 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
     let activeExpr = currentExpr;
     let activeRawCursor = rawCursor;
 
-    if (selection.start !== selection.end) {
+    if (sel.start !== sel.end) {
       const rawEnd = formattedToRawCursor(
         formattedExpr,
         currentExpr,
-        selection.end,
+        sel.end,
         currency
       );
       const minRaw = Math.min(rawCursor, rawEnd);
@@ -139,7 +160,7 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
       activeRawCursor
     );
 
-    if (nextExpr === currentExpr && nextRawCursor === rawCursor && selection.start === selection.end) {
+    if (nextExpr === currentExpr && nextRawCursor === rawCursor && sel.start === sel.end) {
       return;
     }
 
@@ -153,12 +174,12 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
     );
 
     onChangeValue(nextExpr);
-    setSelection({ start: nextFormattedPos, end: nextFormattedPos });
-  }, [currentExpr, formattedExpr, selection.start, selection.end, currency, onChangeValue]);
+    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
+    isTextInputFocusedRef.current = false;
+  }, [currentExpr, formattedExpr, currency, onChangeValue]);
 
   const handleQuickAdd = useCallback((amount: number) => {
     isKeypadActionRef.current = true;
-    inputRef.current?.focus();
     setIsFocused(true);
     const currentNum = evaluateMathExpression(currentExpr, currency);
     const result = Math.max(currentNum + amount, 0);
@@ -171,15 +192,55 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
     AppHaptics.light();
     const nextFormatted = formatExpressionDisplay(nextStr, currency);
     onChangeValue(nextStr);
-    setSelection({ start: nextFormatted.length, end: nextFormatted.length });
+    selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
+    isTextInputFocusedRef.current = false;
   }, [currentExpr, currency, onChangeValue]);
 
   const handlePrefixPress = useCallback(() => {
     isKeypadActionRef.current = true;
     AppHaptics.selection();
-    inputRef.current?.focus();
-    setSelection({ start: 0, end: 0 });
-  }, []);
+    selectionRef.current = { start: 0, end: 0 };
+    onPressDisplay?.();
+  }, [onPressDisplay]);
+
+  const handleChangeText = useCallback(
+    (nextText: string) => {
+      if (nextText === inputDisplayValue) return;
+
+      const inserted = extractPastedSubstring(
+        inputDisplayValue,
+        nextText,
+        selectionRef.current
+      );
+
+      if (
+        inserted.length === 1 &&
+        /^[0-9.+\-]$/.test(inserted) &&
+        nextText.length === inputDisplayValue.length + 1
+      ) {
+        handleKeyPress(inserted);
+        return;
+      }
+
+      const sourceText = inserted.length > 0 ? inserted : nextText;
+      const maxDigits = currency === 'IDR' ? 13 : 9;
+      const parsedRaw = parsePastedAmountInput(sourceText, currency, maxDigits);
+      if (inserted.length > 0 && !parsedRaw && !/0/.test(sourceText)) {
+        return;
+      }
+
+      isKeypadActionRef.current = true;
+      AppHaptics.selection();
+      const nextExpr = parsedRaw || '0';
+      const nextFormatted = nextExpr === '0' ? '' : formatExpressionDisplay(nextExpr, currency);
+      onChangeValue(nextExpr === '0' ? '' : nextExpr);
+      selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
+      isTextInputFocusedRef.current = false;
+      inputRef.current?.blur();
+      runSmoothPasteTransition();
+    },
+    [inputDisplayValue, currency, handleKeyPress, onChangeValue, runSmoothPasteTransition]
+  );
 
   const decimalOrThousandKey = currency === 'IDR' ? '000' : '.';
 
@@ -187,22 +248,28 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
     <View style={styles.container}>
       {/* Interactive Display Card with Native Cursor & Fixed Height Layout */}
       {showDisplay ? (
-        <Pressable
+        <View
           style={[
             styles.displayCard,
             isCardHighlighted && styles.displayCardFocused,
           ]}
-          onPress={() => {
-            if (Keyboard.isVisible && Keyboard.isVisible()) {
-              Keyboard.dismiss();
-            }
-            setIsFocused(true);
-            setSelection({ start: formattedExpr.length, end: formattedExpr.length });
-            inputRef.current?.focus();
-            onPressDisplay?.();
-          }}
         >
-          <View style={styles.displayMainRow}>
+          <Animated.View
+            style={[
+              styles.displayMainRow,
+              {
+                opacity: pasteAnim,
+                transform: [
+                  {
+                    scale: pasteAnim.interpolate({
+                      inputRange: [0.65, 1],
+                      outputRange: [0.985, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
             {/* Clickable Currency Prefix */}
             <TouchableOpacity
               activeOpacity={0.7}
@@ -214,29 +281,46 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               </Text>
             </TouchableOpacity>
 
-            {/* Native TextInput with suppressed system soft keyboard */}
+            {/* Native TextInput with suppressed system soft keyboard & Paste support */}
             <TextInput
               ref={inputRef}
               style={styles.textInput}
               showSoftInputOnFocus={false}
-              value={formattedExpr}
-              selection={activeSelection}
+              contextMenuHidden={false}
+              selectTextOnFocus={true}
+              value={inputDisplayValue}
+              placeholder="0"
+              placeholderTextColor={Palette.ink}
+              onChangeText={handleChangeText}
               onSelectionChange={handleSelectionChange}
-              onFocus={() => {
-                setIsFocused(true);
-                if (selection.start <= 1 && formattedExpr.length > 1) {
-                  setSelection({ start: formattedExpr.length, end: formattedExpr.length });
+              onPressIn={() => {
+                pressStartTimeRef.current = Date.now();
+              }}
+              onPressOut={() => {
+                // Only open keypad on a short tap (< 260ms), never during a long-press for Paste
+                if (Date.now() - pressStartTimeRef.current < 260) {
+                  if (Keyboard.isVisible && Keyboard.isVisible()) {
+                    Keyboard.dismiss();
+                  }
+                  onPressDisplay?.();
                 }
               }}
-              onBlur={() => setIsFocused(false)}
+              onFocus={() => {
+                isTextInputFocusedRef.current = true;
+                setIsFocused(true);
+              }}
+              onBlur={() => {
+                isTextInputFocusedRef.current = false;
+                setIsFocused(false);
+              }}
               cursorColor={Palette.primary}
               selectionColor={Palette.primary + '33'}
               multiline={false}
               autoCorrect={false}
               autoCapitalize="none"
-              scrollEnabled={true}
+              scrollEnabled={false}
             />
-          </View>
+          </Animated.View>
 
           {/* Reserved Fixed Result Slot: Stays in layout permanently to prevent height jump / layout shift */}
           <View
@@ -251,7 +335,7 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               {formatCurrency(liveEvaluated, currency)}
             </Text>
           </View>
-        </Pressable>
+        </View>
       ) : null}
 
       {/* Quick Increment Preset Chips (keypad expanded only) */}

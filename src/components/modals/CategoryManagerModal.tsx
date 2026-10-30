@@ -329,19 +329,6 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   segmentedControl: {
     flexDirection: 'row',
     backgroundColor: Palette.surfaceSoft,

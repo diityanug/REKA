@@ -34,6 +34,8 @@ interface HistoryTabProps {
     expense: number;
     incomePct: number;
     expensePct: number;
+    usdIncome?: number;
+    usdExpense?: number;
   };
   onChangeSearch: (query: string) => void;
   onClearSearch: () => void;
@@ -107,7 +109,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
 
   const isFilterActive = activeFilterCount > 0 || searchQuery.trim().length > 0;
 
-  // Group transactions chronologically by month
+  // Group transactions chronologically by month (keeping IDR and USD native totals separate)
   const monthGroups = useMemo(() => {
     const groups: {
       monthKey: string;
@@ -115,6 +117,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       count: number;
       totalExpense: number;
       totalIncome: number;
+      totalUsdExpense: number;
+      totalUsdIncome: number;
       transactions: Transaction[];
     }[] = [];
     const map = new Map<string, (typeof groups)[0]>();
@@ -133,6 +137,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           count: 0,
           totalExpense: 0,
           totalIncome: 0,
+          totalUsdExpense: 0,
+          totalUsdIncome: 0,
           transactions: [],
         };
         map.set(key, g);
@@ -143,8 +149,13 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       // Count only transactions that feed the amounts below (transfers excluded)
       if (tx.category !== 'Transfer' && !tx.transferPairId) {
         group.count += 1;
-        if (tx.type === 'expense') group.totalExpense += tx.amount;
-        if (tx.type === 'income') group.totalIncome += tx.amount;
+        if (tx.currency === 'USD') {
+          if (tx.type === 'expense') group.totalUsdExpense += tx.amount;
+          if (tx.type === 'income') group.totalUsdIncome += tx.amount;
+        } else {
+          if (tx.type === 'expense') group.totalExpense += tx.amount;
+          if (tx.type === 'income') group.totalIncome += tx.amount;
+        }
       }
     }
     return groups;
@@ -155,10 +166,14 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       title: g.monthTitle,
       count: g.count,
       totalExpense: g.totalExpense,
+      totalUsdExpense: g.totalUsdExpense,
       monthKey: g.monthKey,
       data: g.transactions,
     }));
   }, [monthGroups]);
+
+  const hasUsdHistoryFlow =
+    (historyFlowStats.usdIncome || 0) > 0 || (historyFlowStats.usdExpense || 0) > 0;
 
   const renderHeader = useCallback(() => (
     <View>
@@ -166,7 +181,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       <View style={styles.bannerHeader}>
         <Text style={styles.bannerTitle}>History</Text>
         <Text style={styles.bannerSubtitle}>
-          {transactions.length} record{transactions.length === 1 ? '' : 's'} in {activeCurrency}
+          {transactions.length} record{transactions.length === 1 ? '' : 's'}
         </Text>
       </View>
 
@@ -174,12 +189,22 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       <View style={styles.flowSummaryCard}>
         <View style={styles.flowMetaRow}>
           <Text style={[styles.flowMetaText, { color: Palette.success }]}>
-            In: {formatCurrency(historyFlowStats.income, activeCurrency, privacyMode)}
+            In: {formatCurrency(historyFlowStats.income, 'IDR', privacyMode)}
           </Text>
           <Text style={[styles.flowMetaText, { color: Palette.error }]}>
-            Out: {formatCurrency(historyFlowStats.expense, activeCurrency, privacyMode)}
+            Out: {formatCurrency(historyFlowStats.expense, 'IDR', privacyMode)}
           </Text>
         </View>
+        {hasUsdHistoryFlow ? (
+          <View style={[styles.flowMetaRow, { marginTop: 2 }]}>
+            <Text style={[styles.flowMetaText, { color: Palette.success, fontSize: 11 }]}>
+              USD In: {formatCurrency(historyFlowStats.usdIncome || 0, 'USD', privacyMode)}
+            </Text>
+            <Text style={[styles.flowMetaText, { color: Palette.error, fontSize: 11 }]}>
+              USD Out: {formatCurrency(historyFlowStats.usdExpense || 0, 'USD', privacyMode)}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.dualFlowTrack}>
           <View
             style={[
@@ -323,8 +348,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     </View>
   ), [
     transactions.length,
-    activeCurrency,
     historyFlowStats,
+    hasUsdHistoryFlow,
     privacyMode,
     localSearch,
     handleClearSearch,
@@ -364,7 +389,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         <Receipt size={32} color={Palette.mutedSoft} />
         <Text style={styles.emptyTitle}>No transactions yet</Text>
         <Text style={styles.emptyDesc}>
-          Record your first {activeCurrency} expense or income to build your history.
+          Record your first expense or income to build your history.
         </Text>
         {onOpenManualModal ? (
           <TouchableOpacity
@@ -383,16 +408,22 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         ) : null}
       </View>
     );
-  }, [isFilterActive, onResetAllFilters, activeCurrency, onOpenManualModal]);
+  }, [isFilterActive, onResetAllFilters, onOpenManualModal]);
 
   const renderSectionHeader = useCallback(({ section }: { section: any }) => (
     <View style={styles.monthHeaderRow}>
       <Text style={styles.monthHeaderTitle}>{section.title}</Text>
       <Text style={styles.monthHeaderMeta} numberOfLines={1}>
-        {section.count} tx • {formatCurrency(section.totalExpense, activeCurrency, privacyMode)}
+        {section.count} tx
+        {section.totalExpense > 0 || !section.totalUsdExpense
+          ? ` • ${formatCurrency(section.totalExpense, 'IDR', privacyMode)}`
+          : ''}
+        {section.totalUsdExpense > 0
+          ? ` • ${formatCurrency(section.totalUsdExpense, 'USD', privacyMode)}`
+          : ''}
       </Text>
     </View>
-  ), [activeCurrency, privacyMode]);
+  ), [privacyMode]);
 
   const renderItem = useCallback(({ item }: { item: Transaction }) => (
     <TransactionItemRow
@@ -596,9 +627,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Palette.muted,
     fontWeight: '600',
-  },
-  monthSection: {
-    marginBottom: 16,
   },
   monthHeaderRow: {
     flexDirection: 'row',

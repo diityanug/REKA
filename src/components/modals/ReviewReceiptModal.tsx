@@ -13,6 +13,7 @@ import { Plus, Check, Pencil } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { Wallet, Pocket, ExtractedReceiptData, CurrencyType } from '../../types';
 import { formatCurrency, formatCurrencyInput, formatDate } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -94,19 +95,21 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     setAlertConfig((prev) => ({ ...prev, visible: false }));
   };
 
+  const currentData = useLastDefined(extractedData);
+
   // Only wallets matching the receipt currency are safe to save into
   const displayWallets = useMemo(() => {
-    if (!extractedData) return [];
-    return wallets.filter((w) => w.currency === extractedData.currency);
-  }, [wallets, extractedData]);
+    if (!currentData) return [];
+    return wallets.filter((w) => w.currency === currentData.currency);
+  }, [wallets, currentData]);
 
   const walletPockets = useMemo(() => {
     return pockets.filter((p) => p.walletId === selectedWalletId);
   }, [pockets, selectedWalletId]);
 
-  useSyncOnChange([visible, extractedData], () => {
-    if (visible && extractedData) {
-      setMerchantName(extractedData.merchantName || '');
+  useSyncOnChange([visible], () => {
+    if (visible && currentData) {
+      setMerchantName(currentData.merchantName || '');
       setReviewNotes('');
       setAmountOverride(null);
       setSaving(false);
@@ -121,14 +124,14 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     }
   }, [visible, displayWallets, selectedWalletId, onSelectWallet]);
 
-  if (!visible || !extractedData) return null;
+  if (!currentData) return null;
 
-  const receiptCurrency = extractedData.currency;
+  const receiptCurrency = currentData.currency;
   const selectedDisplayWallet = displayWallets.find((w) => w.id === selectedWalletId);
   const hasWalletForCurrency = displayWallets.length > 0;
-  const finalAmount = amountOverride ?? extractedData.totalAmount;
-  const amountUnreadable = extractedData.totalAmount <= 0;
-  const itemCount = extractedData.items ? extractedData.items.length : 0;
+  const finalAmount = amountOverride ?? currentData.totalAmount;
+  const amountUnreadable = currentData.totalAmount <= 0;
+  const itemCount = currentData.items ? currentData.items.length : 0;
   const canConfirm = hasWalletForCurrency && !!selectedDisplayWallet && !saving;
 
   const handleConfirm = async () => {
@@ -146,7 +149,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     }
     if (saving) return;
 
-    const finalMerchant = merchantName.trim() || extractedData.merchantName || 'Receipt Transaction';
+    const finalMerchant = merchantName.trim() || currentData.merchantName || 'Receipt Transaction';
     try {
       setSaving(true);
       await onConfirm(reviewNotes, finalMerchant, finalAmount);
@@ -230,16 +233,16 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 </View>
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>Category</Text>
-                  <Text style={styles.metaValue}>{extractedData.category}</Text>
+                  <Text style={styles.metaValue}>{currentData.category}</Text>
                 </View>
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>Date</Text>
-                  <Text style={styles.metaValue}>{formatDate(extractedData.transactionDate)}</Text>
+                  <Text style={styles.metaValue}>{formatDate(currentData.transactionDate)}</Text>
                 </View>
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>Payment Method</Text>
                   <Text style={styles.metaValue}>
-                    {extractedData.paymentMethod || 'QRIS'}
+                    {currentData.paymentMethod || 'QRIS'}
                   </Text>
                 </View>
               </View>
@@ -248,18 +251,18 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
               <Text style={styles.sectionTitle}>
                 {itemCount} items detected
               </Text>
-              {extractedData.items && extractedData.items.length > 0 ? (
+              {currentData.items && currentData.items.length > 0 ? (
                 <View style={{ marginBottom: 14 }}>
-                  {extractedData.items.map((it, idx) => (
+                  {currentData.items.map((it, idx) => (
                     <View key={`item_${idx}`} style={styles.itemCard}>
                       <View style={{ flex: 1, paddingRight: 8 }}>
                         <Text style={styles.itemName}>{it.name}</Text>
                         <Text style={styles.itemQty}>
-                          Qty: {it.quantity} × {formatCurrency(it.unitPrice, extractedData.currency)}
+                          Qty: {it.quantity} × {formatCurrency(it.unitPrice, currentData.currency)}
                         </Text>
                       </View>
                       <Text style={styles.itemTotal}>
-                        {formatCurrency(it.totalPrice, extractedData.currency)}
+                        {formatCurrency(it.totalPrice, currentData.currency)}
                       </Text>
                     </View>
                   ))}
@@ -468,19 +471,6 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   summaryCard: {
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 16,
@@ -493,13 +483,6 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-  },
-  summaryMerchant: {
-    ...Typography.heading,
-    fontSize: 18,
-    color: Palette.ink,
-    marginTop: 2,
-    marginBottom: 12,
   },
   summaryAmount: {
     ...Typography.display,
@@ -625,12 +608,6 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontSize: 13,
     fontWeight: '500',
-    color: Palette.ink,
-  },
-  metaAmount: {
-    ...Typography.mono,
-    fontSize: 16,
-    fontWeight: '700',
     color: Palette.ink,
   },
   sectionTitle: {

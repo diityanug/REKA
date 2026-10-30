@@ -17,6 +17,7 @@ import { Wallet, CurrencyType } from '../../types';
 import { POCKET_PRESETS } from '../../constants/presets';
 import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
@@ -226,9 +227,12 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
   const { width: screenWidth } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState<number>(() => Math.max(screenWidth - 40 - 20, 260));
   const [amountModalType, setAmountModalType] = useState<'balance' | 'target' | null>(null);
+  const activeModalType = useLastDefined(amountModalType);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>('all');
   const [saving, setSaving] = useState<boolean>(false);
   const selectedWallet = wallets.find((w) => w.id === selectedWalletId);
+  const effectiveAvailableAmount =
+    useLastDefined(!saving && visible ? availableAmount : null) ?? availableAmount;
 
   const displayedIcons = useMemo(() => {
     if (selectedGroupKey === 'all') {
@@ -253,7 +257,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 
   // Warn before submit; the hook still validates on its own.
   const allocatedValue = parseAmount(balance, currency);
-  const exceedsAvailable = !!balance && !isNaN(allocatedValue) && allocatedValue > availableAmount;
+  const exceedsAvailable =
+    !!balance && !isNaN(allocatedValue) && allocatedValue > effectiveAvailableAmount;
 
   const submit = async () => {
     if (saving) return;
@@ -374,13 +379,17 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 
               {/* The legal allocation ceiling, shown before submit */}
               <Text style={styles.availableHint}>
-                Available to allocate: {formatCurrency(availableAmount, currency)}
+                Available to allocate: {formatCurrency(effectiveAvailableAmount, currency)}
               </Text>
-              {exceedsAvailable ? (
-                <Text style={styles.inlineError}>More than the available unallocated funds.</Text>
-              ) : null}
+              <View style={styles.inlineErrorSlot}>
+                {exceedsAvailable ? (
+                  <Text style={styles.inlineError} numberOfLines={1}>
+                    More than the available unallocated funds.
+                  </Text>
+                ) : null}
+              </View>
 
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+              <Text style={[styles.inputLabel, { marginTop: 6 }]}>
                 Target Goal
               </Text>
               <TouchableOpacity
@@ -571,9 +580,9 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 
       <AmountInputModal
         visible={!!amountModalType}
-        title={amountModalType === 'balance' ? 'Set Allocated Balance' : 'Set Target Goal'}
-        subtitle={amountModalType === 'balance' ? `Allocated from ${selectedWallet?.name || 'Account'}` : 'Savings goal target'}
-        initialAmount={amountModalType === 'balance' ? balance : target}
+        title={activeModalType === 'balance' ? 'Set Allocated Balance' : 'Set Target Goal'}
+        subtitle={activeModalType === 'balance' ? `Allocated from ${selectedWallet?.name || 'Account'}` : 'Savings goal target'}
+        initialAmount={activeModalType === 'balance' ? balance : target}
         currency={currency}
         allowZero
         onConfirm={(formatted) => {
@@ -613,17 +622,6 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     color: Palette.ink,
   },
-  emptyText: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
   chipsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -657,12 +655,16 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     marginTop: 6,
   },
+  inlineErrorSlot: {
+    height: 18,
+    justifyContent: 'center',
+    marginTop: 2,
+  },
   inlineError: {
     ...Typography.caption,
     fontSize: 12,
     fontWeight: '500',
     color: Palette.error,
-    marginTop: 3,
   },
   targetAccountCard: {
     flexDirection: 'row',

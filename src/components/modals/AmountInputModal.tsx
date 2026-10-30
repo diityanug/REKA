@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useCallback } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   View,
   Text,
   TextInput,
@@ -15,7 +17,12 @@ import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { CurrencyType } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
-import { formatCurrencyInput, parseAmount } from '../../utils/formatters';
+import {
+  formatCurrencyInput,
+  parseAmount,
+  parsePastedAmountInput,
+  extractPastedSubstring,
+} from '../../utils/formatters';
 import { formattedToRawCursor, rawToFormattedCursor } from '../../utils/calculator';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -48,13 +55,25 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   const [rawDigits, setRawDigits] = useState<string>('');
   const [isFocused, setIsFocused] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
-  const [selection, setSelection] = useState<{ start: number; end: number }>({
+  const selectionRef = useRef<{ start: number; end: number }>({
     start: 0,
     end: 0,
   });
+  const isTextInputFocusedRef = useRef<boolean>(false);
   const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
+  const [pasteAnim] = useState(() => new Animated.Value(1));
 
-  useSyncOnChange([visible, initialAmount, maxDigits, currency], () => {
+  const runSmoothPasteTransition = useCallback(() => {
+    pasteAnim.setValue(0.65);
+    Animated.timing(pasteAnim, {
+      toValue: 1,
+      duration: 160,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [pasteAnim]);
+
+  useSyncOnChange([visible], () => {
     if (visible) {
       let nextRaw = '';
       if (!initialAmount) {
@@ -70,61 +89,96 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       setRawDigits(nextRaw);
       const nextFormatted = nextRaw && nextRaw !== '0'
         ? formatCurrencyInput(nextRaw, currency, maxDigits)
-        : '0';
-      setSelection({ start: nextFormatted.length, end: nextFormatted.length });
+        : '';
+      selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
+      isTextInputFocusedRef.current = false;
+      setIsFocused(true);
     }
   });
 
   const displayFormatted = useMemo(() => {
-    if (!rawDigits || rawDigits === '0') return '0';
+    if (!rawDigits || rawDigits === '0') return '';
     return formatCurrencyInput(rawDigits, currency, maxDigits);
   }, [rawDigits, currency, maxDigits]);
 
   const numericValue = useMemo(() => {
-    return parseAmount(displayFormatted, currency);
+    return parseAmount(displayFormatted || '0', currency);
   }, [displayFormatted, currency]);
 
   // Zero is invalid unless the calling flow explicitly allows it
   const zeroBlocked = !allowZero && numericValue <= 0;
 
-  const activeSelection = useMemo(() => ({
-    start: Math.min(selection.start, displayFormatted.length),
-    end: Math.min(selection.end, displayFormatted.length),
-  }), [selection.start, selection.end, displayFormatted.length]);
-
-  useEffect(() => {
-    if (visible) {
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 120);
-      return () => clearTimeout(timer);
+  const getActiveSelection = () => {
+    if (!isTextInputFocusedRef.current) {
+      return { start: displayFormatted.length, end: displayFormatted.length };
     }
-  }, [visible]);
+    return {
+      start: Math.min(selectionRef.current.start, displayFormatted.length),
+      end: Math.min(selectionRef.current.end, displayFormatted.length),
+    };
+  };
 
   const handleSelectionChange = (e: TextInputSelectionChangeEvent) => {
-    setSelection(e.nativeEvent.selection);
+    selectionRef.current = e.nativeEvent.selection;
+  };
+
+  const handleChangeText = (nextText: string) => {
+    if (nextText === displayFormatted) return;
+
+    const inserted = extractPastedSubstring(
+      displayFormatted,
+      nextText,
+      selectionRef.current
+    );
+
+    if (
+      inserted.length === 1 &&
+      /^[0-9.]$/.test(inserted) &&
+      nextText.length === displayFormatted.length + 1
+    ) {
+      handleDigitPress(inserted);
+      return;
+    }
+
+    const sourceText = inserted.length > 0 ? inserted : nextText;
+    const parsedRaw = parsePastedAmountInput(sourceText, currency, maxDigits);
+    if (inserted.length > 0 && !parsedRaw && !/0/.test(sourceText)) {
+      return;
+    }
+
+    AppHaptics.selection();
+    setRawDigits(parsedRaw);
+    const nextFormatted =
+      parsedRaw && parsedRaw !== '0'
+        ? formatCurrencyInput(parsedRaw, currency, maxDigits)
+        : '';
+    selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
+    // Blur native TextInput after paste so selection handles/toolbar dismiss cleanly without cursor jump
+    isTextInputFocusedRef.current = false;
+    inputRef.current?.blur();
     setIsFocused(true);
+    runSmoothPasteTransition();
   };
 
   const handleDigitPress = (d: string) => {
-    inputRef.current?.focus();
     setIsFocused(true);
+    const sel = getActiveSelection();
 
     const rawCursor = formattedToRawCursor(
       displayFormatted,
       rawDigits,
-      selection.start,
+      sel.start,
       currency
     );
 
     let activeRaw = rawDigits;
     let activeRawCursor = rawCursor;
 
-    if (selection.start !== selection.end) {
+    if (sel.start !== sel.end) {
       const rawEnd = formattedToRawCursor(
         displayFormatted,
         rawDigits,
-        selection.end,
+        sel.end,
         currency
       );
       const minRaw = Math.min(rawCursor, rawEnd);
@@ -145,7 +199,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       const nextRawPos = (left || '0').length + 1;
       const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
       setRawDigits(nextRaw);
-      setSelection({ start: nextFormattedPos, end: nextFormattedPos });
+      selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
       return;
     }
 
@@ -174,20 +228,20 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
 
     setRawDigits(nextRaw);
-    setSelection({ start: nextFormattedPos, end: nextFormattedPos });
+    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
   };
 
   const handleThousandPress = () => {
     if (!rawDigits || rawDigits === '0') return;
     if (rawDigits.length >= maxDigits) return;
-    inputRef.current?.focus();
     setIsFocused(true);
     AppHaptics.selection();
 
+    const sel = getActiveSelection();
     const rawCursor = formattedToRawCursor(
       displayFormatted,
       rawDigits,
-      selection.start,
+      sel.start,
       currency
     );
     const left = rawDigits.slice(0, rawCursor);
@@ -202,32 +256,33 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
 
     setRawDigits(nextRaw);
-    setSelection({ start: nextFormattedPos, end: nextFormattedPos });
+    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
   };
 
   const handleDelete = () => {
     if (!rawDigits) return;
-    inputRef.current?.focus();
     setIsFocused(true);
     AppHaptics.light();
 
-    if (selection.start !== selection.end) {
-      const rawStart = formattedToRawCursor(displayFormatted, rawDigits, selection.start, currency);
-      const rawEnd = formattedToRawCursor(displayFormatted, rawDigits, selection.end, currency);
+    const sel = getActiveSelection();
+    if (sel.start !== sel.end) {
+      const rawStart = formattedToRawCursor(displayFormatted, rawDigits, sel.start, currency);
+      const rawEnd = formattedToRawCursor(displayFormatted, rawDigits, sel.end, currency);
       const minRaw = Math.min(rawStart, rawEnd);
       const maxRaw = Math.max(rawStart, rawEnd);
       const nextRaw = rawDigits.slice(0, minRaw) + rawDigits.slice(maxRaw);
       const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
       const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, minRaw, currency);
       setRawDigits(nextRaw);
-      setSelection({ start: nextFormattedPos, end: nextFormattedPos });
+      selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
+      isTextInputFocusedRef.current = false;
       return;
     }
 
     const rawCursor = formattedToRawCursor(
       displayFormatted,
       rawDigits,
-      selection.start,
+      sel.start,
       currency
     );
     if (rawCursor <= 0) return;
@@ -240,19 +295,18 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
 
     setRawDigits(nextRaw);
-    setSelection({ start: nextFormattedPos, end: nextFormattedPos });
+    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
   };
 
   const handleClear = () => {
-    inputRef.current?.focus();
     setIsFocused(true);
     AppHaptics.light();
     setRawDigits('');
-    setSelection({ start: 0, end: 0 });
+    selectionRef.current = { start: 0, end: 0 };
+    isTextInputFocusedRef.current = false;
   };
 
   const handleQuickAdd = (addVal: number) => {
-    inputRef.current?.focus();
     setIsFocused(true);
     AppHaptics.selection();
     // Add to the parsed numeric value so USD cents are never truncated
@@ -262,13 +316,14 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     const nextRaw = rounded > 0 ? String(rounded) : '';
     const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
     setRawDigits(nextRaw);
-    setSelection({ start: nextFormatted.length, end: nextFormatted.length });
+    selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
+    isTextInputFocusedRef.current = false;
   };
 
   const handlePrefixPress = () => {
     AppHaptics.selection();
     inputRef.current?.focus();
-    setSelection({ start: 0, end: 0 });
+    selectionRef.current = { start: 0, end: 0 };
   };
 
   const handleConfirm = async () => {
@@ -312,19 +367,29 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       />
 
       <View style={[styles.sheetContent, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-        {/* Interactive Display Card with Native Cursor */}
-        <Pressable
+        {/* Interactive Display Card with Native Cursor & Paste Support */}
+        <View
           style={[
             styles.displayCard,
             isFocused && styles.displayCardFocused,
           ]}
-          onPress={() => {
-            inputRef.current?.focus();
-            setIsFocused(true);
-            setSelection({ start: displayFormatted.length, end: displayFormatted.length });
-          }}
         >
-          <View style={styles.displayMainRow}>
+          <Animated.View
+            style={[
+              styles.displayMainRow,
+              {
+                opacity: pasteAnim,
+                transform: [
+                  {
+                    scale: pasteAnim.interpolate({
+                      inputRange: [0.65, 1],
+                      outputRange: [0.985, 1],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={handlePrefixPress}
@@ -339,29 +404,33 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
               ref={inputRef}
               style={styles.textInput}
               showSoftInputOnFocus={false}
+              contextMenuHidden={false}
+              selectTextOnFocus={true}
               value={displayFormatted}
-              selection={activeSelection}
+              placeholder="0"
+              placeholderTextColor={Palette.ink}
+              onChangeText={handleChangeText}
               onSelectionChange={handleSelectionChange}
               onFocus={() => {
+                isTextInputFocusedRef.current = true;
                 setIsFocused(true);
-                if (selection.start <= 1 && displayFormatted.length > 1) {
-                  setSelection({ start: displayFormatted.length, end: displayFormatted.length });
-                }
               }}
-              onBlur={() => setIsFocused(false)}
+              onBlur={() => {
+                isTextInputFocusedRef.current = false;
+              }}
               cursorColor={Palette.primary}
               selectionColor={Palette.primary + '33'}
               multiline={false}
               autoCorrect={false}
               autoCapitalize="none"
-              scrollEnabled={true}
+              scrollEnabled={false}
             />
-          </View>
+          </Animated.View>
 
           <Text style={styles.digitLimitHint}>
             Max {maxDigits} digits
           </Text>
-        </Pressable>
+        </View>
 
         {/* Quick Presets */}
         <View style={styles.presetsRow}>
@@ -478,10 +547,12 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
           </View>
         </View>
 
-        {/* Zero guard hint */}
-        {zeroBlocked ? (
-          <Text style={styles.zeroHint}>Enter an amount greater than zero.</Text>
-        ) : null}
+        {/* Dedicated fixed-height zero guard slot so keypad and button never shift */}
+        <View style={styles.zeroHintSlot}>
+          {zeroBlocked ? (
+            <Text style={styles.zeroHint}>Enter an amount greater than zero.</Text>
+          ) : null}
+        </View>
 
         {/* Action Button */}
         <TouchableOpacity
@@ -591,7 +662,7 @@ const styles = StyleSheet.create({
   },
   keypadGrid: {
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   keypadRow: {
     flexDirection: 'row',
@@ -644,11 +715,15 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
   },
+  zeroHintSlot: {
+    height: 20,
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
   zeroHint: {
     ...Typography.caption,
     fontSize: 12,
     color: Palette.error,
-    marginBottom: 8,
   },
   confirmBtnDisabled: {
     opacity: 0.5,

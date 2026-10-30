@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowUp, ArrowDown, Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
-import { Wallet, CurrencyType } from '../../types';
+import { Wallet } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
 import { formatCurrency } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
@@ -21,7 +21,6 @@ import { CustomAlertModal } from '../CustomAlertModal';
 interface ManageAccountOrderModalProps {
   visible: boolean;
   wallets: Wallet[];
-  activeCurrency: CurrencyType;
   privacyMode: boolean;
   onSaveOrder: (orderedWallets: Wallet[]) => Promise<void> | void;
   onClose: () => void;
@@ -30,7 +29,6 @@ interface ManageAccountOrderModalProps {
 export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = ({
   visible,
   wallets,
-  activeCurrency,
   privacyMode,
   onSaveOrder,
   onClose,

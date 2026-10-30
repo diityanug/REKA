@@ -12,6 +12,7 @@ import { ArrowDown, ArrowLeftRight, ArrowRight, Plus } from 'lucide-react-native
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { Wallet, CurrencyType } from '../../types';
 import {
   formatCurrency,
@@ -63,7 +64,6 @@ export const TransferModal = React.memo<TransferModalProps>(({
 }) => {
   const insets = useSafeAreaInsets();
   const footerKeyboardOffset = useFooterKeyboardOffset();
-  const eligibleWallets = wallets;
 
   const [fromWalletId, setFromWalletId] = useState<string>('');
   const [toWalletId, setToWalletId] = useState<string>('');
@@ -76,6 +76,10 @@ export const TransferModal = React.memo<TransferModalProps>(({
   const [quickPercentHint, setQuickPercentHint] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+
+  // Freeze wallet balances while submitting or closing so chips and warnings never jump on save/close
+  const eligibleWallets =
+    useLastDefined(!submitting && visible ? wallets : null) ?? wallets;
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
@@ -107,23 +111,23 @@ export const TransferModal = React.memo<TransferModalProps>(({
   };
 
   const handleModalClose = () => {
-    setAmountStr('');
-    setNotes('');
-    setQuickPercentHint('');
-    setSubmitting(false);
-    setKeypadOpen(false);
-    // The exchange rate is intentionally kept, it is re-seeded on the next open
+    Keyboard.dismiss();
     onClose();
   };
 
-  // Re-seed the rate whenever the modal opens or the persisted rate changes
-  useSyncOnChange([visible, initialExchangeRate], () => {
+  // Re-seed the rate and reset inputs only when the modal opens (never on close/save)
+  useSyncOnChange([visible], () => {
     if (visible) {
+      setAmountStr('');
+      setNotes('');
+      setQuickPercentHint('');
+      setSubmitting(false);
+      setKeypadOpen(false);
       setExchangeRateStr(formatCurrencyInput(String(initialExchangeRate), 'IDR'));
     }
   });
 
-  // Initialize selected accounts whenever modal becomes visible and reset inputs on close
+  // Initialize selected accounts whenever modal is visible
   useSyncOnChange([visible, eligibleWallets], () => {
     if (visible) {
       if (eligibleWallets.length >= 2) {
@@ -137,12 +141,6 @@ export const TransferModal = React.memo<TransferModalProps>(({
         setFromWalletId(eligibleWallets[0].id);
         setToWalletId('');
       }
-    } else {
-      setAmountStr('');
-      setNotes('');
-      setQuickPercentHint('');
-      setSubmitting(false);
-      setKeypadOpen(false);
     }
   });
 
@@ -259,8 +257,6 @@ export const TransferModal = React.memo<TransferModalProps>(({
         isCrossCurrency ? targetAmount : undefined,
         isCrossCurrency ? appliedRate : undefined
       );
-      setAmountStr('');
-      setNotes('');
       onClose();
     } catch (err: any) {
       showAlert('Transfer Error', err.message || 'Failed to complete fund transfer.', undefined, 'error');
@@ -280,7 +276,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
         title="Transfer Funds"
         subtitle={
           isCrossCurrency
-            ? `Cross-Currency Transfer (${fromCurrency} → ${toCurrency})`
+            ? `Cross - Currency Transfer (${fromCurrency} → ${toCurrency})`
             : `Move money across accounts (${fromCurrency})`
         }
         onClose={handleModalClose}
@@ -490,7 +486,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
                     </View>
 
                     <Text style={styles.fxRateHelper}>
-                      Rate: 1 USD = Rp {appliedRateLabel}
+                      $ 1 = Rp {appliedRateLabel}
                     </Text>
 
                     {rateInvalid ? (
@@ -569,9 +565,13 @@ export const TransferModal = React.memo<TransferModalProps>(({
                     </TouchableOpacity>
                   </View>
 
-                  {quickPercentHint ? (
-                    <Text style={styles.quickPercentHint}>{quickPercentHint}</Text>
-                  ) : null}
+                  <View style={styles.quickPercentHintSlot}>
+                    {quickPercentHint ? (
+                      <Text style={styles.quickPercentHint} numberOfLines={1}>
+                        {quickPercentHint}
+                      </Text>
+                    ) : null}
+                  </View>
 
                   <CalculatorKeypad
                     value={amountStr}
@@ -663,19 +663,6 @@ export const TransferModal = React.memo<TransferModalProps>(({
 TransferModal.displayName = 'TransferModal';
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   fieldSection: {
     marginBottom: 16,
   },
@@ -802,18 +789,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.ink,
   },
-  fxBadge: {
-    backgroundColor: '#FDF0ED',
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  fxBadgeText: {
-    ...Typography.caption,
-    fontSize: 10,
-    fontWeight: '700',
-    color: Palette.primary,
-  },
   fxRateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -909,31 +884,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.success,
   },
-  amountInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    height: 52,
-  },
-  currencyPrefix: {
-    ...Typography.subheading,
-    fontSize: 18,
-    fontWeight: '700',
-    color: Palette.ink,
-    marginRight: 8,
-  },
-  amountInput: {
-    ...Typography.display,
-    flex: 1,
-    fontSize: 20,
-    fontWeight: '700',
-    color: Palette.ink,
-    height: '100%',
-  },
   quickPercentRow: {
     flexDirection: 'row',
     gap: 8,
@@ -959,11 +909,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
+  quickPercentHintSlot: {
+    height: 18,
+    justifyContent: 'center',
+    marginTop: 4,
+    marginBottom: 2,
+  },
   quickPercentHint: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.error,
-    marginTop: 6,
   },
   textInputBox: {
     ...Typography.body,

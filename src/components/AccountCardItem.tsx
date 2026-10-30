@@ -10,29 +10,22 @@ import {
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from './icons/ContactlessCardIcon';
 import { Palette, Typography } from '../theme/tokens';
-import { Wallet, Pocket } from '../types';
+import { Wallet } from '../types';
 import { formatCurrency } from '../utils/formatters';
 
 interface AccountCardItemProps {
   wallet: Wallet;
-  pockets?: Pocket[];
-  totalLiquidity?: number;
   privacyMode: boolean;
-  selected?: boolean;
   onPress: (w: Wallet) => void;
   variant?: 'horizontal' | 'full';
 }
 
 export const AccountCardItem = React.memo<AccountCardItemProps>(({
   wallet: w,
-  pockets = [],
   privacyMode,
-  selected = false,
   onPress,
   variant = 'full',
 }) => {
-  const pocketCount = pockets.filter((p) => p.walletId === w.id).length;
-
   if (variant === 'horizontal') {
     return (
       <TouchableOpacity
@@ -89,7 +82,6 @@ export const AccountCardItem = React.memo<AccountCardItemProps>(({
             <Text style={styles.fullMeta} numberOfLines={1}>
               {w.currency} • {w.type.toUpperCase()}
               {w.accountNumber ? ` • ${w.accountNumber}` : ''}
-              {pocketCount > 0 ? ` · ${pocketCount} pockets` : ''}
             </Text>
           </View>
         </View>

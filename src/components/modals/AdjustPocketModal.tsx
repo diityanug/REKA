@@ -50,23 +50,34 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
   const [showAmountModal, setShowAmountModal] = React.useState<boolean>(false);
   const [saving, setSaving] = React.useState<boolean>(false);
   const pocket = useLastDefined(propPocket);
-  if (!pocket) return null;
 
-  const parentWallet = wallets.find((w) => w.id === pocket.walletId);
+  const parentWallet = pocket ? wallets.find((w) => w.id === pocket.walletId) : undefined;
   const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
 
   // Funds of the parent account that are not assigned to any pocket yet.
   const walletPockets =
-    pockets.length > 0 ? pockets : [pocket];
-  const allocatedInWallet = walletPockets
-    .filter((p) => p.walletId === pocket.walletId)
-    .reduce((sum, p) => sum + p.balance, 0);
-  const availableToAllocate = Math.max(
+    pockets.length > 0 ? pockets : pocket ? [pocket] : [];
+  const allocatedInWallet = pocket
+    ? walletPockets
+        .filter((p) => p.walletId === pocket.walletId)
+        .reduce((sum, p) => sum + p.balance, 0)
+    : 0;
+  const liveAvailableToAllocate = Math.max(
     (parentWallet ? parentWallet.balance : 0) - allocatedInWallet,
     0
   );
-  const releaseLimit = pocket.balance;
+  const liveReleaseLimit = pocket ? pocket.balance : 0;
+
+  // Freeze balances while saving or closing so numbers and warnings never jump on confirm/close
+  const isStable = !saving && !!propPocket && !!pocket;
+  const displayPocketBalance =
+    useLastDefined(isStable ? pocket.balance : null) ?? (pocket ? pocket.balance : 0);
+  const availableToAllocate =
+    useLastDefined(isStable ? liveAvailableToAllocate : null) ?? liveAvailableToAllocate;
+  const releaseLimit = useLastDefined(isStable ? liveReleaseLimit : null) ?? liveReleaseLimit;
   const limit = mode === 'allocate' ? availableToAllocate : releaseLimit;
+
+  if (!pocket) return null;
 
   const typedAmount = parseAmount(amount, pCurrency);
   const exceedsLimit = !!amount && !isNaN(typedAmount) && typedAmount > limit;
@@ -98,7 +109,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryLabel}>Current Balance</Text>
                 <Text style={styles.summaryAmount}>
-                  {formatCurrency(pocket.balance, pCurrency, privacyMode)}
+                  {formatCurrency(displayPocketBalance, pCurrency, privacyMode)}
                 </Text>
                 <View style={styles.divider} />
                 <View style={styles.metaRow}>
@@ -203,13 +214,16 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
-              {exceedsLimit ? (
-                <Text style={styles.inlineError}>
-                  {mode === 'allocate'
-                    ? 'More than the available unallocated funds.'
-                    : 'More than the pocket balance.'}
-                </Text>
-              ) : null}
+              {/* Dedicated fixed-height warning slot so layout never shifts */}
+              <View style={styles.inlineErrorSlot}>
+                {exceedsLimit ? (
+                  <Text style={styles.inlineError} numberOfLines={1}>
+                    {mode === 'allocate'
+                      ? 'More than the available unallocated funds.'
+                      : 'More than the pocket balance.'}
+                  </Text>
+                ) : null}
+              </View>
             </KeyboardSafeContainer>
 
             <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
@@ -344,12 +358,16 @@ const styles = StyleSheet.create({
     color: Palette.primary,
     fontWeight: '700',
   },
+  inlineErrorSlot: {
+    height: 20,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
   inlineError: {
     ...Typography.caption,
     fontSize: 12,
     fontWeight: '500',
     color: Palette.error,
-    marginTop: 6,
   },
   amountPickerBox: {
     flexDirection: 'row',

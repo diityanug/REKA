@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Palette } from '../theme/tokens';
+import { useLastDefined } from '../hooks/useLastDefined';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -39,6 +40,9 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   const insets = useSafeAreaInsets();
   const [modalMounted, setModalMounted] = useState(visible);
   const animValue = useState(() => new Animated.Value(0))[0];
+  // Freeze the rendered children snapshot as soon as visible turns false so
+  // closing/saving never mutates or flashes modal contents during the slide-out animation.
+  const frozenChildren = useLastDefined(visible ? children : null);
 
   // Mount synchronously when opening (derived state) instead of through an effect (cascading render)
   if (visible && !modalMounted) {
@@ -140,7 +144,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
             { transform: [{ translateY: sheetTranslateY }] },
           ]}
         >
-          {children}
+          {visible ? children : (frozenChildren ?? children)}
         </Animated.View>
       </View>
     </Modal>

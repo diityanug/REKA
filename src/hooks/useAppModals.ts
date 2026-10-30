@@ -117,7 +117,6 @@ export function useAppModals() {
   const closeAllocationPlan = useCallback(() => {
     Keyboard.dismiss();
     setAllocationPlanModalVisible(false);
-    setSelectedAllocationPlan(null);
   }, []);
 
   // Account Detail
@@ -212,7 +211,6 @@ export function useAppModals() {
   const closeAdjustPocketModal = useCallback(() => {
     Keyboard.dismiss();
     setAdjustPocketTarget(null);
-    setAdjustPocketAmount('');
   }, []);
 
   // Category Manager Modal
@@ -227,6 +225,8 @@ export function useAppModals() {
       AppHaptics.light();
       setReturnModal(fromModal);
       setNewCatType(type);
+      setNewCatName('');
+      setNewCatIcon('Utensils');
       setShowAddCategoryForm(openCreator);
       setCategoryModalVisible(true);
     },
@@ -315,12 +315,6 @@ export function useAppModals() {
   const handleCloseManualModal = useCallback(() => {
     Keyboard.dismiss();
     setManualTxModalVisible(false);
-    setEditingTransaction(null);
-    setManMerchant('');
-    setManAmount('');
-    setManNotes('');
-    setManDate(getTodayDateStr());
-    setManTime(getCurrentTimeStr());
   }, []);
 
   // Review Scanned Receipt Modal
@@ -329,7 +323,6 @@ export function useAppModals() {
 
   const closeReviewModal = useCallback(() => {
     setReviewModalVisible(false);
-    setExtractedData(null);
   }, []);
 
   return {

@@ -1,19 +1,16 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Plus, CreditCard, Layers, ArrowUpDown } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Wallet, Pocket, CurrencyType, AllocationPlan } from '../../types';
+import { Wallet, CurrencyType, AllocationPlan } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
 import { AccountCardItem } from '../AccountCardItem';
 import { AllocationPlanCard } from '../AllocationPlanCard';
 
 interface AccountsTabProps {
   wallets: Wallet[];
-  pockets: Pocket[];
   activeCurrency: CurrencyType;
-  positiveLiquidityTotal: number;
   privacyMode: boolean;
-  selectedWalletId: string;
   allocationPlans: AllocationPlan[];
   onOpenAccountDetail: (w: Wallet) => void;
   onOpenAddAccount: () => void;
@@ -24,11 +21,8 @@ interface AccountsTabProps {
 
 export const AccountsTab = React.memo<AccountsTabProps>(({
   wallets,
-  pockets,
   activeCurrency,
-  positiveLiquidityTotal,
   privacyMode,
-  selectedWalletId,
   allocationPlans = [],
   onOpenAccountDetail,
   onOpenAddAccount,
@@ -36,66 +30,11 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
   onCreateAllocationPlan,
   onEditAllocationPlan,
 }) => {
-  const currencyWallets = useMemo<Wallet[]>(
-    () => wallets.filter((w) => w.currency === activeCurrency),
-    [wallets, activeCurrency]
-  );
-
-  // Single source of truth for both the stacked bar and the legend
-  const shareOf = (w: Wallet): number =>
-    positiveLiquidityTotal > 0 && w.balance > 0
-      ? (w.balance / positiveLiquidityTotal) * 100
-      : 0;
-  const totalShare = currencyWallets.reduce((sum, w) => sum + shareOf(w), 0);
-  const hasLiquidity = totalShare > 0;
-
-  const formatShare = (share: number): string =>
-    share < 1 ? `${share.toFixed(1)}%` : `${share.toFixed(0)}%`;
-
   return (
     <View>
       <View style={styles.bannerHeader}>
         <Text style={styles.bannerTitle}>Accounts</Text>
       </View>
-
-      {/* Liquidity Allocation Card (only when the active currency has accounts) */}
-      {currencyWallets.length > 0 ? (
-        <View style={styles.allocationCard}>
-          <Text style={styles.allocationCardLabel}>
-            Liquidity Allocation ({activeCurrency})
-          </Text>
-          <View style={styles.stackedBarTrack}>
-            {hasLiquidity
-              ? currencyWallets.map((w) => {
-                  const share = shareOf(w);
-                  if (share <= 0) return null;
-                  return (
-                    <View
-                      key={w.id}
-                      style={[
-                        styles.stackedBarSegment,
-                        { flex: share, backgroundColor: w.color },
-                      ]}
-                    />
-                  );
-                })
-              : null}
-          </View>
-          <View style={styles.allocationLegendWrap}>
-            {currencyWallets.map((w) => {
-              const share = shareOf(w);
-              return (
-                <View key={w.id} style={styles.legendItem}>
-                  <View style={[styles.legendDot, { backgroundColor: w.color }]} />
-                  <Text style={styles.legendText} numberOfLines={1}>
-                    {w.name} {hasLiquidity ? `(${formatShare(share)})` : '· No balance yet'}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
 
       {/* Allocation Plans Section */}
       <View style={styles.sectionHeaderRow}>
@@ -152,7 +91,7 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
       )}
 
       {/* Add New Account & Manage Order Row (hidden when the empty state owns the CTA) */}
-      {currencyWallets.length > 0 ? (
+      {wallets.length > 0 ? (
         <View style={styles.actionButtonGroup}>
           <TouchableOpacity
             style={styles.addAccountBtn}
@@ -165,7 +104,7 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
             <Text style={styles.addAccountBtnText}>Add New Account</Text>
           </TouchableOpacity>
 
-          {currencyWallets.length > 1 && onOpenManageOrder ? (
+          {wallets.length > 1 && onOpenManageOrder ? (
             <TouchableOpacity
               style={styles.manageOrderBtn}
               onPress={() => {
@@ -183,12 +122,12 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
       ) : null}
 
       {/* Wallets List — single empty state with one CTA */}
-      {currencyWallets.length === 0 ? (
+      {wallets.length === 0 ? (
         <View style={styles.emptyCard}>
           <CreditCard size={36} color={Palette.mutedSoft} />
-          <Text style={styles.emptyTitle}>No {activeCurrency} accounts yet</Text>
+          <Text style={styles.emptyTitle}>No accounts yet</Text>
           <Text style={styles.emptyDesc}>
-            Create your first {activeCurrency} bank, cash, or e-wallet account to start tracking.
+            Create your first bank, cash, or e-wallet account to start tracking.
           </Text>
           <TouchableOpacity
             style={styles.emptyCtaBtn}
@@ -205,12 +144,10 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
           </TouchableOpacity>
         </View>
       ) : (
-        currencyWallets.map((w) => (
+        wallets.map((w) => (
           <AccountCardItem
             key={w.id}
             wallet={w}
-            pockets={pockets}
-            totalLiquidity={positiveLiquidityTotal}
             privacyMode={privacyMode}
             onPress={onOpenAccountDetail}
             variant="full"
@@ -232,55 +169,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     color: Palette.ink,
-  },
-  allocationCard: {
-    backgroundColor: Palette.white,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-  },
-  allocationCardLabel: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 10,
-  },
-  stackedBarTrack: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Palette.surfaceSoft,
-    flexDirection: 'row',
-    overflow: 'hidden',
-    marginBottom: 12,
-  },
-  stackedBarSegment: {
-    height: '100%',
-  },
-  allocationLegendWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    flexShrink: 1,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-    flexShrink: 1,
   },
   sectionHeaderRow: {
     flexDirection: 'row',

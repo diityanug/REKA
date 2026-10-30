@@ -1,22 +1,17 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
 import { Eye, EyeOff, Settings } from 'lucide-react-native';
-import { Palette, Typography } from '../theme/tokens';
-import { CurrencyType } from '../types';
+import { Palette } from '../theme/tokens';
 import { AppHaptics } from '../utils/haptics';
 
 interface AppHeaderProps {
-  activeCurrency: CurrencyType;
   privacyMode: boolean;
-  onCurrencyChange: (currency: CurrencyType) => void;
   onTogglePrivacy: () => void;
   onOpenSettings?: () => void;
 }
 
 export const AppHeader = React.memo<AppHeaderProps>(({
-  activeCurrency,
   privacyMode,
-  onCurrencyChange,
   onTogglePrivacy,
   onOpenSettings,
 }) => {
@@ -38,55 +33,6 @@ export const AppHeader = React.memo<AppHeaderProps>(({
       </View>
 
       <View style={styles.actionsBox}>
-        <View style={styles.currencyToggleBox}>
-          <TouchableOpacity
-            style={[
-              styles.currencyBtn,
-              activeCurrency === 'IDR' && styles.currencyBtnActive,
-            ]}
-            onPress={() => {
-              AppHaptics.selection();
-              onCurrencyChange('IDR');
-            }}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Show IDR"
-            accessibilityState={{ selected: activeCurrency === 'IDR' }}
-          >
-            <Text
-              style={[
-                styles.currencyBtnText,
-                activeCurrency === 'IDR' && styles.currencyBtnTextActive,
-              ]}
-            >
-              IDR
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.currencyBtn,
-              activeCurrency === 'USD' && styles.currencyBtnActive,
-            ]}
-            onPress={() => {
-              AppHaptics.selection();
-              onCurrencyChange('USD');
-            }}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Show USD"
-            accessibilityState={{ selected: activeCurrency === 'USD' }}
-          >
-            <Text
-              style={[
-                styles.currencyBtnText,
-                activeCurrency === 'USD' && styles.currencyBtnTextActive,
-              ]}
-            >
-              USD
-            </Text>
-          </TouchableOpacity>
-        </View>
-
         <TouchableOpacity
           style={styles.actionIconBtn}
           onPress={() => {
@@ -171,49 +117,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1.4,
     lineHeight: 22,
   },
-  brandTagline: {
-    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif',
-    fontSize: 9,
-    fontWeight: '500',
-    color: Palette.muted,
-    letterSpacing: 0.3,
-    marginTop: 1,
-  },
   actionsBox: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     flexShrink: 0,
-  },
-  currencyToggleBox: {
-    flexDirection: 'row',
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 16,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-  },
-  currencyBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    borderRadius: 12,
-  },
-  currencyBtnActive: {
-    backgroundColor: Palette.white,
-    shadowColor: Palette.ink,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  currencyBtnText: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Palette.muted,
-  },
-  currencyBtnTextActive: {
-    color: Palette.ink,
   },
   actionIconBtn: {
     width: 40,

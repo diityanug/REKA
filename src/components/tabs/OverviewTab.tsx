@@ -20,7 +20,7 @@ import {
   Receipt,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Wallet, Pocket, Transaction, CurrencyType } from '../../types';
+import { Wallet, Transaction, CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { AccountCardItem } from '../AccountCardItem';
@@ -28,12 +28,9 @@ import { TransactionItemRow } from '../TransactionItemRow';
 
 interface OverviewTabProps {
   wallets: Wallet[];
-  pockets: Pocket[];
   transactions: Transaction[];
   activeCurrency: CurrencyType;
   privacyMode: boolean;
-  totalBalance: number;
-  positiveLiquidityTotal: number;
   selectedMonth: string; // 'YYYY-MM' or 'all'
   availableMonths?: string[];
   last7DaysFlow: {
@@ -41,7 +38,6 @@ interface OverviewTabProps {
     maxVal: number;
   };
   scanning: boolean;
-  selectedWalletId: string;
   onNavigateToAccounts?: () => void;
   onSelectMonth: (month: string) => void;
   onOpenMonthPicker: () => void;
@@ -52,23 +48,20 @@ interface OverviewTabProps {
   onOpenAccountDetail: (w: Wallet) => void;
   onOpenAddAccount: () => void;
   onSelectTransaction: (tx: Transaction) => void;
+  onCurrencyChange?: (currency: CurrencyType) => void;
   getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
 }
 
 export const OverviewTab = React.memo<OverviewTabProps>(({
   wallets,
-  pockets,
   transactions,
   activeCurrency,
   privacyMode,
-  totalBalance,
-  positiveLiquidityTotal,
   selectedMonth,
   availableMonths = [],
   last7DaysFlow,
   scanning,
-  selectedWalletId,
   onNavigateToAccounts,
   onSelectMonth,
   onOpenMonthPicker,
@@ -79,13 +72,36 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
   onOpenAccountDetail,
   onOpenAddAccount,
   onSelectTransaction,
+  onCurrencyChange,
   getCategoryIconName,
   getPocketName,
 }) => {
-  const currencyWallets = useMemo(
-    () => wallets.filter((w) => w.currency === activeCurrency),
-    [wallets, activeCurrency]
+  const idrWallets = useMemo(
+    () => wallets.filter((w) => w.currency === 'IDR'),
+    [wallets]
   );
+  const usdWallets = useMemo(
+    () => wallets.filter((w) => w.currency === 'USD'),
+    [wallets]
+  );
+  const idrTotalBalance = useMemo(
+    () => idrWallets.reduce((sum, w) => sum + w.balance, 0),
+    [idrWallets]
+  );
+  const usdTotalBalance = useMemo(
+    () => usdWallets.reduce((sum, w) => sum + w.balance, 0),
+    [usdWallets]
+  );
+  const hasBothWalletCurrencies = idrWallets.length > 0 && usdWallets.length > 0;
+  const hasMultiCurrency = useMemo(
+    () =>
+      hasBothWalletCurrencies ||
+      usdWallets.length > 0 ||
+      transactions.some((tx) => tx.currency === 'USD'),
+    [hasBothWalletCurrencies, usdWallets.length, transactions]
+  );
+  const activeTotalBalance =
+    activeCurrency === 'USD' ? usdTotalBalance : idrTotalBalance;
 
   // Same month-key rule the finance hook uses, computed locally so the stepper can be bounded
   const currentMonthKey = useMemo(() => {
@@ -98,10 +114,9 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     ? availableMonths[availableMonths.length - 1]
     : null;
 
-  // Filter transactions for active currency (deduplicating same-currency paired transfers so only 1 card is displayed)
-  const currencyTransactions = useMemo(() => {
+  // Deduplicate same-currency paired transfers while keeping all currencies unified in the list
+  const unifiedTransactions = useMemo(() => {
     return transactions.filter((tx) => {
-      // Exclude incoming mirror leg only if the paired counterpart shares the exact same currency
       if (
         tx.type === 'income' &&
         tx.transferPairId &&
@@ -112,29 +127,31 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           return false;
         }
       }
-      return tx.currency === activeCurrency;
+      return true;
     });
-  }, [transactions, activeCurrency]);
+  }, [transactions]);
 
-  // Filter transactions for the selected month
+  // Filter unified transactions for the selected month
   const monthTransactions = useMemo(() => {
-    if (selectedMonth === 'all') return currencyTransactions;
-    return currencyTransactions.filter((tx) => {
+    if (selectedMonth === 'all') return unifiedTransactions;
+    return unifiedTransactions.filter((tx) => {
       const d = new Date(tx.timestamp);
       if (isNaN(d.getTime())) return false;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       return key === selectedMonth;
     });
-  }, [currencyTransactions, selectedMonth]);
+  }, [unifiedTransactions, selectedMonth]);
 
-  // Monthly stats for the selected month (excluding internal transfers from In vs Out)
+  // Monthly stats for the active currency in the Hero Card (excluding internal transfers from In vs Out)
   const currentMonthlyStats = useMemo(() => {
     let income = 0;
     let expense = 0;
     monthTransactions.forEach((tx) => {
       if (tx.category === 'Transfer' || tx.transferPairId) return;
-      if (tx.type === 'income') income += tx.amount;
-      if (tx.type === 'expense') expense += tx.amount;
+      if (tx.currency === activeCurrency) {
+        if (tx.type === 'income') income += tx.amount;
+        if (tx.type === 'expense') expense += tx.amount;
+      }
     });
     const totalVolume = income + expense;
     const incomePct = totalVolume > 0 ? (income / totalVolume) * 100 : 50;
@@ -150,7 +167,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
       expensePct,
       savingsRate,
     };
-  }, [monthTransactions]);
+  }, [monthTransactions, activeCurrency]);
 
   const recentTransactions = useMemo(() => {
     return monthTransactions.slice(0, 10);
@@ -184,13 +201,44 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
       <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
           <Text style={styles.heroLabel}>Total Balance</Text>
-          <View style={styles.currencyBadge}>
-            <Text style={styles.currencyBadgeText}>{activeCurrency}</Text>
-          </View>
+          {hasMultiCurrency && onCurrencyChange ? (
+            <View style={styles.heroCurrencySwitch}>
+              {(['IDR', 'USD'] as const).map((curr) => {
+                const isSelected = activeCurrency === curr;
+                return (
+                  <TouchableOpacity
+                    key={curr}
+                    style={[
+                      styles.heroCurrencyBtn,
+                      isSelected && styles.heroCurrencyBtnActive,
+                    ]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      onCurrencyChange(curr);
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text
+                      style={[
+                        styles.heroCurrencyBtnText,
+                        isSelected && styles.heroCurrencyBtnTextActive,
+                      ]}
+                    >
+                      {curr}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          ) : (
+            <View style={styles.currencyBadge}>
+              <Text style={styles.currencyBadgeText}>{activeCurrency}</Text>
+            </View>
+          )}
         </View>
 
         <Text style={styles.heroAmount} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
-          {formatCurrency(totalBalance, activeCurrency, privacyMode)}
+          {formatCurrency(activeTotalBalance, activeCurrency, privacyMode)}
         </Text>
 
         <View style={styles.heroDivider} />
@@ -497,47 +545,26 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           showsHorizontalScrollIndicator={false}
           style={styles.accountsScroll}
         >
-          {currencyWallets.length === 0 ? (
-            <TouchableOpacity
-              style={styles.emptyAddCardCompact}
-              onPress={onOpenAddAccount}
-              activeOpacity={0.8}
-            >
-              <View style={styles.emptyAddIconCircleSmall}>
-                <Plus size={18} color={Palette.primary} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <Text style={styles.emptyAddTitleSmall}>No {activeCurrency} accounts yet</Text>
-                <Text style={styles.emptyAddDescSmall}>Tap to create your first {activeCurrency} account</Text>
-              </View>
-            </TouchableOpacity>
-          ) : (
-            currencyWallets.map((w) => (
-              <AccountCardItem
-                key={w.id}
-                wallet={w}
-                pockets={pockets}
-                totalLiquidity={positiveLiquidityTotal}
-                privacyMode={privacyMode}
-                selected={w.id === selectedWalletId}
-                onPress={onOpenAccountDetail}
-                variant="horizontal"
-              />
-            ))
-          )}
+          {wallets.map((w) => (
+            <AccountCardItem
+              key={w.id}
+              wallet={w}
+              privacyMode={privacyMode}
+              onPress={onOpenAccountDetail}
+              variant="horizontal"
+            />
+          ))}
 
-          {currencyWallets.length > 0 && (
-            <TouchableOpacity
-              style={styles.addAccountCardHorizontal}
-              onPress={onOpenAddAccount}
-              activeOpacity={0.8}
-            >
-              <View style={styles.emptyAddIconCircle}>
-                <Plus size={20} color={Palette.primary} />
-              </View>
-              <Text style={styles.addAccountCardTitle}>Add Account</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.addAccountCardHorizontal}
+            onPress={onOpenAddAccount}
+            activeOpacity={0.8}
+          >
+            <View style={styles.emptyAddIconCircle}>
+              <Plus size={20} color={Palette.primary} />
+            </View>
+            <Text style={styles.addAccountCardTitle}>Add Account</Text>
+          </TouchableOpacity>
         </ScrollView>
       )}
 
@@ -639,6 +666,32 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 6,
     textAlignVertical: 'center',
+  },
+  heroCurrencySwitch: {
+    flexDirection: 'row',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 10,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  heroCurrencyBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 7,
+  },
+  heroCurrencyBtnActive: {
+    backgroundColor: Palette.white,
+  },
+  heroCurrencyBtnText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+  },
+  heroCurrencyBtnTextActive: {
+    color: Palette.ink,
+    fontWeight: '700',
   },
   heroDivider: {
     height: 1,
@@ -895,37 +948,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.primary,
     marginTop: 8,
-  },
-  emptyAddCardCompact: {
-    width: 260,
-    height: 130,
-    backgroundColor: Palette.white,
-    borderRadius: 16,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  emptyAddIconCircleSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#FDF0ED',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyAddTitleSmall: {
-    ...Typography.body,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Palette.ink,
-    marginBottom: 2,
-  },
-  emptyAddDescSmall: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
-    lineHeight: 15,
   },
   emptyAddCard: {
     backgroundColor: Palette.white,

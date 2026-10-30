@@ -306,18 +306,6 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '85%',
-    overflow: 'hidden',
-  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 16,

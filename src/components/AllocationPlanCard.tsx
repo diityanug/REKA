@@ -19,6 +19,7 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
   privacyMode,
   onEdit,
 }) => {
+  const planCurrency = plan.currency || activeCurrency;
   const totalAmount = plan.items.reduce((sum, it) => sum + (it.amount || 0), 0);
 
   return (
@@ -43,6 +44,9 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
             </Text>
           </View>
         </View>
+        <View style={styles.currencyBadge}>
+          <Text style={styles.currencyBadgeText}>{planCurrency}</Text>
+        </View>
       </View>
 
       {/* 2-Column Details List */}
@@ -66,7 +70,7 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
             {/* Right Column: Amount (Strictly right-aligned, no overlap) */}
             <View style={styles.rightCol}>
               <Text style={styles.itemAmount} numberOfLines={1}>
-                {formatCurrency(item.amount, activeCurrency, privacyMode)}
+                {formatCurrency(item.amount, planCurrency, privacyMode)}
               </Text>
             </View>
           </View>
@@ -77,7 +81,7 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
       <View style={styles.footerRow}>
         <Text style={styles.footerLabel}>Total Allocated:</Text>
         <Text style={styles.footerAmount}>
-          {formatCurrency(totalAmount, activeCurrency, privacyMode)}
+          {formatCurrency(totalAmount, planCurrency, privacyMode)}
         </Text>
       </View>
     </TouchableOpacity>
@@ -124,6 +128,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Palette.muted,
     marginTop: 1,
+  },
+  currencyBadge: {
+    backgroundColor: Palette.surfaceSoft,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginLeft: 8,
+  },
+  currencyBadgeText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.ink,
   },
   itemsContainer: {
     backgroundColor: Palette.surfaceSoft,

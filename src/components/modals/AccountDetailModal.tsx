@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,28 +17,53 @@ import {
   Edit3,
   SlidersHorizontal,
   Check,
+  Building2,
+  Banknote,
+  TrendingUp,
+  Smartphone,
 } from 'lucide-react-native';
+import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
-import { Wallet, Pocket, Transaction } from '../../types';
+import { Wallet, Pocket, Transaction, AccountType } from '../../types';
 import { formatCurrency } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { ModalHeader } from '../ModalHeader';
-import { CategoryIcon } from '../CategoryIcon';
+import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
+import { POCKET_ICON_CATEGORIES } from './NewPocketModal';
 import { TransactionItemRow } from '../TransactionItemRow';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
 import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+
+const normalizeAccountType = (rawType?: string): AccountType => {
+  const t = (rawType || '').toLowerCase();
+  if (t === 'e-wallet' || t === 'ewallet') return 'E-Wallet';
+  if (t === 'cash') return 'Cash';
+  if (t === 'investment') return 'Investment';
+  if (t === 'credit card') return 'Credit Card';
+  if (t === 'e-money' || t === 'emoney') return 'E-Money';
+  return 'Bank';
+};
 
 interface AccountDetailModalProps {
   wallet: Wallet | null;
   pockets: Pocket[];
   transactions: Transaction[];
   privacyMode: boolean;
-  onRenameWallet: (walletId: string, newName: string) => Promise<void> | void;
+  onRenameWallet: (
+    walletId: string,
+    newName: string,
+    newType?: AccountType | string,
+    newAccountNumber?: string
+  ) => Promise<void> | void;
   onAdjustWalletBalance: (walletId: string, newBalance: number) => Promise<void> | void;
-  onRenamePocket?: (pocketId: string, newName: string) => Promise<void> | void;
+  onRenamePocket?: (
+    pocketId: string,
+    newName: string,
+    newIcon?: string
+  ) => Promise<void> | void;
   onOpenAddPocket: (w: Wallet) => void;
   onAdjustPocket: (pocket: Pocket, w: Wallet) => void;
   onDeletePocket: (pocket: Pocket) => void;
@@ -75,9 +100,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   const [isRenaming, setIsRenaming] = useState<boolean>(false);
   const [editName, setEditName] = useState<string>('');
+  const [editType, setEditType] = useState<AccountType>('Bank');
+  const [editAccountNumber, setEditAccountNumber] = useState<string>('');
   const [showAdjustAmountModal, setShowAdjustAmountModal] = useState<boolean>(false);
   const [editingPocketId, setEditingPocketId] = useState<string | null>(null);
   const [pocketEditName, setPocketEditName] = useState<string>('');
+  const [pocketEditIcon, setPocketEditIcon] = useState<string>('Briefcase');
+  const [pocketIconGroupKey, setPocketIconGroupKey] = useState<string>('all');
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
@@ -88,6 +117,22 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     visible: false,
     title: '',
   });
+
+  const displayedPocketIcons = useMemo(() => {
+    if (pocketIconGroupKey === 'all') {
+      return AVAILABLE_ICONS;
+    }
+    const group = POCKET_ICON_CATEGORIES.find((g) => g.key === pocketIconGroupKey);
+    return group ? group.icons : AVAILABLE_ICONS;
+  }, [pocketIconGroupKey]);
+
+  const pocketIconRows = useMemo(() => {
+    const rows: string[][] = [];
+    for (let i = 0; i < displayedPocketIcons.length; i += 6) {
+      rows.push(displayedPocketIcons.slice(i, i + 6));
+    }
+    return rows;
+  }, [displayedPocketIcons]);
 
   const showAlert = (
     title: string,
@@ -111,6 +156,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   useSyncOnChange([propWallet], () => {
     if (propWallet) {
       setEditName(propWallet.name);
+      setEditType(normalizeAccountType(propWallet.type));
+      setEditAccountNumber(propWallet.accountNumber || '');
       setIsRenaming(false);
       setEditingPocketId(null);
       setShowAdjustAmountModal(false);
@@ -128,7 +175,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       showAlert('Invalid Name', 'Account name cannot be empty.', undefined, 'warning');
       return;
     }
-    await onRenameWallet(wallet.id, trimmed);
+    await onRenameWallet(wallet.id, trimmed, editType, editAccountNumber.trim());
     setIsRenaming(false);
   };
 
@@ -139,7 +186,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       return;
     }
     if (onRenamePocket) {
-      await onRenamePocket(pocketId, trimmed);
+      await onRenamePocket(pocketId, trimmed, pocketEditIcon);
     }
     setEditingPocketId(null);
   };
@@ -196,12 +243,17 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 </View>
               </View>
 
-              {/* Account Management Actions (Rename & Adjust Balance) */}
+              {/* Account Management Actions (Edit Account & Adjust Balance) */}
               <View style={styles.accountActionRow}>
                 <TouchableOpacity
                   style={[styles.accountActionBtn, isRenaming && styles.accountActionBtnActive]}
                   onPress={() => {
                     AppHaptics.light();
+                    if (!isRenaming) {
+                      setEditName(wallet.name);
+                      setEditType(normalizeAccountType(wallet.type));
+                      setEditAccountNumber(wallet.accountNumber || '');
+                    }
                     setIsRenaming((prev) => !prev);
                   }}
                   activeOpacity={0.7}
@@ -213,7 +265,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       isRenaming && styles.accountActionBtnTextActive,
                     ]}
                   >
-                    Rename Account
+                    Edit Account
                   </Text>
                 </TouchableOpacity>
 
@@ -236,23 +288,91 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 </TouchableOpacity>
               </View>
 
-              {/* Inline Form: Rename Account */}
+              {/* Inline Form: Edit Account (Name, Note / Account Number, Category / Type) */}
               {isRenaming && (
                 <View style={styles.editCard}>
                   <View style={styles.editCardHeader}>
                     <Edit3 size={15} color={Palette.primary} />
-                    <Text style={styles.editCardTitle}>Rename Account</Text>
+                    <Text style={styles.editCardTitle}>Edit Account</Text>
                   </View>
+
+                  <Text style={styles.editFieldLabel}>Account Name</Text>
                   <TextInput
                     style={styles.editInput}
                     value={editName}
                     onChangeText={setEditName}
-                    placeholder="Enter new account name"
+                    placeholder="Enter account name"
                     placeholderTextColor={Palette.mutedSoft}
-                    autoFocus={true}
-                    returnKeyType="done"
-                    onSubmitEditing={handleSaveRename}
+                    returnKeyType="next"
+                    maxLength={30}
                   />
+
+                  <Text style={styles.editFieldLabel}>Note / Account Number</Text>
+                  <TextInput
+                    style={styles.editInput}
+                    value={editAccountNumber}
+                    onChangeText={setEditAccountNumber}
+                    placeholder="e.g. 1234 5678 or short note"
+                    placeholderTextColor={Palette.mutedSoft}
+                    returnKeyType="done"
+                    maxLength={30}
+                  />
+
+                  <Text style={styles.editFieldLabel}>Account Category</Text>
+                  <View style={styles.typeGrid2Col}>
+                    {(
+                      [
+                        { key: 'Bank' as const, label: 'Bank', Icon: Building2 },
+                        { key: 'E-Wallet' as const, label: 'E-Wallet', Icon: Smartphone },
+                        { key: 'Cash' as const, label: 'Cash', Icon: Banknote },
+                        { key: 'Investment' as const, label: 'Investment', Icon: TrendingUp },
+                        { key: 'Credit Card' as const, label: 'Credit Card', Icon: CreditCard },
+                        { key: 'E-Money' as const, label: 'E-Money', Icon: ContactlessCardIcon },
+                      ] as const
+                    ).map(({ key, label, Icon }) => {
+                      const isSelected = editType.toLowerCase() === key.toLowerCase();
+                      return (
+                        <TouchableOpacity
+                          key={key}
+                          style={[
+                            styles.typeOptionCard,
+                            isSelected && styles.typeOptionCardSelected,
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            setEditType(key);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.typeOptionIconBox,
+                              {
+                                backgroundColor: isSelected
+                                  ? Palette.primary
+                                  : Palette.surfaceSoft,
+                              },
+                            ]}
+                          >
+                            <Icon
+                              size={15}
+                              color={isSelected ? Palette.white : Palette.primary}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.typeOptionLabel,
+                              isSelected && styles.typeOptionLabelSelected,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
                   <View style={styles.editActionRow}>
                     <TouchableOpacity
                       style={styles.cancelEditBtn}
@@ -267,7 +387,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       activeOpacity={0.8}
                     >
                       <Check size={14} color={Palette.white} />
-                      <Text style={styles.saveEditBtnText}>Save Name</Text>
+                      <Text style={styles.saveEditBtnText}>Save Changes</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -302,54 +422,44 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 </View>
               ) : (
                 currentPockets.map((p) => {
+                  const isEditingThisPocket = editingPocketId === p.id;
                   return (
                     <View key={p.id} style={styles.pocketCard}>
                       <View style={styles.pocketTopRow}>
                         <View style={styles.pocketLeft}>
                           <View style={[styles.pocketIconBox, { backgroundColor: p.color }]}>
-                            <CategoryIcon name={p.icon} size={18} color={Palette.white} />
+                            <CategoryIcon
+                              name={isEditingThisPocket ? pocketEditIcon : p.icon}
+                              size={18}
+                              color={Palette.white}
+                            />
                           </View>
                           <View style={{ flex: 1 }}>
-                            {editingPocketId === p.id ? (
-                              <View style={styles.inlineRenameRow}>
-                                <TextInput
-                                  style={styles.pocketRenameInput}
-                                  value={pocketEditName}
-                                  onChangeText={setPocketEditName}
-                                  autoFocus={true}
-                                  returnKeyType="done"
-                                  onSubmitEditing={() => handleSavePocketRename(p.id)}
-                                />
-                                <TouchableOpacity
-                                  style={styles.pocketRenameSaveBtn}
-                                  onPress={() => handleSavePocketRename(p.id)}
-                                >
-                                  <Check size={14} color={Palette.white} />
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                  style={styles.pocketRenameCancelBtn}
-                                  onPress={() => setEditingPocketId(null)}
-                                >
-                                  <Text style={styles.pocketRenameCancelText}>✕</Text>
-                                </TouchableOpacity>
-                              </View>
-                            ) : (
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                <Text style={styles.pocketTitle}>{p.name}</Text>
-                                <TouchableOpacity
-                                  onPress={() => {
-                                    AppHaptics.light();
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <Text style={styles.pocketTitle}>
+                                {isEditingThisPocket ? pocketEditName || p.name : p.name}
+                              </Text>
+                              <TouchableOpacity
+                                onPress={() => {
+                                  AppHaptics.light();
+                                  if (isEditingThisPocket) {
+                                    setEditingPocketId(null);
+                                  } else {
                                     setEditingPocketId(p.id);
                                     setPocketEditName(p.name);
-                                  }}
-                                  style={{ marginLeft: 6, padding: 3 }}
-                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                >
-                                  <Edit3 size={12} color={Palette.muted} />
-                                </TouchableOpacity>
-                              </View>
-                            )}
-                            
+                                    setPocketEditIcon(p.icon || 'Briefcase');
+                                    setPocketIconGroupKey('all');
+                                  }
+                                }}
+                                style={{ marginLeft: 6, padding: 3 }}
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              >
+                                <Edit3
+                                  size={12}
+                                  color={isEditingThisPocket ? Palette.primary : Palette.muted}
+                                />
+                              </TouchableOpacity>
+                            </View>
                           </View>
                         </View>
 
@@ -361,6 +471,139 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                           <Trash2 size={16} color={Palette.error} />
                         </TouchableOpacity>
                       </View>
+
+                      {isEditingThisPocket && (
+                        <View style={styles.pocketEditPanel}>
+                          <Text style={styles.editFieldLabel}>Pocket Name</Text>
+                          <TextInput
+                            style={styles.editInput}
+                            value={pocketEditName}
+                            onChangeText={setPocketEditName}
+                            placeholder="Enter pocket name"
+                            placeholderTextColor={Palette.mutedSoft}
+                            returnKeyType="done"
+                            maxLength={30}
+                          />
+
+                          <Text style={styles.editFieldLabel}>Pocket Icon</Text>
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.pocketIconFilterScroll}
+                            contentContainerStyle={styles.pocketIconFilterContent}
+                          >
+                            <TouchableOpacity
+                              style={[
+                                styles.pocketIconFilterChip,
+                                pocketIconGroupKey === 'all' && styles.pocketIconFilterChipActive,
+                              ]}
+                              onPress={() => {
+                                AppHaptics.selection();
+                                setPocketIconGroupKey('all');
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <Text
+                                style={[
+                                  styles.pocketIconFilterChipText,
+                                  pocketIconGroupKey === 'all' &&
+                                    styles.pocketIconFilterChipTextActive,
+                                ]}
+                              >
+                                All
+                              </Text>
+                            </TouchableOpacity>
+                            {POCKET_ICON_CATEGORIES.map((cat) => {
+                              const isActive = pocketIconGroupKey === cat.key;
+                              return (
+                                <TouchableOpacity
+                                  key={cat.key}
+                                  style={[
+                                    styles.pocketIconFilterChip,
+                                    isActive && styles.pocketIconFilterChipActive,
+                                  ]}
+                                  onPress={() => {
+                                    AppHaptics.selection();
+                                    setPocketIconGroupKey(cat.key);
+                                  }}
+                                  activeOpacity={0.7}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.pocketIconFilterChipText,
+                                      isActive && styles.pocketIconFilterChipTextActive,
+                                    ]}
+                                  >
+                                    {cat.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+
+                          <View style={styles.pocketIconScrollBox}>
+                            <ScrollView
+                              style={styles.pocketIconScrollView}
+                              contentContainerStyle={styles.pocketIconGridContent}
+                              nestedScrollEnabled={true}
+                              showsVerticalScrollIndicator={false}
+                            >
+                              {pocketIconRows.map((row, rowIdx) => (
+                                <View key={`p-icon-row-${rowIdx}`} style={styles.pocketIconRow}>
+                                  {row.map((iconName) => {
+                                    const isIconSelected = pocketEditIcon === iconName;
+                                    return (
+                                      <TouchableOpacity
+                                        key={iconName}
+                                        style={[
+                                          styles.pocketIconOptionBtn,
+                                          isIconSelected && styles.pocketIconOptionBtnSelected,
+                                        ]}
+                                        onPress={() => {
+                                          AppHaptics.selection();
+                                          setPocketEditIcon(iconName);
+                                        }}
+                                        activeOpacity={0.75}
+                                      >
+                                        <CategoryIcon
+                                          name={iconName}
+                                          size={19}
+                                          color={isIconSelected ? Palette.white : Palette.ink}
+                                        />
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                  {row.length < 6 &&
+                                    Array.from({ length: 6 - row.length }).map((_, idx) => (
+                                      <View
+                                        key={`p-icon-placeholder-${idx}`}
+                                        style={styles.pocketIconPlaceholder}
+                                      />
+                                    ))}
+                                </View>
+                              ))}
+                            </ScrollView>
+                          </View>
+
+                          <View style={[styles.editActionRow, { marginTop: 10 }]}>
+                            <TouchableOpacity
+                              style={styles.cancelEditBtn}
+                              onPress={() => setEditingPocketId(null)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={styles.cancelEditBtnText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.saveEditBtn}
+                              onPress={() => handleSavePocketRename(p.id)}
+                              activeOpacity={0.8}
+                            >
+                              <Check size={14} color={Palette.white} />
+                              <Text style={styles.saveEditBtnText}>Save Pocket</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
 
                       <View style={styles.pocketMiddleRow}>
                         <Text style={styles.pocketCaption}>Allocated Balance</Text>
@@ -464,19 +707,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -614,12 +844,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
-  pocketMeta: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
-    marginTop: 1,
-  },
   deletePocketBtn: {
     padding: 6,
   },
@@ -639,17 +863,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: Palette.ink,
-  },
-  track: {
-    height: 4,
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 2,
-    overflow: 'hidden',
-    marginBottom: 10,
-  },
-  fill: {
-    height: '100%',
-    borderRadius: 2,
   },
   adjustFundsBtn: {
     flexDirection: 'row',
@@ -735,12 +948,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.ink,
   },
-  editCardDesc: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-    marginBottom: 10,
-  },
   editInput: {
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 12,
@@ -751,29 +958,6 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    marginBottom: 10,
-  },
-  reconcileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-    paddingHorizontal: 2,
-  },
-  reconcileLabel: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-  },
-  reconcileValue: {
-    ...Typography.mono,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  warningText: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.error,
     marginBottom: 10,
   },
   editActionRow: {
@@ -810,44 +994,129 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.white,
   },
-  inlineRenameRow: {
+  editFieldLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+    marginBottom: 6,
+    marginTop: 2,
+  },
+  typeGrid2Col: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  typeOptionCard: {
+    width: '48.5%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginVertical: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    backgroundColor: Palette.white,
+    marginBottom: 8,
   },
-  pocketRenameInput: {
+  typeOptionCardSelected: {
+    borderColor: Palette.primary,
+    backgroundColor: '#FDF0ED',
+  },
+  typeOptionIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  typeOptionLabel: {
     ...Typography.body,
     fontSize: 13,
+    fontWeight: '500',
+    color: Palette.ink,
+    flex: 1,
+  },
+  typeOptionLabelSelected: {
+    color: Palette.ink,
+    fontWeight: '700',
+  },
+  pocketEditPanel: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  pocketIconFilterScroll: {
+    marginBottom: 8,
+  },
+  pocketIconFilterContent: {
+    gap: 6,
+    paddingRight: 4,
+  },
+  pocketIconFilterChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  pocketIconFilterChipActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  pocketIconFilterChipText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+  },
+  pocketIconFilterChipTextActive: {
+    color: Palette.white,
+  },
+  pocketIconScrollBox: {
+    height: 162,
+    backgroundColor: Palette.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    padding: 8,
+  },
+  pocketIconScrollView: {
+    flex: 1,
+  },
+  pocketIconGridContent: {
+    gap: 8,
+    paddingBottom: 2,
+  },
+  pocketIconRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pocketIconOptionBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
     backgroundColor: Palette.surfaceSoft,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    color: Palette.ink,
-    minWidth: 120,
-    maxWidth: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  pocketRenameSaveBtn: {
+  pocketIconOptionBtnSelected: {
     backgroundColor: Palette.primary,
-    padding: 6,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: Palette.primary,
   },
-  pocketRenameCancelBtn: {
-    backgroundColor: Palette.surfaceSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pocketRenameCancelText: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '700',
-    color: Palette.muted,
+  pocketIconPlaceholder: {
+    width: 42,
+    height: 42,
   },
 });

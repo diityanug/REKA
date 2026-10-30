@@ -5,7 +5,6 @@ import {
   StatusBar,
   Keyboard,
   StyleSheet,
-  Platform,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -107,7 +106,7 @@ function MainApp() {
   const [splashFinished, setSplashFinished] = useState<boolean>(false);
   const [scanning, setScanning] = useState<boolean>(false);
   const [privacyMode, setPrivacyMode] = useState<boolean>(false);
-  const [scanAbort, setScanAbort] = useState<AbortController | null>(null);
+  const scanAbortRef = useRef<AbortController | null>(null);
 
   // Modals & Dialogs Hook
   const modals = useAppModals();
@@ -180,10 +179,7 @@ function MainApp() {
   }, [
     finance.activeCurrency,
     finance.wallets,
-    modals.manualTxModalVisible,
-    modals.reviewModalVisible,
-    modals.newPocketModalVisible,
-    modals.selectedWalletId,
+    modals,
   ]);
 
   // Keep selectedPocketId valid for active selectedWalletId
@@ -194,7 +190,7 @@ function MainApp() {
     ) {
       modals.setSelectedPocketId('');
     }
-  }, [modals.selectedWalletId, finance.pockets, modals.selectedPocketId]);
+  }, [finance.pockets, modals]);
 
   // Currently viewed account for deep detail breakdown (with sticky cache to prevent slide-down flicker)
   const lastViewedWalletId = useLastDefined(modals.viewingWallet?.id);
@@ -290,33 +286,38 @@ function MainApp() {
         }
       }
 
-      const matchesCurrency = tx.currency === finance.activeCurrency;
-      return matchesSearch && matchesType && matchesCategory && matchesMonth && matchesCurrency;
+      return matchesSearch && matchesType && matchesCategory && matchesMonth;
     });
   }, [
-    finance.transactions,
-    finance.wallets,
-    finance.activeCurrency,
-    finance.getPocketName,
+    finance,
     searchQuery,
     historyFilter,
     historyCategory,
     historyMonth,
   ]);
 
-  // Aggregate stats for filtered history view
+  // Aggregate stats for filtered history view (keeping IDR and USD native totals separate)
   const historyFlowStats = useMemo(() => {
     let income = 0;
     let expense = 0;
+    let usdIncome = 0;
+    let usdExpense = 0;
     filteredTransactions.forEach((tx) => {
       if (tx.category === 'Transfer' || tx.transferPairId) return;
-      if (tx.type === 'income') income += tx.amount;
-      if (tx.type === 'expense') expense += tx.amount;
+      if (tx.currency === 'USD') {
+        if (tx.type === 'income') usdIncome += tx.amount;
+        if (tx.type === 'expense') usdExpense += tx.amount;
+      } else {
+        if (tx.type === 'income') income += tx.amount;
+        if (tx.type === 'expense') expense += tx.amount;
+      }
     });
     const total = income + expense;
     return {
       income,
       expense,
+      usdIncome,
+      usdExpense,
       incomePct: total > 0 ? (income / total) * 100 : 0,
       expensePct: total > 0 ? (expense / total) * 100 : 0,
     };
@@ -383,17 +384,15 @@ function MainApp() {
 
   const handleCancelScan = useCallback(() => {
     AppHaptics.light();
-    setScanAbort((controller) => {
-      controller?.abort();
-      return null;
-    });
+    scanAbortRef.current?.abort();
+    scanAbortRef.current = null;
     setScanning(false);
   }, []);
 
   // Process receipt through Gemini API
   const processReceiptImage = async (base64: string) => {
     const controller = new AbortController();
-    setScanAbort(controller);
+    scanAbortRef.current = controller;
     setScanning(true);
     try {
       const data = await extractReceiptFromBase64(base64, 'image/jpeg', controller.signal);
@@ -429,7 +428,7 @@ function MainApp() {
         'confirm'
       );
     } finally {
-      setScanAbort(null);
+      scanAbortRef.current = null;
       setScanning(false);
     }
   };
@@ -731,11 +730,11 @@ function MainApp() {
     if (finance.activeCurrency === c) return;
     finance.setActiveCurrency(c);
     modals.setManCurrency(c);
-  }, [finance.activeCurrency, finance.setActiveCurrency, modals.setManCurrency]);
+  }, [finance, modals]);
 
   const handleOpenSettings = useCallback(() => {
     modals.setSettingsModalVisible(true);
-  }, [modals.setSettingsModalVisible]);
+  }, [modals]);
 
   const handleNavigateToAccounts = useCallback(() => {
     setActiveTab('accounts');
@@ -743,45 +742,44 @@ function MainApp() {
 
   const handleOpenOverviewMonthPicker = useCallback(() => {
     modals.openMonthPicker('overview');
-  }, [modals.openMonthPicker]);
+  }, [modals]);
 
   const handleOpenTransferModal = useCallback(() => {
     modals.setTransferModalVisible(true);
-  }, [modals.setTransferModalVisible]);
+  }, [modals]);
 
   const handleOpenAccountDetail = useCallback((w: Wallet) => {
     modals.setSelectedWalletId(w.id);
-    finance.setActiveCurrency(w.currency);
     modals.openAccountDetail(w);
-  }, [modals.setSelectedWalletId, finance.setActiveCurrency, modals.openAccountDetail]);
+  }, [modals]);
 
   const handleOpenAddAccount = useCallback(() => {
     modals.openAddAccountModal(finance.activeCurrency, 'none');
-  }, [modals.openAddAccountModal, finance.activeCurrency]);
+  }, [modals, finance.activeCurrency]);
 
   const handleSelectTransaction = useCallback((tx: Transaction) => {
     modals.setSelectedTx(tx);
-  }, [modals.setSelectedTx]);
+  }, [modals]);
 
   const handleOpenManageOrder = useCallback(() => {
     modals.setManageOrderModalVisible(true);
-  }, [modals.setManageOrderModalVisible]);
+  }, [modals]);
 
   const handleOpenAnalyticsMonthPicker = useCallback(() => {
     modals.openMonthPicker('analytics');
-  }, [modals.openMonthPicker]);
+  }, [modals]);
 
   const handleOpenCategoryManagerAnalytics = useCallback((type?: any) => {
     modals.openCategoryManager(type || 'expense', false, 'none');
-  }, [modals.openCategoryManager]);
+  }, [modals]);
 
   const handleOpenSetBudget = useCallback(() => {
     const initStr = finance.monthlyBudget > 0 ? formatCurrencyInput(String(finance.monthlyBudget), finance.activeCurrency) : '';
     modals.openSetBudget(initStr);
-  }, [finance.monthlyBudget, finance.activeCurrency, modals.openSetBudget]);
+  }, [finance.monthlyBudget, finance.activeCurrency, modals]);
 
   const handleClearSearch = useCallback(() => setSearchQuery(''), []);
-  const handleOpenHistoryMonthPicker = useCallback(() => modals.openMonthPicker('history'), [modals.openMonthPicker]);
+  const handleOpenHistoryMonthPicker = useCallback(() => modals.openMonthPicker('history'), [modals]);
   const handleResetAllHistoryFilters = useCallback(() => {
     setSearchQuery('');
     setHistoryFilter('all');
@@ -809,9 +807,7 @@ function MainApp() {
 
       {/* Top App Bar */}
       <AppHeader
-        activeCurrency={finance.activeCurrency}
         privacyMode={privacyMode}
-        onCurrencyChange={handleCurrencyChange}
         onTogglePrivacy={handleTogglePrivacy}
         onOpenSettings={handleOpenSettings}
       />
@@ -853,17 +849,13 @@ function MainApp() {
           {activeTab === 'overview' && (
             <OverviewTab
               wallets={finance.wallets}
-              pockets={finance.pockets}
               transactions={finance.transactions}
               activeCurrency={finance.activeCurrency}
               privacyMode={privacyMode}
-              totalBalance={finance.totalBalance}
-              positiveLiquidityTotal={finance.positiveLiquidityTotal}
               selectedMonth={finance.selectedMonth}
               availableMonths={finance.availableMonths}
               last7DaysFlow={finance.last7DaysFlow}
               scanning={scanning}
-              selectedWalletId={modals.selectedWalletId}
               onNavigateToAccounts={handleNavigateToAccounts}
               onSelectMonth={finance.setSelectedMonth}
               onOpenMonthPicker={handleOpenOverviewMonthPicker}
@@ -874,6 +866,7 @@ function MainApp() {
               onOpenAccountDetail={handleOpenAccountDetail}
               onOpenAddAccount={handleOpenAddAccount}
               onSelectTransaction={handleSelectTransaction}
+              onCurrencyChange={handleCurrencyChange}
               getCategoryIconName={finance.getCategoryIconName}
               getPocketName={finance.getPocketName}
             />
@@ -882,11 +875,8 @@ function MainApp() {
           {activeTab === 'accounts' && (
             <AccountsTab
               wallets={finance.wallets}
-              pockets={finance.pockets}
               activeCurrency={finance.activeCurrency}
-              positiveLiquidityTotal={finance.positiveLiquidityTotal}
               privacyMode={privacyMode}
-              selectedWalletId={modals.selectedWalletId}
               allocationPlans={finance.allocationPlans}
               onOpenAccountDetail={handleOpenAccountDetail}
               onOpenAddAccount={handleOpenAddAccount}
@@ -909,6 +899,7 @@ function MainApp() {
               onOpenMonthPicker={handleOpenAnalyticsMonthPicker}
               onOpenCategoryManager={handleOpenCategoryManagerAnalytics}
               onOpenSetBudget={handleOpenSetBudget}
+              onCurrencyChange={handleCurrencyChange}
               getCategoryIconName={finance.getCategoryIconName}
             />
           )}
@@ -1079,6 +1070,7 @@ function MainApp() {
         categoryIcon={modals.selectedTx ? finance.getCategoryIconName(modals.selectedTx.category, modals.selectedTx.type) : ''}
         pocketName={modals.selectedTx ? finance.getPocketName(modals.selectedTx.pocketId) : undefined}
         wallets={finance.wallets}
+        transactions={finance.transactions}
         privacyMode={privacyMode}
         onEdit={modals.handleStartEditTransaction}
         onDuplicate={modals.handleDuplicateTransaction}
@@ -1253,7 +1245,6 @@ function MainApp() {
       <ManageAccountOrderModal
         visible={modals.manageOrderModalVisible}
         wallets={finance.wallets}
-        activeCurrency={finance.activeCurrency}
         privacyMode={privacyMode}
         onSaveOrder={async (orderedWallets) => {
           await finance.handleUpdateWalletsOrder(orderedWallets.map((w) => w.id));

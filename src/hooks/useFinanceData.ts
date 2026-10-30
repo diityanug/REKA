@@ -87,10 +87,18 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   // Last exchange rate used for cross-currency transfers
   const [exchangeRate, setExchangeRate] = useState<number>(16000);
 
-  // Synchronous allocation plans & monthly budget matching active currency (0ms lag, zero flicker)
+  // Unified allocation plans across both IDR and USD
   const allocationPlans = useMemo(() => {
-    return allocationPlansMap[activeCurrency] || [];
-  }, [allocationPlansMap, activeCurrency]);
+    const idr = (allocationPlansMap.IDR || []).map((p) => ({
+      ...p,
+      currency: (p.currency || 'IDR') as CurrencyType,
+    }));
+    const usd = (allocationPlansMap.USD || []).map((p) => ({
+      ...p,
+      currency: (p.currency || 'USD') as CurrencyType,
+    }));
+    return [...idr, ...usd];
+  }, [allocationPlansMap]);
 
   const monthlyBudget = useMemo(() => {
     return monthlyBudgetsMap[activeCurrency] || 0;
@@ -161,10 +169,6 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
 
   const totalBalance = useMemo(() => {
     return currencyWallets.reduce((acc, w) => acc + w.balance, 0);
-  }, [currencyWallets]);
-
-  const positiveLiquidityTotal = useMemo(() => {
-    return currencyWallets.reduce((acc, w) => acc + Math.max(w.balance, 0), 0);
   }, [currencyWallets]);
 
   // Funds in an account that have not been assigned to a pocket yet
@@ -321,7 +325,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         balance: initialBal,
         currency: params.currency,
         color: assignedColor,
-        accountNumber: params.accountNumber.trim() || 'Main Vault',
+        accountNumber: params.accountNumber.trim() || 'Main',
       });
       setActiveCurrency(params.currency);
       await loadData();
@@ -333,13 +337,18 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   };
 
-  const handleRenameWallet = async (walletId: string, newName: string) => {
+  const handleRenameWallet = async (
+    walletId: string,
+    newName: string,
+    newType?: AccountType | string,
+    newAccountNumber?: string
+  ) => {
     try {
-      await updateWalletName(walletId, newName);
+      await updateWalletName(walletId, newName, newType, newAccountNumber);
       AppHaptics.success();
       await loadData();
     } catch (err: any) {
-      showAlert('Error', err?.message || 'Could not rename account.', undefined, 'error');
+      showAlert('Error', err?.message || 'Could not update account.', undefined, 'error');
     }
   };
 
@@ -462,13 +471,17 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   };
 
-  const handleRenamePocket = async (pocketId: string, newName: string) => {
+  const handleRenamePocket = async (
+    pocketId: string,
+    newName: string,
+    newIcon?: string
+  ) => {
     try {
-      await updatePocketName(pocketId, newName);
+      await updatePocketName(pocketId, newName, newIcon);
       AppHaptics.success();
       await loadData();
     } catch (err: any) {
-      showAlert('Error', err?.message || 'Could not rename pocket.', undefined, 'error');
+      showAlert('Error', err?.message || 'Could not update pocket.', undefined, 'error');
     }
   };
 
@@ -706,13 +719,30 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleSaveAllocationPlan = async (plan: AllocationPlan) => {
     try {
       AppHaptics.heavy();
-      const currPlans = allocationPlansMap[activeCurrency] || [];
-      const exists = currPlans.some((p) => p.id === plan.id);
-      const updated = exists
+      const targetCurrency: CurrencyType = plan.currency || 'IDR';
+      const otherCurrency: CurrencyType = targetCurrency === 'IDR' ? 'USD' : 'IDR';
+
+      const currPlans = allocationPlansMap[targetCurrency] || [];
+      const existsInTarget = currPlans.some((p) => p.id === plan.id);
+      const updatedTarget = existsInTarget
         ? currPlans.map((p) => (p.id === plan.id ? plan : p))
         : [...currPlans, plan];
-      await saveAllocationPlans(updated, activeCurrency);
-      setAllocationPlansMap((prev) => ({ ...prev, [activeCurrency]: updated }));
+
+      const otherPlans = allocationPlansMap[otherCurrency] || [];
+      const existsInOther = otherPlans.some((p) => p.id === plan.id);
+      const updatedOther = existsInOther
+        ? otherPlans.filter((p) => p.id !== plan.id)
+        : otherPlans;
+
+      await saveAllocationPlans(updatedTarget, targetCurrency);
+      if (existsInOther) {
+        await saveAllocationPlans(updatedOther, otherCurrency);
+      }
+
+      setAllocationPlansMap({
+        [targetCurrency]: updatedTarget,
+        [otherCurrency]: updatedOther,
+      } as Record<CurrencyType, AllocationPlan[]>);
       AppHaptics.success();
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to save allocation plan.', undefined, 'error');
@@ -722,10 +752,18 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleDeleteAllocationPlan = async (planId: string) => {
     try {
       AppHaptics.light();
-      const currPlans = allocationPlansMap[activeCurrency] || [];
-      const updated = currPlans.filter((p) => p.id !== planId);
-      await saveAllocationPlans(updated, activeCurrency);
-      setAllocationPlansMap((prev) => ({ ...prev, [activeCurrency]: updated }));
+      const idrPlans = allocationPlansMap.IDR || [];
+      const usdPlans = allocationPlansMap.USD || [];
+      const inIdr = idrPlans.some((p) => p.id === planId);
+      const inUsd = usdPlans.some((p) => p.id === planId);
+
+      const nextIdr = inIdr ? idrPlans.filter((p) => p.id !== planId) : idrPlans;
+      const nextUsd = inUsd ? usdPlans.filter((p) => p.id !== planId) : usdPlans;
+
+      if (inIdr) await saveAllocationPlans(nextIdr, 'IDR');
+      if (inUsd) await saveAllocationPlans(nextUsd, 'USD');
+
+      setAllocationPlansMap({ IDR: nextIdr, USD: nextUsd });
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to delete allocation plan.', undefined, 'error');
     }
@@ -764,9 +802,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     setSelectedMonth,
     budgetMonthKey,
     exchangeRate,
-    currencyWallets,
     totalBalance,
-    positiveLiquidityTotal,
     getUnallocated,
     last7DaysFlow,
     availableMonths,

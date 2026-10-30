@@ -22,6 +22,7 @@ import { PAYMENT_METHODS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
 import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon } from '../CategoryIcon';
@@ -101,20 +102,30 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const relevantWallets = wallets.filter((w) => w.currency === manCurrency);
-  const walletPockets = pockets.filter((p) => p.walletId === selectedWalletId);
-  const activeCategories = categories.filter((c) => c.type === manType);
-
   const [datePickerVisible, setDatePickerVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const footerKeyboardOffset = useFooterKeyboardOffset();
 
+  // Freeze wallets and pockets while saving or closing so account/pocket balances and warnings never jump
+  const isStable = !saving && visible;
+  const stableWallets = useLastDefined(isStable ? wallets : null) ?? wallets;
+  const stablePockets = useLastDefined(isStable ? pockets : null) ?? pockets;
+
+  const relevantWallets = isEditing
+    ? stableWallets.filter((w) => w.currency === manCurrency)
+    : stableWallets;
+  const walletPockets = stablePockets.filter((p) => p.walletId === selectedWalletId);
+  const activeCategories = categories.filter((c) => c.type === manType);
+
   const selectedWallet = relevantWallets.find((w) => w.id === selectedWalletId);
+  const selectedPocket = walletPockets.find((p) => p.id === selectedPocketId);
   const parsedAmount = useMemo(
     () => parseAmount(manAmount, manCurrency),
     [manAmount, manCurrency]
   );
+  const exceedsPocketBalance =
+    manType === 'expense' && !!selectedPocket && parsedAmount > selectedPocket.balance;
   const exceedsBalance =
     manType === 'expense' && !!selectedWallet && parsedAmount > selectedWallet.balance;
   const categoryMissing = !activeCategories.some((c) => c.name === manCategory);
@@ -318,15 +329,19 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               </TouchableOpacity>
               {/* Dedicated fixed-height warning slot so layout never shifts/janks */}
               <View style={styles.balanceWarningSlot}>
-                {exceedsBalance ? (
-                  <Text style={styles.balanceWarning}>
+                {exceedsPocketBalance ? (
+                  <Text style={styles.balanceWarning} numberOfLines={1}>
+                    This expense exceeds the selected pocket balance.
+                  </Text>
+                ) : exceedsBalance ? (
+                  <Text style={styles.balanceWarning} numberOfLines={1}>
                     This expense is larger than the account balance.
                   </Text>
                 ) : null}
               </View>
 
               {/* Transaction Date & Time */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+              <Text style={[styles.inputLabel, { marginTop: 6 }]}>
                 Date <Text style={styles.requiredStar}>*</Text>
               </Text>
               <View style={styles.dateTimeRow}>
@@ -429,7 +444,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
 
               {/* Select Account */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Account ({manCurrency}) <Text style={styles.requiredStar}>*</Text>
+                Account <Text style={styles.requiredStar}>*</Text>
               </Text>
               <View style={styles.chipsRow}>
                 {relevantWallets.map((w) => (
@@ -442,6 +457,9 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                     ]}
                     onPress={() => {
                       AppHaptics.selection();
+                      if (w.currency !== manCurrency) {
+                        onChangeCurrency(w.currency);
+                      }
                       onSelectWallet(w.id);
                     }}
                     accessibilityRole="button"
@@ -546,14 +564,18 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               ) : null}
 
               {/* 2-Column Category Selector */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Category <Text style={styles.requiredStar}>*</Text>
-              </Text>
-              {categoryMissing ? (
-                <Text style={styles.categoryHint}>
-                  Choose a category for this transaction.
+              <View style={styles.categoryHeaderRow}>
+                <Text style={[styles.inputLabel, { marginBottom: 0 }]}>
+                  Category <Text style={styles.requiredStar}>*</Text>
                 </Text>
-              ) : null}
+                <View style={styles.categoryHintSlot}>
+                  {categoryMissing ? (
+                    <Text style={styles.categoryHint} numberOfLines={1}>
+                      Choose a category for this transaction.
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
               <View style={styles.bentoGrid2Col}>
                 {activeCategories.map((cat) => {
                   const isSelected = manCategory === cat.name;
@@ -714,19 +736,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
 ManualTxModal.displayName = 'ManualTxModal';
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: '92%',
-    maxHeight: '94%',
-    overflow: 'hidden',
-  },
   segmentedControl: {
     flexDirection: 'row',
     backgroundColor: Palette.surfaceSoft,
@@ -779,11 +788,6 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     color: Palette.ink,
   },
-  amountCurrencyRow: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
   currencyToggleBox: {
     flexDirection: 'row',
     backgroundColor: Palette.surfaceSoft,
@@ -816,40 +820,6 @@ const styles = StyleSheet.create({
     color: Palette.muted,
   },
   currencyBtnTextActive: {
-    color: Palette.ink,
-  },
-  currencyMiniPill: {
-    flexDirection: 'row',
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    padding: 3,
-    borderWidth: 1,
-    borderColor: Palette.hairline,
-    height: 44,
-    alignItems: 'center',
-  },
-  currencyMiniBtn: {
-    flex: 1,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9,
-  },
-  currencyMiniBtnActive: {
-    backgroundColor: Palette.white,
-    shadowColor: Palette.ink,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  currencyMiniText: {
-    ...Typography.caption,
-    fontSize: 11,
-    fontWeight: '600',
-    color: Palette.muted,
-  },
-  currencyMiniTextActive: {
     color: Palette.ink,
   },
   dateTimeRow: {
@@ -1047,17 +1017,29 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     flex: 1,
   },
+  categoryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    marginBottom: 6,
+    minHeight: 18,
+  },
+  categoryHintSlot: {
+    flex: 1,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
   categoryHint: {
     ...Typography.caption,
-    fontSize: 12,
+    fontSize: 11,
     color: Palette.error,
-    marginBottom: 6,
   },
   balanceWarningSlot: {
-    height: 22,
+    height: 20,
     justifyContent: 'center',
     marginTop: 4,
-    marginBottom: 2,
   },
   balanceWarning: {
     ...Typography.caption,

@@ -298,21 +298,21 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
-              {/* Account Number */}
+              {/* Account Number / Note */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Account Number <Text style={styles.optionalTag}>(optional)</Text>
+                Note / Account Number <Text style={styles.optionalTag}>(optional)</Text>
               </Text>
               <TextInput
                 style={styles.textInputBox}
-                placeholder="e.g. 1234 5678"
+                placeholder="e.g. 1234 5678 or short note"
                 placeholderTextColor={Palette.mutedSoft}
                 value={accountNumber}
                 onChangeText={onChangeAccountNumber}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
                 maxLength={30}
-                accessibilityLabel="Account number"
-                accessibilityHint="Optional account or card number ending"
+                accessibilityLabel="Note or account number"
+                accessibilityHint="Optional short note or account number"
               />
             </KeyboardSafeContainer>
 

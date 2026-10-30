@@ -80,14 +80,18 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
     setViewYear((prev) => prev - 1);
   };
 
+  const isNextYearDisabled = viewYear >= currentYear;
+
   const handleNextYear = () => {
+    if (isNextYearDisabled) return;
     AppHaptics.selection();
-    setViewYear((prev) => prev + 1);
+    setViewYear((prev) => Math.min(prev + 1, currentYear));
   };
 
   const handlePickMonth = (monthCode: string) => {
-    AppHaptics.selection();
     const targetKey = `${viewYear}-${monthCode}`;
+    if (targetKey > currentMonthKey) return;
+    AppHaptics.selection();
     onSelectMonth(targetKey);
     onClose();
   };
@@ -139,11 +143,21 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
               </View>
 
               <TouchableOpacity
-                style={styles.yearNavBtn}
+                style={[
+                  styles.yearNavBtn,
+                  isNextYearDisabled && styles.yearNavBtnDisabled,
+                ]}
                 onPress={handleNextYear}
+                disabled={isNextYearDisabled}
                 activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Next year"
+                accessibilityState={{ disabled: isNextYearDisabled }}
               >
-                <ChevronRight size={20} color={Palette.ink} />
+                <ChevronRight
+                  size={20}
+                  color={isNextYearDisabled ? Palette.mutedSoft : Palette.ink}
+                />
               </TouchableOpacity>
             </View>
 
@@ -153,6 +167,7 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
                 const monthKey = `${viewYear}-${item.key}`;
                 const isSelected = selectedMonth === monthKey;
                 const isThisCurrentMonth = monthKey === currentMonthKey;
+                const isFutureMonth = monthKey > currentMonthKey;
                 const hasData = availableMonths.includes(monthKey);
 
                 return (
@@ -162,22 +177,28 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
                       styles.monthTile,
                       isSelected && styles.monthTileSelected,
                       isThisCurrentMonth && !isSelected && styles.monthTileCurrent,
+                      isFutureMonth && styles.monthTileDisabled,
                     ]}
                     onPress={() => handlePickMonth(item.key)}
+                    disabled={isFutureMonth}
                     activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${item.full} ${viewYear}`}
+                    accessibilityState={{ selected: isSelected, disabled: isFutureMonth }}
                   >
                     <View style={styles.monthHeaderRow}>
                       <Text
                         style={[
                           styles.monthShortText,
                           isSelected && styles.monthShortTextSelected,
+                          isFutureMonth && styles.monthTextDisabled,
                         ]}
                       >
                         {item.short}
                       </Text>
                       {isSelected ? (
                         <Check size={14} color={Palette.white} />
-                      ) : hasData ? (
+                      ) : hasData && !isFutureMonth ? (
                         <View style={styles.dataIndicatorDot} />
                       ) : null}
                     </View>
@@ -186,6 +207,7 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
                       style={[
                         styles.monthFullText,
                         isSelected && styles.monthFullTextSelected,
+                        isFutureMonth && styles.monthTextDisabled,
                       ]}
                       numberOfLines={1}
                     >
@@ -248,18 +270,6 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  modalSheet: {
-    backgroundColor: Palette.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '85%',
-    overflow: 'hidden',
-  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 16,
@@ -281,6 +291,9 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.white,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  yearNavBtnDisabled: {
+    opacity: 0.4,
   },
   yearDisplay: {
     flexDirection: 'row',
@@ -316,6 +329,14 @@ const styles = StyleSheet.create({
   },
   monthTileCurrent: {
     borderColor: Palette.primary,
+  },
+  monthTileDisabled: {
+    opacity: 0.4,
+    backgroundColor: Palette.surfaceSoft,
+    borderColor: 'transparent',
+  },
+  monthTextDisabled: {
+    color: Palette.mutedSoft,
   },
   monthHeaderRow: {
     flexDirection: 'row',

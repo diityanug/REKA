@@ -12,6 +12,7 @@ import { Palette, Typography } from '../../theme/tokens';
 import { CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, formatCurrencyInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
+import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -44,6 +45,8 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
   const [amountModalVisible, setAmountModalVisible] = useState(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [removing, setRemoving] = useState<boolean>(false);
+  const effectiveBudget =
+    useLastDefined(!saving && !removing && visible ? currentBudget : null) ?? currentBudget;
 
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
@@ -155,11 +158,11 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
 
           <KeyboardSafeContainer>
             {/* Current Active Budget Display */}
-            {currentBudget > 0 && (
+            {effectiveBudget > 0 && (
               <View style={styles.activeBudgetBadge}>
                 <Text style={styles.activeBudgetLabel}>Current Limit:</Text>
                 <Text style={styles.activeBudgetValue}>
-                  {formatCurrency(currentBudget, activeCurrency)}
+                  {formatCurrency(effectiveBudget, activeCurrency)}
                 </Text>
               </View>
             )}
@@ -237,7 +240,7 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
                 )}
               </TouchableOpacity>
 
-              {currentBudget > 0 && (
+              {effectiveBudget > 0 && (
                 <TouchableOpacity
                   style={styles.removeBtn}
                   onPress={requestRemove}
