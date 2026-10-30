@@ -46,11 +46,11 @@
       "expo-status-bar",
       "expo-sharing"
     ],
+    "owner": "descend12s-team",
     "extra": {
       "eas": {
-        "projectId": "f4e8de88-931d-4d8b-adfb-841233a0bd9c"
+        "projectId": "5e929bfe-3d51-40a4-a74e-19a7872c5e74"
       }
-    },
-    "owner": "descend12"
+    }
   }
 }
