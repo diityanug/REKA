@@ -17,6 +17,7 @@ import {
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, TransactionType, CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
+import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { AppHaptics } from '../../utils/haptics';
 import { CategoryIcon } from '../CategoryIcon';
 import { DonutChart } from '../DonutChart';
@@ -86,10 +87,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   const [analyticsType, setAnalyticsType] = useState<TransactionType>('expense');
 
   // Same month-key rule the finance hook uses, so the stepper cannot go into the future
-  const currentMonthKey = useMemo(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  }, []);
+  const { currentMonthKey, currentDayOfMonth } = useCurrentDate();
 
   // Filter transactions matching active currency
   const currencyTransactions = useMemo(() => {
@@ -350,12 +348,11 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       };
     }
 
-    const now = new Date();
-    const daysRemaining = Math.max(1, daysInMonth - now.getDate());
+    const daysRemaining = Math.max(1, daysInMonth - currentDayOfMonth);
     const remaining = monthlyBudget - budgetSpent;
     if (remaining <= 0) return { kind: 'exhausted' as const, value: 0 };
     return { kind: 'safe' as const, value: Math.round(remaining / daysRemaining) };
-  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth]);
+  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth, currentDayOfMonth]);
 
   // Category breakdown for selected period & type
   const categoryBreakdown = useMemo(() => {

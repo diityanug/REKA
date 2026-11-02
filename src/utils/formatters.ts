@@ -28,6 +28,16 @@ export const formatCurrency = (
 };
 
 export const formatDate = (timestamp: string): string => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestamp)) {
+    const [y, m, d] = timestamp.split('-').map(Number);
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+    ];
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return `${d} ${months[m - 1]} ${y}`;
+    }
+  }
   const date = new Date(timestamp);
   if (isNaN(date.getTime())) return timestamp;
   const day = date.getDate();
@@ -315,6 +325,28 @@ export const parseAmount = (value: string, currency: CurrencyType = 'IDR'): numb
 export const getTodayDateStr = (): string => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+// Get yesterday's local date string formatted as YYYY-MM-DD
+export const getYesterdayDateStr = (): string => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Get the current local month key formatted as YYYY-MM
+export const getCurrentMonthKey = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+};
+
+// Extract local YYYY-MM-DD from an ISO timestamp, falling back to today's local date
+export const getDateStrFromTimestamp = (timestamp?: string): string => {
+  if (!timestamp) return getTodayDateStr();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestamp)) return timestamp;
+  const date = new Date(timestamp);
+  if (isNaN(date.getTime())) return getTodayDateStr();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
 // Get the current local time as HH:mm (24h)

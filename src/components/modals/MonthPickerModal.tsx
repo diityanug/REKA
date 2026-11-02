@@ -9,6 +9,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
@@ -47,9 +48,7 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonthKey = `${currentYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const { currentYear, currentMonthKey } = useCurrentDate(visible);
 
   // Year being navigated in the picker
   const [viewYear, setViewYear] = useState<number>(() => {

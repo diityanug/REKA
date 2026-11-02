@@ -34,4 +34,5 @@ export const PAYMENT_METHODS = [
   'Cash',
   'E-Wallet',
   'Credit Card',
+  'E-Money',
 ];

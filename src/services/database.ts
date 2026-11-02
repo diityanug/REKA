@@ -121,8 +121,8 @@ const DEFAULT_CATEGORIES: {
   { name: 'Fitness & Gym', type: 'expense', icon: 'Dumbbell', color: '#F97316' },
   { name: 'Cloud & Storage', type: 'expense', icon: 'Cloud', color: '#8B5CF6' },
   { name: 'Food & Beverages', type: 'expense', icon: 'Utensils', color: '#CC785C' },
-  { name: 'Snacks', type: 'expense', icon: 'Coffee', color: '#D97706' },
-  { name: 'Shopping', type: 'expense', icon: 'ShoppingBag', color: '#EC4899' },
+  { name: 'Snacks', type: 'expense', icon: 'Cookie', color: '#D97706' },
+  { name: 'Shopping', type: 'expense', icon: 'ShoppingCart', color: '#EC4899' },
   { name: 'Fuel', type: 'expense', icon: 'Fuel', color: '#EF4444' },
   { name: 'Parking', type: 'expense', icon: 'CircleParking', color: '#64748B' },
   { name: 'Vehicle Services', type: 'expense', icon: 'Wrench', color: '#F59E0B' },
@@ -154,6 +154,23 @@ async function ensureTransferCategory(db: SQLite.SQLiteDatabase): Promise<void> 
       `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
        VALUES ('cat_t_transfer', 'Transfer', 'expense', 'ArrowLeftRight', '#6C7A89', 1)`
     );
+  }
+}
+
+async function migrateCategoryIcons(db: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    await db.runAsync(
+      `UPDATE categories
+       SET icon = 'ShoppingCart'
+       WHERE LOWER(TRIM(name)) = 'shopping' AND (icon = 'ShoppingBag' OR icon = 'Gift' OR icon = 'HelpCircle')`
+    );
+    await db.runAsync(
+      `UPDATE categories
+       SET icon = 'Cookie'
+       WHERE LOWER(TRIM(name)) IN ('snacks', 'snack') AND (icon = 'Coffee' OR icon = 'HelpCircle')`
+    );
+  } catch {
+    // Non-critical migration failure caught safely
   }
 }
 
@@ -331,6 +348,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await seedDefaultCategories(db);
 
       await ensureTransferCategory(db);
+      await migrateCategoryIcons(db);
 
       // Ensure at least one wallet exists for fresh installation
       const walletCount = await db.getFirstAsync<{ count: number }>(
@@ -927,6 +945,78 @@ export async function insertTransactionWithItems(
   });
 
   return txId;
+}
+
+/**
+ * Batch insert multiple transactions extracted from a bank/e-wallet e-Statement
+ * inside a single atomic SQLite transaction. Optionally updates the target wallet balance(s).
+ */
+export async function insertStatementTransactionsBatch(
+  txs: Omit<Transaction, 'id'>[],
+  options: { updateWalletBalance: boolean } = { updateWalletBalance: true }
+): Promise<string[]> {
+  if (!txs || txs.length === 0) return [];
+  const db = await getDatabase();
+  const createdIds: string[] = [];
+  const baseNow = Date.now();
+
+  await db.withTransactionAsync(async () => {
+    const walletDeltas = new Map<string, number>();
+
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i];
+      const wallet = await db.getFirstAsync<{ id: string }>(
+        'SELECT id FROM wallets WHERE id = ?',
+        tx.walletId
+      );
+      if (!wallet) {
+        throw new Error('Target account not found. Please select a valid account.');
+      }
+
+      const txId =
+        'tx_' + (baseNow + i) + '_' + Math.random().toString(36).substring(2, 7);
+      createdIds.push(txId);
+
+      await db.runAsync(
+        `INSERT INTO transactions 
+         (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        txId,
+        tx.walletId,
+        tx.pocketId || '',
+        tx.merchantName,
+        tx.category,
+        tx.type,
+        tx.amount,
+        tx.currency || 'IDR',
+        tx.taxAmount || 0,
+        tx.discountAmount || 0,
+        tx.timestamp,
+        tx.paymentMethod || 'Bank Transfer',
+        tx.notes || '',
+        tx.imageUri || ''
+      );
+
+      if (options.updateWalletBalance) {
+        const delta = tx.type === 'expense' ? -tx.amount : tx.amount;
+        walletDeltas.set(tx.walletId, (walletDeltas.get(tx.walletId) || 0) + delta);
+      }
+    }
+
+    if (options.updateWalletBalance) {
+      for (const [walletId, totalDelta] of walletDeltas.entries()) {
+        if (totalDelta !== 0) {
+          await db.runAsync(
+            'UPDATE wallets SET balance = balance + ? WHERE id = ?',
+            totalDelta,
+            walletId
+          );
+        }
+      }
+    }
+  });
+
+  return createdIds;
 }
 
 export async function deleteTransaction(id: string): Promise<void> {

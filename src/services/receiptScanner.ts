@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import { getTodayDateStr } from '../utils/formatters';
 
 export interface ExtractedReceiptData {
   merchantName: string;
@@ -125,7 +126,7 @@ function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): Extracte
 
   return {
     merchantName: parsed.merchantName || 'Unknown Merchant',
-    transactionDate: parsed.transactionDate || new Date().toISOString().split('T')[0],
+    transactionDate: parsed.transactionDate || getTodayDateStr(),
     category: parsed.category || 'General',
     type: parsed.type === 'income' ? 'income' : 'expense',
     totalAmount: parseSafeAmount(parsed.totalAmount, currency),
@@ -181,7 +182,7 @@ Rules:
 4. "category": Choose one most accurate category from: "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnisings", "Social", "Health & Medical", "Education", "Travel", "Salary", "Allowance", "Investments", "Bonus", "Gift", or "Others".
 5. "type": "expense" for purchases/transfers sent, or "income" for incoming funds/deposits.
 6. "currency": Detect whether the currency is "IDR" (Rupiah, Rp) or "USD" (Dollar, $).
-7. "paymentMethod": e.g. "QRIS", "Debit Card", "Credit Card", "Cash", "Bank Transfer", or "Digital Wallet".
+7. "paymentMethod": e.g. "QRIS", "Debit Card", "Credit Card", "Cash", "Bank Transfer", "E-Wallet", or "E-Money".
 8. "items": Extract ALL purchased products, services, or line items shown on the receipt as an array of objects:
    - "name": Clean item description / product name
    - "quantity": Number of units purchased (number, default 1)

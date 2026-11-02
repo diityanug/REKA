@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Plus, CreditCard, Layers, ArrowUpDown } from 'lucide-react-native';
+import { Plus, CreditCard, Layers, ArrowUpDown, FileText } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, CurrencyType, AllocationPlan } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
@@ -14,6 +14,7 @@ interface AccountsTabProps {
   allocationPlans: AllocationPlan[];
   onOpenAccountDetail: (w: Wallet) => void;
   onOpenAddAccount: () => void;
+  onImportStatement?: () => void;
   onOpenManageOrder?: () => void;
   onCreateAllocationPlan: () => void;
   onEditAllocationPlan: (plan: AllocationPlan) => void;
@@ -26,6 +27,7 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
   allocationPlans = [],
   onOpenAccountDetail,
   onOpenAddAccount,
+  onImportStatement,
   onOpenManageOrder,
   onCreateAllocationPlan,
   onEditAllocationPlan,
@@ -101,8 +103,24 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
             accessibilityLabel="Add new account"
           >
             <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-            <Text style={styles.addAccountBtnText}>Add New Account</Text>
+            <Text style={styles.addAccountBtnText}>Add Account</Text>
           </TouchableOpacity>
+
+          {onImportStatement ? (
+            <TouchableOpacity
+              style={styles.statementActionBtn}
+              onPress={() => {
+                AppHaptics.light();
+                onImportStatement();
+              }}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="Import e-Statement"
+            >
+              <FileText size={16} color={Palette.ink} style={{ marginRight: 6 }} />
+              <Text style={styles.statementActionBtnText}>e-Statement</Text>
+            </TouchableOpacity>
+          ) : null}
 
           {wallets.length > 1 && onOpenManageOrder ? (
             <TouchableOpacity
@@ -270,6 +288,23 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
     paddingVertical: 14,
     borderRadius: 16,
+  },
+  statementActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+  },
+  statementActionBtnText: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '600',
+    color: Palette.ink,
   },
   manageOrderBtn: {
     width: 48,

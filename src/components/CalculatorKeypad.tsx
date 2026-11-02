@@ -23,6 +23,8 @@ import {
 import {
   formatExpressionDisplay,
   evaluateMathExpression,
+  hasMathOperator,
+  normalizeExpressionSpacing,
   sanitizeExpressionForCurrency,
   getQuickPresets,
   formattedToRawCursor,
@@ -67,11 +69,7 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
     return currency === 'IDR' && raw.includes('.') ? sanitizeExpressionForCurrency(raw, 'IDR') : raw;
   }, [value, currency]);
 
-  const hasOperator =
-    currentExpr.includes(' + ') ||
-    currentExpr.includes(' - ') ||
-    currentExpr.includes(' × ') ||
-    currentExpr.includes(' ÷ ');
+  const hasOperator = hasMathOperator(currentExpr);
   const liveEvaluated = evaluateMathExpression(currentExpr, currency);
   const presets = getQuickPresets(currency);
 
@@ -149,7 +147,7 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
       );
       const minRaw = Math.min(rawCursor, rawEnd);
       const maxRaw = Math.max(rawCursor, rawEnd);
-      activeExpr = (currentExpr.slice(0, minRaw) + currentExpr.slice(maxRaw)).trim() || '0';
+      activeExpr = normalizeExpressionSpacing(currentExpr.slice(0, minRaw) + currentExpr.slice(maxRaw));
       activeRawCursor = minRaw;
     }
 
@@ -215,10 +213,11 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
 
       if (
         inserted.length === 1 &&
-        /^[0-9.+\-]$/.test(inserted) &&
+        /^[0-9.+\-×÷*/]$/.test(inserted) &&
         nextText.length === inputDisplayValue.length + 1
       ) {
-        handleKeyPress(inserted);
+        const mappedKey = inserted === '*' ? '×' : inserted === '/' ? '÷' : inserted;
+        handleKeyPress(mappedKey);
         return;
       }
 
@@ -243,6 +242,12 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
   );
 
   const decimalOrThousandKey = currency === 'IDR' ? '000' : '.';
+  const inputFontSize =
+    inputDisplayValue.length > 22
+      ? 17
+      : inputDisplayValue.length > 15
+      ? 21
+      : 26;
 
   return (
     <View style={styles.container}>
@@ -284,7 +289,7 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
             {/* Native TextInput with suppressed system soft keyboard & Paste support */}
             <TextInput
               ref={inputRef}
-              style={styles.textInput}
+              style={[styles.textInput, { fontSize: inputFontSize }]}
               showSoftInputOnFocus={false}
               contextMenuHidden={false}
               selectTextOnFocus={true}
@@ -318,22 +323,45 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               multiline={false}
               autoCorrect={false}
               autoCapitalize="none"
-              scrollEnabled={false}
+              scrollEnabled={true}
             />
           </Animated.View>
 
-          {/* Reserved Fixed Result Slot: Stays in layout permanently to prevent height jump / layout shift */}
-          <View
-            style={[
-              styles.liveResultRow,
-              { opacity: hasOperator ? 1 : 0 },
-            ]}
-            pointerEvents={hasOperator ? 'auto' : 'none'}
-          >
-            <Text style={styles.liveResultLabel}>=</Text>
-            <Text style={styles.liveResultAmount}>
-              {formatCurrency(liveEvaluated, currency)}
-            </Text>
+          {/* Reserved Fixed Result / Action Slot: Stays in layout permanently to prevent height jump */}
+          <View style={styles.liveResultRow}>
+            {hasOperator ? (
+              <View style={styles.liveResultInner}>
+                <Text
+                  style={[
+                    styles.liveResultAmount,
+                    liveEvaluated < 0 && { color: Palette.error },
+                  ]}
+                  numberOfLines={1}
+                >
+                  = {formatCurrency(liveEvaluated, currency)}
+                </Text>
+                <TouchableOpacity
+                  style={styles.evalInlineBtn}
+                  onPress={() => handleKeyPress('=')}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Calculate result"
+                >
+                  <Text style={styles.evalInlineBtnText}>=</Text>
+                </TouchableOpacity>
+              </View>
+            ) : currentExpr !== '0' ? (
+              <View style={styles.liveResultInner}>
+                <View />
+                <TouchableOpacity
+                  onPress={() => handleKeyPress('C')}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                >
+                  <Text style={styles.clearInlineText}>Clear</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </View>
         </View>
       ) : null}
@@ -377,7 +405,7 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
       </View>
       )}
 
-      {/* 4x4 Calculator Keypad Grid */}
+      {/* 4x4 Calculator Keypad Grid (Digits + ÷, ×, −, +) */}
       {showKeypad && (
       <View style={styles.grid}>
         {/* Row 1 */}
@@ -389,10 +417,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="7"
-            onPress={() => handleKeyPress('7')}
+            accessibilityLabel="1"
+            onPress={() => handleKeyPress('1')}
           >
-            <Text style={styles.digitText}>7</Text>
+            <Text style={styles.digitText}>1</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
@@ -401,10 +429,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="8"
-            onPress={() => handleKeyPress('8')}
+            accessibilityLabel="2"
+            onPress={() => handleKeyPress('2')}
           >
-            <Text style={styles.digitText}>8</Text>
+            <Text style={styles.digitText}>2</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
@@ -413,23 +441,23 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="9"
-            onPress={() => handleKeyPress('9')}
+            accessibilityLabel="3"
+            onPress={() => handleKeyPress('3')}
           >
-            <Text style={styles.digitText}>9</Text>
+            <Text style={styles.digitText}>3</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
-              styles.deleteBtn,
+              styles.opBtn,
               pressed && styles.funcBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Delete"
-            onPress={() => handleKeyPress('⌫')}
+            accessibilityLabel="Divide"
+            onPress={() => handleKeyPress('÷')}
           >
-            <Delete size={20} color={Palette.muted} />
+            <Text style={styles.opText}>÷</Text>
           </Pressable>
         </View>
 
@@ -479,10 +507,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.funcBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Subtract"
-            onPress={() => handleKeyPress('-')}
+            accessibilityLabel="Multiply"
+            onPress={() => handleKeyPress('×')}
           >
-            <Text style={styles.opText}>−</Text>
+            <Text style={styles.opText}>×</Text>
           </Pressable>
         </View>
 
@@ -495,10 +523,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="1"
-            onPress={() => handleKeyPress('1')}
+            accessibilityLabel="7"
+            onPress={() => handleKeyPress('7')}
           >
-            <Text style={styles.digitText}>1</Text>
+            <Text style={styles.digitText}>7</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
@@ -507,10 +535,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="2"
-            onPress={() => handleKeyPress('2')}
+            accessibilityLabel="8"
+            onPress={() => handleKeyPress('8')}
           >
-            <Text style={styles.digitText}>2</Text>
+            <Text style={styles.digitText}>8</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
@@ -519,10 +547,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="3"
-            onPress={() => handleKeyPress('3')}
+            accessibilityLabel="9"
+            onPress={() => handleKeyPress('9')}
           >
-            <Text style={styles.digitText}>3</Text>
+            <Text style={styles.digitText}>9</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
@@ -532,10 +560,10 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
               pressed && styles.funcBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Add"
-            onPress={() => handleKeyPress('+')}
+            accessibilityLabel="Subtract"
+            onPress={() => handleKeyPress('-')}
           >
-            <Text style={styles.opText}>+</Text>
+            <Text style={styles.opText}>−</Text>
           </Pressable>
         </View>
 
@@ -544,15 +572,14 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
           <Pressable
             hitSlop={4}
             style={({ pressed }) => [
-              styles.funcBtn,
-              styles.clearBtn,
-              pressed && styles.funcBtnPressed,
+              styles.digitBtn,
+              pressed && styles.digitBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Clear"
-            onPress={() => handleKeyPress('C')}
+            accessibilityLabel={currency === 'IDR' ? '000' : 'Decimal point'}
+            onPress={() => handleKeyPress(decimalOrThousandKey)}
           >
-            <Text style={styles.clearText}>C</Text>
+            <Text style={styles.digitText}>{decimalOrThousandKey}</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
@@ -569,27 +596,60 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
           <Pressable
             hitSlop={4}
             style={({ pressed }) => [
-              styles.digitBtn,
-              pressed && styles.digitBtnPressed,
+              styles.funcBtn,
+              styles.deleteBtn,
+              pressed && styles.funcBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel={currency === 'IDR' ? '000' : 'Decimal point'}
-            onPress={() => handleKeyPress(decimalOrThousandKey)}
+            accessibilityLabel="Delete, long press to clear"
+            onPress={() => handleKeyPress('⌫')}
+            onLongPress={() => handleKeyPress('C')}
           >
-            <Text style={styles.digitText}>{decimalOrThousandKey}</Text>
+            <Delete size={20} color={Palette.ink} />
+          </Pressable>
+          <Pressable
+            hitSlop={4}
+            style={({ pressed }) => [
+              styles.funcBtn,
+              styles.opBtn,
+              pressed && styles.funcBtnPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Add"
+            onPress={() => handleKeyPress('+')}
+          >
+            <Text style={styles.opText}>+</Text>
+          </Pressable>
+        </View>
+
+        {/* Row 5: Clear (C) & Equals (=) */}
+        <View style={styles.row}>
+          <Pressable
+            hitSlop={4}
+            style={({ pressed }) => [
+              styles.funcBtn,
+              styles.clearBtn,
+              pressed && styles.funcBtnPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Clear amount"
+            onPress={() => handleKeyPress('C')}
+          >
+            <Text style={styles.clearText}>C</Text>
           </Pressable>
           <Pressable
             hitSlop={4}
             style={({ pressed }) => [
               styles.funcBtn,
               styles.equalBtn,
+              hasOperator && styles.equalBtnActive,
               pressed && styles.funcBtnPressed,
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Equals"
+            accessibilityLabel="Calculate result"
             onPress={() => handleKeyPress('=')}
           >
-            <Text style={styles.equalText}>=</Text>
+            <Text style={[styles.equalText, hasOperator && styles.equalTextActive]}>=</Text>
           </Pressable>
         </View>
       </View>
@@ -648,21 +708,40 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   liveResultRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    height: 20,
+    height: 24,
+    justifyContent: 'center',
     marginTop: 2,
   },
-  liveResultLabel: {
-    ...Typography.caption,
-    fontSize: 13,
-    color: Palette.muted,
-    fontWeight: '600',
+  liveResultInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   liveResultAmount: {
     ...Typography.body,
     fontSize: 14,
+    fontWeight: '700',
+    color: Palette.primary,
+    flex: 1,
+    marginRight: 8,
+  },
+  evalInlineBtn: {
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  evalInlineBtnText: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.white,
+  },
+  clearInlineText: {
+    ...Typography.caption,
+    fontSize: 11,
     fontWeight: '700',
     color: Palette.primary,
   },
@@ -702,7 +781,7 @@ const styles = StyleSheet.create({
     color: Palette.white,
   },
   grid: {
-    gap: 8,
+    gap: 7,
   },
   row: {
     flexDirection: 'row',
@@ -710,9 +789,9 @@ const styles = StyleSheet.create({
   },
   digitBtn: {
     flex: 1,
-    height: 52,
+    height: 46,
     backgroundColor: Palette.white,
-    borderRadius: 14,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -735,8 +814,8 @@ const styles = StyleSheet.create({
   },
   funcBtn: {
     flex: 1,
-    height: 52,
-    borderRadius: 14,
+    height: 46,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -769,13 +848,20 @@ const styles = StyleSheet.create({
     color: Palette.primary,
   },
   equalBtn: {
+    backgroundColor: '#F6E5DD',
+    borderColor: '#E8C5B6',
+  },
+  equalBtnActive: {
     backgroundColor: Palette.primary,
     borderColor: Palette.primary,
   },
   equalText: {
     ...Typography.body,
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '700',
+    color: Palette.primary,
+  },
+  equalTextActive: {
     color: Palette.white,
   },
 });

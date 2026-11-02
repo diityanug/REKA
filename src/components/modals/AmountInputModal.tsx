@@ -18,12 +18,20 @@ import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { CurrencyType } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
 import {
+  formatCurrency,
   formatCurrencyInput,
-  parseAmount,
   parsePastedAmountInput,
   extractPastedSubstring,
 } from '../../utils/formatters';
-import { formattedToRawCursor, rawToFormattedCursor } from '../../utils/calculator';
+import {
+  formatExpressionDisplay,
+  evaluateMathExpression,
+  hasMathOperator,
+  normalizeExpressionSpacing,
+  formattedToRawCursor,
+  rawToFormattedCursor,
+  calculateNextExpressionWithCursor,
+} from '../../utils/calculator';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
 
@@ -52,7 +60,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const [rawDigits, setRawDigits] = useState<string>('');
+  const [rawExpr, setRawExpr] = useState<string>('0');
   const [isFocused, setIsFocused] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
   const selectionRef = useRef<{ start: number; end: number }>({
@@ -75,51 +83,103 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 
   useSyncOnChange([visible], () => {
     if (visible) {
-      let nextRaw = '';
-      if (!initialAmount) {
-        nextRaw = '';
-      } else if (currency === 'USD') {
-        const cleaned = initialAmount.replace(/[^0-9.]/g, '');
-        nextRaw = cleaned === '0' ? '' : cleaned;
-      } else {
-        const intOnly = initialAmount.replace(/[.,]\d{1,2}$/, '');
-        const clean = intOnly.replace(/\D/g, '').slice(0, maxDigits);
-        nextRaw = clean === '0' ? '' : clean;
+      let nextRaw = '0';
+      if (initialAmount) {
+        const parsed = parsePastedAmountInput(initialAmount, currency, maxDigits);
+        nextRaw = parsed && parsed !== '0' ? parsed : '0';
       }
-      setRawDigits(nextRaw);
-      const nextFormatted = nextRaw && nextRaw !== '0'
-        ? formatCurrencyInput(nextRaw, currency, maxDigits)
-        : '';
+      setRawExpr(nextRaw);
+      const nextFormatted =
+        nextRaw !== '0' ? formatExpressionDisplay(nextRaw, currency) : '';
       selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
       isTextInputFocusedRef.current = false;
       setIsFocused(true);
     }
   });
 
-  const displayFormatted = useMemo(() => {
-    if (!rawDigits || rawDigits === '0') return '';
-    return formatCurrencyInput(rawDigits, currency, maxDigits);
-  }, [rawDigits, currency, maxDigits]);
+  const formattedExpr = useMemo(() => {
+    return formatExpressionDisplay(rawExpr, currency);
+  }, [rawExpr, currency]);
+
+  const displayFormatted = rawExpr === '0' ? '' : formattedExpr;
+
+  const hasOperator = useMemo(() => {
+    return hasMathOperator(rawExpr);
+  }, [rawExpr]);
 
   const numericValue = useMemo(() => {
-    return parseAmount(displayFormatted || '0', currency);
-  }, [displayFormatted, currency]);
+    if (rawExpr === '0') return 0;
+    return evaluateMathExpression(rawExpr, currency);
+  }, [rawExpr, currency]);
 
-  // Zero is invalid unless the calling flow explicitly allows it
-  const zeroBlocked = !allowZero && numericValue <= 0;
+  // Negative totals are never valid; zero is invalid unless the calling flow explicitly allows it
+  const zeroBlocked = numericValue < 0 || (!allowZero && numericValue <= 0);
 
   const getActiveSelection = () => {
     if (!isTextInputFocusedRef.current) {
-      return { start: displayFormatted.length, end: displayFormatted.length };
+      return { start: formattedExpr.length, end: formattedExpr.length };
     }
     return {
-      start: Math.min(selectionRef.current.start, displayFormatted.length),
-      end: Math.min(selectionRef.current.end, displayFormatted.length),
+      start: Math.min(selectionRef.current.start, formattedExpr.length),
+      end: Math.min(selectionRef.current.end, formattedExpr.length),
     };
   };
 
   const handleSelectionChange = (e: TextInputSelectionChangeEvent) => {
     selectionRef.current = e.nativeEvent.selection;
+  };
+
+  const handleKeyPress = (key: string) => {
+    setIsFocused(true);
+    const sel = getActiveSelection();
+
+    const rawCursor = formattedToRawCursor(
+      formattedExpr,
+      rawExpr,
+      sel.start,
+      currency
+    );
+
+    let activeExpr = rawExpr;
+    let activeRawCursor = rawCursor;
+
+    if (sel.start !== sel.end) {
+      const rawEnd = formattedToRawCursor(
+        formattedExpr,
+        rawExpr,
+        sel.end,
+        currency
+      );
+      const minRaw = Math.min(rawCursor, rawEnd);
+      const maxRaw = Math.max(rawCursor, rawEnd);
+      activeExpr = normalizeExpressionSpacing(rawExpr.slice(0, minRaw) + rawExpr.slice(maxRaw));
+      activeRawCursor = minRaw;
+    }
+
+    const { nextExpr, nextRawCursor } = calculateNextExpressionWithCursor(
+      activeExpr,
+      key,
+      currency,
+      activeRawCursor,
+      maxDigits
+    );
+
+    if (nextExpr === rawExpr && nextRawCursor === rawCursor && sel.start === sel.end) {
+      return;
+    }
+
+    AppHaptics.selection();
+    const nextFormatted = formatExpressionDisplay(nextExpr, currency);
+    const nextFormattedPos = rawToFormattedCursor(
+      nextFormatted,
+      nextExpr,
+      nextRawCursor,
+      currency
+    );
+
+    setRawExpr(nextExpr);
+    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
+    isTextInputFocusedRef.current = false;
   };
 
   const handleChangeText = (nextText: string) => {
@@ -133,10 +193,11 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 
     if (
       inserted.length === 1 &&
-      /^[0-9.]$/.test(inserted) &&
+      /^[0-9.+\-×÷*/]$/.test(inserted) &&
       nextText.length === displayFormatted.length + 1
     ) {
-      handleDigitPress(inserted);
+      const mappedKey = inserted === '*' ? '×' : inserted === '/' ? '÷' : inserted;
+      handleKeyPress(mappedKey);
       return;
     }
 
@@ -147,11 +208,10 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     }
 
     AppHaptics.selection();
-    setRawDigits(parsedRaw);
+    const nextRaw = parsedRaw && parsedRaw !== '0' ? parsedRaw : '0';
+    setRawExpr(nextRaw);
     const nextFormatted =
-      parsedRaw && parsedRaw !== '0'
-        ? formatCurrencyInput(parsedRaw, currency, maxDigits)
-        : '';
+      nextRaw !== '0' ? formatExpressionDisplay(nextRaw, currency) : '';
     selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
     // Blur native TextInput after paste so selection handles/toolbar dismiss cleanly without cursor jump
     isTextInputFocusedRef.current = false;
@@ -160,148 +220,10 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     runSmoothPasteTransition();
   };
 
-  const handleDigitPress = (d: string) => {
-    setIsFocused(true);
-    const sel = getActiveSelection();
-
-    const rawCursor = formattedToRawCursor(
-      displayFormatted,
-      rawDigits,
-      sel.start,
-      currency
-    );
-
-    let activeRaw = rawDigits;
-    let activeRawCursor = rawCursor;
-
-    if (sel.start !== sel.end) {
-      const rawEnd = formattedToRawCursor(
-        displayFormatted,
-        rawDigits,
-        sel.end,
-        currency
-      );
-      const minRaw = Math.min(rawCursor, rawEnd);
-      const maxRaw = Math.max(rawCursor, rawEnd);
-      activeRaw = rawDigits.slice(0, minRaw) + rawDigits.slice(maxRaw);
-      activeRawCursor = minRaw;
-    }
-
-    const left = activeRaw.slice(0, activeRawCursor);
-    const right = activeRaw.slice(activeRawCursor);
-
-    if (d === '.') {
-      if (currency !== 'USD') return;
-      if (activeRaw.includes('.')) return;
-      AppHaptics.selection();
-      const nextRaw = (left || '0') + '.' + right;
-      const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
-      const nextRawPos = (left || '0').length + 1;
-      const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
-      setRawDigits(nextRaw);
-      selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
-      return;
-    }
-
-    // Decimal precision & max digits validation
-    if (currency === 'USD' && (left + right).includes('.')) {
-      const parts = (left + right).split('.');
-      if (parts[1] && parts[1].length >= 2) return;
-    } else {
-      const intPart = (left + right).split('.')[0] || '';
-      if (intPart.length >= maxDigits) return;
-    }
-
-    AppHaptics.selection();
-    let nextRaw = '';
-    let nextRawPos = activeRawCursor + 1;
-
-    if (activeRaw === '' || activeRaw === '0') {
-      if (d === '0') return;
-      nextRaw = d;
-      nextRawPos = 1;
-    } else {
-      nextRaw = left + d + right;
-    }
-
-    const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
-    const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
-
-    setRawDigits(nextRaw);
-    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
-  };
-
-  const handleThousandPress = () => {
-    if (!rawDigits || rawDigits === '0') return;
-    if (rawDigits.length >= maxDigits) return;
-    setIsFocused(true);
-    AppHaptics.selection();
-
-    const sel = getActiveSelection();
-    const rawCursor = formattedToRawCursor(
-      displayFormatted,
-      rawDigits,
-      sel.start,
-      currency
-    );
-    const left = rawDigits.slice(0, rawCursor);
-    const right = rawDigits.slice(rawCursor);
-    const allowed = Math.min(3, maxDigits - (left + right).length);
-    if (allowed <= 0) return;
-
-    const zeros = '0'.repeat(allowed);
-    const nextRaw = left + zeros + right;
-    const nextRawPos = rawCursor + allowed;
-    const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
-    const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
-
-    setRawDigits(nextRaw);
-    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
-  };
-
-  const handleDelete = () => {
-    if (!rawDigits) return;
-    setIsFocused(true);
-    AppHaptics.light();
-
-    const sel = getActiveSelection();
-    if (sel.start !== sel.end) {
-      const rawStart = formattedToRawCursor(displayFormatted, rawDigits, sel.start, currency);
-      const rawEnd = formattedToRawCursor(displayFormatted, rawDigits, sel.end, currency);
-      const minRaw = Math.min(rawStart, rawEnd);
-      const maxRaw = Math.max(rawStart, rawEnd);
-      const nextRaw = rawDigits.slice(0, minRaw) + rawDigits.slice(maxRaw);
-      const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
-      const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, minRaw, currency);
-      setRawDigits(nextRaw);
-      selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
-      isTextInputFocusedRef.current = false;
-      return;
-    }
-
-    const rawCursor = formattedToRawCursor(
-      displayFormatted,
-      rawDigits,
-      sel.start,
-      currency
-    );
-    if (rawCursor <= 0) return;
-
-    const left = rawDigits.slice(0, rawCursor - 1);
-    const right = rawDigits.slice(rawCursor);
-    const nextRaw = left + right;
-    const nextRawPos = Math.max(0, rawCursor - 1);
-    const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
-    const nextFormattedPos = rawToFormattedCursor(nextFormatted, nextRaw, nextRawPos, currency);
-
-    setRawDigits(nextRaw);
-    selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
-  };
-
   const handleClear = () => {
     setIsFocused(true);
     AppHaptics.light();
-    setRawDigits('');
+    setRawExpr('0');
     selectionRef.current = { start: 0, end: 0 };
     isTextInputFocusedRef.current = false;
   };
@@ -309,13 +231,14 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   const handleQuickAdd = (addVal: number) => {
     setIsFocused(true);
     AppHaptics.selection();
-    // Add to the parsed numeric value so USD cents are never truncated
+    // Add to the evaluated numeric value so USD cents and active expressions resolve cleanly
     const cap = currency === 'USD' ? Math.pow(10, maxDigits) - 0.01 : Math.pow(10, maxDigits) - 1;
-    const sum = Math.min(numericValue + addVal, cap);
+    const baseVal = Math.max(0, numericValue);
+    const sum = Math.min(baseVal + addVal, cap);
     const rounded = currency === 'USD' ? Math.round(sum * 100) / 100 : Math.round(sum);
-    const nextRaw = rounded > 0 ? String(rounded) : '';
-    const nextFormatted = formatCurrencyInput(nextRaw, currency, maxDigits);
-    setRawDigits(nextRaw);
+    const nextRaw = rounded > 0 ? String(rounded) : '0';
+    const nextFormatted = nextRaw !== '0' ? formatExpressionDisplay(nextRaw, currency) : '';
+    setRawExpr(nextRaw);
     selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
     isTextInputFocusedRef.current = false;
   };
@@ -331,7 +254,12 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     AppHaptics.light();
     setSaving(true);
     try {
-      await onConfirm(displayFormatted === '0' ? '' : displayFormatted, numericValue);
+      const finalNumeric = Math.max(0, numericValue);
+      const finalFormatted =
+        finalNumeric > 0
+          ? formatCurrencyInput(String(finalNumeric), currency, maxDigits)
+          : '';
+      await onConfirm(finalFormatted, finalNumeric);
       onClose();
     } finally {
       setSaving(false);
@@ -355,6 +283,13 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     ];
   }, [currency]);
 
+  const inputFontSize =
+    displayFormatted.length > 22
+      ? 18
+      : displayFormatted.length > 15
+      ? 22
+      : 28;
+
   return (
     <BottomSheetModal
       visible={visible}
@@ -367,7 +302,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       />
 
       <View style={[styles.sheetContent, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-        {/* Interactive Display Card with Native Cursor & Paste Support */}
+        {/* Interactive Display Card with Native Cursor, Paste & Live Math Preview */}
         <View
           style={[
             styles.displayCard,
@@ -402,7 +337,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 
             <TextInput
               ref={inputRef}
-              style={styles.textInput}
+              style={[styles.textInput, { fontSize: inputFontSize }]}
               showSoftInputOnFocus={false}
               contextMenuHidden={false}
               selectTextOnFocus={true}
@@ -423,13 +358,49 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
               multiline={false}
               autoCorrect={false}
               autoCapitalize="none"
-              scrollEnabled={false}
+              scrollEnabled={true}
             />
           </Animated.View>
 
-          <Text style={styles.digitLimitHint}>
-            Max {maxDigits} digits
-          </Text>
+          <View style={styles.displayFooterRow}>
+            {hasOperator ? (
+              <View style={styles.livePreviewRow}>
+                <Text
+                  style={[
+                    styles.livePreviewText,
+                    numericValue < 0 && { color: Palette.error },
+                  ]}
+                  numberOfLines={1}
+                >
+                  = {formatCurrency(numericValue, currency)}
+                </Text>
+                <TouchableOpacity
+                  style={styles.evalInlineBtn}
+                  onPress={() => handleKeyPress('=')}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel="Calculate result"
+                >
+                  <Text style={styles.evalInlineBtnText}>=</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.hintFooterInner}>
+                <Text style={styles.digitLimitHint}>
+                  Max {maxDigits} digits
+                </Text>
+                {rawExpr !== '0' ? (
+                  <TouchableOpacity
+                    onPress={handleClear}
+                    activeOpacity={0.7}
+                    hitSlop={{ top: 6, bottom: 6, left: 8, right: 8 }}
+                  >
+                    <Text style={styles.clearInlineText}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
+          </View>
         </View>
 
         {/* Quick Presets */}
@@ -446,27 +417,35 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
           ))}
         </View>
 
-        {/* 4x3 Keypad Grid */}
+        {/* 4x4 Calculator Keypad Grid (Digits + ÷, ×, −, +) */}
         <View style={styles.keypadGrid}>
           {/* Row 1 */}
           <View style={styles.keypadRow}>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('1')}
+              onPress={() => handleKeyPress('1')}
             >
               <Text style={styles.keypadDigit}>1</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('2')}
+              onPress={() => handleKeyPress('2')}
             >
               <Text style={styles.keypadDigit}>2</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('3')}
+              onPress={() => handleKeyPress('3')}
             >
               <Text style={styles.keypadDigit}>3</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.keypadBtn, styles.opBtn, pressed && styles.opBtnPressed]}
+              onPress={() => handleKeyPress('÷')}
+              accessibilityRole="button"
+              accessibilityLabel="Divide"
+            >
+              <Text style={styles.opText}>÷</Text>
             </Pressable>
           </View>
 
@@ -474,21 +453,29 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
           <View style={styles.keypadRow}>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('4')}
+              onPress={() => handleKeyPress('4')}
             >
               <Text style={styles.keypadDigit}>4</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('5')}
+              onPress={() => handleKeyPress('5')}
             >
               <Text style={styles.keypadDigit}>5</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('6')}
+              onPress={() => handleKeyPress('6')}
             >
               <Text style={styles.keypadDigit}>6</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.keypadBtn, styles.opBtn, pressed && styles.opBtnPressed]}
+              onPress={() => handleKeyPress('×')}
+              accessibilityRole="button"
+              accessibilityLabel="Multiply"
+            >
+              <Text style={styles.opText}>×</Text>
             </Pressable>
           </View>
 
@@ -496,21 +483,29 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
           <View style={styles.keypadRow}>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('7')}
+              onPress={() => handleKeyPress('7')}
             >
               <Text style={styles.keypadDigit}>7</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('8')}
+              onPress={() => handleKeyPress('8')}
             >
               <Text style={styles.keypadDigit}>8</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('9')}
+              onPress={() => handleKeyPress('9')}
             >
               <Text style={styles.keypadDigit}>9</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.keypadBtn, styles.opBtn, pressed && styles.opBtnPressed]}
+              onPress={() => handleKeyPress('-')}
+              accessibilityRole="button"
+              accessibilityLabel="Subtract"
+            >
+              <Text style={styles.opText}>−</Text>
             </Pressable>
           </View>
 
@@ -519,37 +514,74 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
             {currency === 'IDR' ? (
               <Pressable
                 style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-                onPress={handleThousandPress}
+                onPress={() => handleKeyPress('000')}
               >
                 <Text style={styles.keypadThousand}>000</Text>
               </Pressable>
             ) : (
               <Pressable
                 style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-                onPress={() => handleDigitPress('.')}
+                onPress={() => handleKeyPress('.')}
               >
                 <Text style={styles.keypadDigit}>.</Text>
               </Pressable>
             )}
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, pressed && styles.keypadBtnPressed]}
-              onPress={() => handleDigitPress('0')}
+              onPress={() => handleKeyPress('0')}
             >
               <Text style={styles.keypadDigit}>0</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.keypadBtn, styles.deleteBtn, pressed && styles.keypadBtnPressed]}
-              onPress={handleDelete}
+              onPress={() => handleKeyPress('⌫')}
               onLongPress={handleClear}
+              accessibilityRole="button"
+              accessibilityLabel="Delete, long press to clear"
             >
-              <Delete size={22} color={Palette.ink} />
+              <Delete size={21} color={Palette.ink} />
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.keypadBtn, styles.opBtn, pressed && styles.opBtnPressed]}
+              onPress={() => handleKeyPress('+')}
+              accessibilityRole="button"
+              accessibilityLabel="Add"
+            >
+              <Text style={styles.opText}>+</Text>
+            </Pressable>
+          </View>
+
+          {/* Row 5: Clear (C) & Equals (=) */}
+          <View style={styles.keypadRow}>
+            <Pressable
+              style={({ pressed }) => [styles.keypadBtn, styles.clearBtn, pressed && styles.keypadBtnPressed]}
+              onPress={handleClear}
+              accessibilityRole="button"
+              accessibilityLabel="Clear amount"
+            >
+              <Text style={styles.clearBtnText}>C</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.keypadBtn,
+                styles.equalBtn,
+                hasOperator && styles.equalBtnActive,
+                pressed && styles.equalBtnPressed,
+              ]}
+              onPress={() => handleKeyPress('=')}
+              accessibilityRole="button"
+              accessibilityLabel="Calculate result"
+            >
+              <Text style={[styles.equalBtnText, hasOperator && styles.equalBtnTextActive]}>=</Text>
             </Pressable>
           </View>
         </View>
 
         {/* Dedicated fixed-height zero guard slot so keypad and button never shift */}
         <View style={styles.zeroHintSlot}>
-          {zeroBlocked ? (
+          {numericValue < 0 ? (
+            <Text style={styles.zeroHint}>Total amount cannot be negative.</Text>
+          ) : zeroBlocked ? (
             <Text style={styles.zeroHint}>Enter an amount greater than zero.</Text>
           ) : null}
         </View>
@@ -633,11 +665,53 @@ const styles = StyleSheet.create({
     margin: 0,
     fontVariant: ['tabular-nums'],
   },
+  displayFooterRow: {
+    height: 24,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  hintFooterInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   digitLimitHint: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
-    marginTop: 6,
+  },
+  clearInlineText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.primary,
+  },
+  livePreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  livePreviewText: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.primary,
+    flex: 1,
+    marginRight: 8,
+  },
+  evalInlineBtn: {
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  evalInlineBtnText: {
+    ...Typography.body,
+    fontSize: 14,
+    fontWeight: '700',
+    color: Palette.white,
   },
   presetsRow: {
     flexDirection: 'row',
@@ -661,8 +735,8 @@ const styles = StyleSheet.create({
     color: Palette.ink,
   },
   keypadGrid: {
-    gap: 8,
-    marginBottom: 8,
+    gap: 7,
+    marginBottom: 6,
   },
   keypadRow: {
     flexDirection: 'row',
@@ -670,9 +744,9 @@ const styles = StyleSheet.create({
   },
   keypadBtn: {
     flex: 1,
-    height: 52,
+    height: 46,
     backgroundColor: Palette.white,
-    borderRadius: 14,
+    borderRadius: 13,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -690,6 +764,50 @@ const styles = StyleSheet.create({
   deleteBtn: {
     backgroundColor: Palette.surfaceSoft,
   },
+  clearBtn: {
+    backgroundColor: Palette.surfaceSoft,
+  },
+  clearBtnText: {
+    ...Typography.body,
+    fontSize: 18,
+    fontWeight: '700',
+    color: Palette.muted,
+  },
+  opBtn: {
+    backgroundColor: '#FBF2EE',
+    borderColor: '#F2D7CD',
+  },
+  opBtnPressed: {
+    backgroundColor: '#F4DFD6',
+    transform: [{ scale: 0.97 }],
+  },
+  opText: {
+    ...Typography.body,
+    fontSize: 22,
+    fontWeight: '700',
+    color: Palette.primary,
+  },
+  equalBtn: {
+    backgroundColor: '#F6E5DD',
+    borderColor: '#E8C5B6',
+  },
+  equalBtnActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  equalBtnPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.97 }],
+  },
+  equalBtnText: {
+    ...Typography.body,
+    fontSize: 24,
+    fontWeight: '700',
+    color: Palette.primary,
+  },
+  equalBtnTextActive: {
+    color: Palette.white,
+  },
   keypadDigit: {
     ...Typography.body,
     fontSize: 22,
@@ -698,7 +816,7 @@ const styles = StyleSheet.create({
   },
   keypadThousand: {
     ...Typography.body,
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
     color: Palette.ink,
   },

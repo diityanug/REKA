@@ -82,9 +82,44 @@ export async function pickBackupFile(): Promise<{
     }
 
     const asset = result.assets[0];
-    const fileContent = await FileSystem.readAsStringAsync(asset.uri, {
-      encoding: FileSystem.EncodingType.UTF8,
-    });
+    let fileContent = '';
+
+    try {
+      fileContent = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+    } catch {
+      // Fallback 1: StorageAccessFramework on Android
+      if (Platform.OS === 'android' && asset.uri.startsWith('content://')) {
+        try {
+          fileContent = await FileSystem.StorageAccessFramework.readAsStringAsync(asset.uri, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+        } catch {}
+      }
+      // Fallback 2: copy to cache directory then read
+      if (!fileContent) {
+        try {
+          const cachePath = `${FileSystem.cacheDirectory}bk_${Date.now()}_backup.json`;
+          await FileSystem.copyAsync({ from: asset.uri, to: cachePath });
+          fileContent = await FileSystem.readAsStringAsync(cachePath, {
+            encoding: FileSystem.EncodingType.UTF8,
+          });
+          FileSystem.deleteAsync(cachePath, { idempotent: true }).catch(() => {});
+        } catch {}
+      }
+      // Fallback 3: native fetch
+      if (!fileContent) {
+        try {
+          const res = await fetch(asset.uri);
+          fileContent = await res.text();
+        } catch {}
+      }
+    }
+
+    if (!fileContent) {
+      throw new Error('Could not read the selected backup file content.');
+    }
 
     return {
       success: true,

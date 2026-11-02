@@ -53,11 +53,49 @@ export function evaluateMathExpression(expr: string, currency?: CurrencyType): n
     else if (op === '-') result -= val;
   }
 
-  if (isNaN(result)) return 0;
+  if (isNaN(result) || !isFinite(result)) return 0;
+  const maxCap = currency === 'USD' ? 999999999.99 : 9999999999999;
+  const clamped = Math.min(Math.max(result, -maxCap), maxCap);
   if (currency === 'IDR') {
-    return Math.round(result);
+    return Math.round(clamped);
   }
-  return Math.round(result * 100) / 100;
+  return Math.round(clamped * 100) / 100;
+}
+
+/**
+ * Returns true if the expression contains at least one binary math operator (+, -, ×, ÷).
+ */
+export function hasMathOperator(expr: string): boolean {
+  if (!expr) return false;
+  const withoutLeadingMinus = expr.trimStart().replace(/^-/, '');
+  return /[+\-×÷*/]/.test(withoutLeadingMinus);
+}
+
+/**
+ * Normalizes expression spacing while preserving the trailing space after a trailing operator
+ * (e.g. "50000 + " stays "50000 + ", and "50000 +2" becomes "50000 + 2").
+ */
+export function normalizeExpressionSpacing(raw: string): string {
+  const trimmedStart = (raw || '').replace(/^\s+/, '');
+  if (!trimmedStart) return '0';
+
+  const normalized = trimmedStart
+    .replace(/\*/g, '×')
+    .replace(/\//g, '÷')
+    // Ensure binary operators always have single spaces around them
+    .replace(/(\d|\.)\s*([+\-×÷])\s*/g, '$1 $2 ');
+
+  // Strip accidental leading operator if first operand was deleted
+  const cleanedLeading = normalized.replace(/^[+×÷]\s*/, '').replace(/^-\s+/, '');
+  if (!cleanedLeading) return '0';
+
+  if (/\s[+\-×÷]\s+$/.test(cleanedLeading)) {
+    return cleanedLeading.replace(/\s+$/, ' ');
+  }
+  if (/\s[+\-×÷]$/.test(cleanedLeading)) {
+    return cleanedLeading + ' ';
+  }
+  return cleanedLeading.trimEnd() || '0';
 }
 
 /**
@@ -66,8 +104,9 @@ export function evaluateMathExpression(expr: string, currency?: CurrencyType): n
  */
 export function sanitizeExpressionForCurrency(expr: string, currency: CurrencyType): string {
   if (!expr || expr === '0') return '0';
+  const normalized = normalizeExpressionSpacing(expr);
   if (currency === 'IDR') {
-    const parts = expr.split(' ');
+    const parts = normalized.split(' ');
     const sanitized = parts
       .map((part) => {
         if (['+', '-', '×', '÷', '*', '/'].includes(part)) return part;
@@ -80,7 +119,7 @@ export function sanitizeExpressionForCurrency(expr: string, currency: CurrencyTy
       .join(' ');
     return sanitized || '0';
   }
-  return expr;
+  return normalized;
 }
 
 /**
@@ -88,7 +127,8 @@ export function sanitizeExpressionForCurrency(expr: string, currency: CurrencyTy
  */
 export function formatExpressionDisplay(expr: string, currency: CurrencyType): string {
   if (!expr || expr === '0') return '0';
-  const parts = expr.split(' ');
+  const normalized = normalizeExpressionSpacing(expr);
+  const parts = normalized.split(' ');
 
   return parts
     .map((part) => {
@@ -167,9 +207,10 @@ export function calculateNextExpressionWithCursor(
   currentExpr: string,
   key: string,
   currency: CurrencyType,
-  rawCursor: number
+  rawCursor: number,
+  maxDigits: number = currency === 'IDR' ? 13 : 9
 ): { nextExpr: string; nextRawCursor: number } {
-  let expr = (currentExpr || '0').trim();
+  let expr = normalizeExpressionSpacing(currentExpr || '0');
   if (currency === 'IDR' && expr.includes('.')) {
     expr = sanitizeExpressionForCurrency(expr, 'IDR');
   }
@@ -185,32 +226,45 @@ export function calculateNextExpressionWithCursor(
     if (validCursor <= 0) {
       return { nextExpr: expr, nextRawCursor: 0 };
     }
-    // Check if deleting a math operator padded with spaces e.g. " + "
+    // Check if deleting a math operator padded with spaces e.g. " + " or " +"
     const before3 = expr.slice(Math.max(0, validCursor - 3), validCursor);
+    const before2 = expr.slice(Math.max(0, validCursor - 2), validCursor);
     let deleteCount = 1;
+    let rightStart = validCursor;
     if ([' + ', ' - ', ' × ', ' ÷ '].includes(before3)) {
       deleteCount = 3;
+    } else if ([' +', ' -', ' ×', ' ÷'].includes(before2)) {
+      deleteCount = 2;
+      if (expr[validCursor] === ' ') {
+        rightStart = validCursor + 1;
+      }
     }
     const left = expr.slice(0, validCursor - deleteCount);
-    const right = expr.slice(validCursor);
-    const combined = (left + right).trim();
-    const nextExpr = combined || '0';
-    const nextRawCursor = combined ? Math.max(0, validCursor - deleteCount) : 1;
+    const right = expr.slice(rightStart);
+    const rawCombined = left + right;
+    const nextExpr = normalizeExpressionSpacing(rawCombined);
+    const nextRawCursor =
+      nextExpr === '0' && !rawCombined.trim()
+        ? 1
+        : Math.min(Math.max(0, validCursor - deleteCount), nextExpr.length);
     return { nextExpr, nextRawCursor };
   }
 
   // Equal / Evaluate
   if (key === '=') {
-    const evaluated = evaluateMathExpression(expr, currency);
+    const evaluated = Math.max(0, evaluateMathExpression(expr, currency));
     const nextExpr = evaluated.toString();
     return { nextExpr, nextRawCursor: nextExpr.length };
   }
 
   // Math Operators (+, -, ×, ÷)
   if (['+', '-', '×', '÷'].includes(key)) {
+    if (expr === '0') {
+      return { nextExpr: expr, nextRawCursor: validCursor };
+    }
     const left = expr.slice(0, validCursor);
     const right = expr.slice(validCursor);
-    if (!left && key !== '-') {
+    if (!left.trim()) {
       return { nextExpr: expr, nextRawCursor: validCursor };
     }
     if (
@@ -225,6 +279,19 @@ export function calculateNextExpressionWithCursor(
         nextRawCursor: replacedLeft.length,
       };
     }
+    if (
+      left.endsWith(' +') ||
+      left.endsWith(' -') ||
+      left.endsWith(' ×') ||
+      left.endsWith(' ÷')
+    ) {
+      const replacedLeft = left.slice(0, -2) + ' ' + key + ' ';
+      const cleanRight = right.startsWith(' ') ? right.slice(1) : right;
+      return {
+        nextExpr: replacedLeft + cleanRight,
+        nextRawCursor: replacedLeft.length,
+      };
+    }
     const insertedLeft = left + ' ' + key + ' ';
     return {
       nextExpr: insertedLeft + right,
@@ -235,7 +302,8 @@ export function calculateNextExpressionWithCursor(
   // Decimal Point (USD only, max 2 decimals)
   if (key === '.') {
     if (currency === 'IDR') return { nextExpr: expr, nextRawCursor: validCursor };
-    const left = expr.slice(0, validCursor);
+    const rawLeft = expr.slice(0, validCursor);
+    const left = /\s[+\-×÷]$/.test(rawLeft) ? rawLeft + ' ' : rawLeft;
     const right = expr.slice(validCursor);
     const leftPart = left.split(/ [+\-×÷] /).pop() || '';
     const rightPart = right.split(/ [+\-×÷] /)[0] || '';
@@ -243,27 +311,31 @@ export function calculateNextExpressionWithCursor(
       return { nextExpr: expr, nextRawCursor: validCursor };
     }
     if (!leftPart || leftPart === '0') {
-      const nextLeft = (left === '0' ? '' : left) + '0.';
+      const nextLeft = (left === '0' ? '' : left.endsWith('0') ? left.slice(0, -1) : left) + '0.';
       return { nextExpr: nextLeft + right, nextRawCursor: nextLeft.length };
     }
-    return { nextExpr: left + '.' + right, nextRawCursor: validCursor + 1 };
+    return { nextExpr: left + '.' + right, nextRawCursor: left.length + 1 };
   }
 
-  // Thousand Shortcut (IDR only, max 13 digits)
+  // Thousand Shortcut (IDR only, maxDigits limit)
   if (key === '000') {
     if (expr === '0' || currency !== 'IDR') return { nextExpr: expr, nextRawCursor: validCursor };
-    const left = expr.slice(0, validCursor);
+    const rawLeft = expr.slice(0, validCursor);
+    const left = /\s[+\-×÷]$/.test(rawLeft) ? rawLeft + ' ' : rawLeft;
     const right = expr.slice(validCursor);
     const leftPart = left.split(/ [+\-×÷] /).pop() || '';
     const rightPart = right.split(/ [+\-×÷] /)[0] || '';
+    if (!leftPart || leftPart === '0') {
+      return { nextExpr: expr, nextRawCursor: validCursor };
+    }
     const totalDigits = (leftPart + rightPart).replace(/\D/g, '').length;
-    if (totalDigits >= 13) return { nextExpr: expr, nextRawCursor: validCursor };
-    const allowed = Math.min(3, 13 - totalDigits);
+    if (totalDigits >= maxDigits) return { nextExpr: expr, nextRawCursor: validCursor };
+    const allowed = Math.min(3, maxDigits - totalDigits);
     if (allowed <= 0) return { nextExpr: expr, nextRawCursor: validCursor };
     const zeros = '0'.repeat(allowed);
     return {
       nextExpr: left + zeros + right,
-      nextRawCursor: validCursor + allowed,
+      nextRawCursor: left.length + allowed,
     };
   }
 
@@ -272,20 +344,34 @@ export function calculateNextExpressionWithCursor(
     if (expr === '0') {
       return { nextExpr: key, nextRawCursor: 1 };
     }
-    const left = expr.slice(0, validCursor);
+    const rawLeft = expr.slice(0, validCursor);
+    const left = /\s[+\-×÷]$/.test(rawLeft) ? rawLeft + ' ' : rawLeft;
     const right = expr.slice(validCursor);
     const leftPart = left.split(/ [+\-×÷] /).pop() || '';
     const rightPart = right.split(/ [+\-×÷] /)[0] || '';
+
+    // Prevent leading "00" or "05" on a new operand after an operator
+    if (leftPart === '0' && rightPart === '') {
+      if (key === '0') {
+        return { nextExpr: expr, nextRawCursor: validCursor };
+      }
+      const replacedLeft = left.slice(0, -1) + key;
+      return {
+        nextExpr: replacedLeft + right,
+        nextRawCursor: replacedLeft.length,
+      };
+    }
+
     if ((leftPart + rightPart).includes('.')) {
       const decPart = (leftPart + rightPart).split('.')[1] || '';
       if (decPart.length >= 2) return { nextExpr: expr, nextRawCursor: validCursor };
     } else {
       const intDigits = (leftPart + rightPart).replace(/\D/g, '').length;
-      if (intDigits >= 13) return { nextExpr: expr, nextRawCursor: validCursor };
+      if (intDigits >= maxDigits) return { nextExpr: expr, nextRawCursor: validCursor };
     }
     return {
       nextExpr: left + key + right,
-      nextRawCursor: validCursor + 1,
+      nextRawCursor: left.length + 1,
     };
   }
 

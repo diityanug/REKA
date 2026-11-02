@@ -21,6 +21,7 @@ import {
   Banknote,
   TrendingUp,
   Smartphone,
+  FileText,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
@@ -59,6 +60,7 @@ interface AccountDetailModalProps {
     newAccountNumber?: string
   ) => Promise<void> | void;
   onAdjustWalletBalance: (walletId: string, newBalance: number) => Promise<void> | void;
+  onImportStatement?: (w: Wallet) => void;
   onRenamePocket?: (
     pocketId: string,
     newName: string,
@@ -81,6 +83,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   privacyMode,
   onRenameWallet,
   onAdjustWalletBalance,
+  onImportStatement,
   onRenamePocket,
   onOpenAddPocket,
   onAdjustPocket,
@@ -286,6 +289,23 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     Adjust Balance
                   </Text>
                 </TouchableOpacity>
+
+                {onImportStatement ? (
+                  <TouchableOpacity
+                    style={styles.accountActionBtn}
+                    onPress={() => {
+                      AppHaptics.light();
+                      setIsRenaming(false);
+                      onImportStatement(wallet);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <FileText size={15} color={Palette.ink} />
+                    <Text style={styles.accountActionBtnText} numberOfLines={1}>
+                      e-Statement
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {/* Inline Form: Edit Account (Name, Note / Account Number, Category / Type) */}

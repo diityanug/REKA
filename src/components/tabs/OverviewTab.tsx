@@ -18,10 +18,12 @@ import {
   ChevronRight,
   Calendar,
   Receipt,
+  FileText,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Transaction, CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
+import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { AppHaptics } from '../../utils/haptics';
 import { AccountCardItem } from '../AccountCardItem';
 import { TransactionItemRow } from '../TransactionItemRow';
@@ -39,12 +41,14 @@ interface OverviewTabProps {
   };
   scanning: boolean;
   onNavigateToAccounts?: () => void;
+  onNavigateToHistory?: () => void;
   onSelectMonth: (month: string) => void;
   onOpenMonthPicker: () => void;
   onOpenTransferModal: () => void;
   onOpenManualModal: () => void;
   onScanReceipt: () => void;
   onPickFromGallery: () => void;
+  onImportStatement?: () => void;
   onOpenAccountDetail: (w: Wallet) => void;
   onOpenAddAccount: () => void;
   onSelectTransaction: (tx: Transaction) => void;
@@ -63,12 +67,14 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
   last7DaysFlow,
   scanning,
   onNavigateToAccounts,
+  onNavigateToHistory,
   onSelectMonth,
   onOpenMonthPicker,
   onOpenTransferModal,
   onOpenManualModal,
   onScanReceipt,
   onPickFromGallery,
+  onImportStatement,
   onOpenAccountDetail,
   onOpenAddAccount,
   onSelectTransaction,
@@ -103,11 +109,8 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
   const activeTotalBalance =
     activeCurrency === 'USD' ? usdTotalBalance : idrTotalBalance;
 
-  // Same month-key rule the finance hook uses, computed locally so the stepper can be bounded
-  const currentMonthKey = useMemo(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  }, []);
+  // Same month-key rule the finance hook uses, updated live so the stepper can be bounded
+  const { currentMonthKey } = useCurrentDate();
 
   // Oldest month with recorded activity (availableMonths is sorted newest first)
   const oldestMonthKey = availableMonths.length > 0
@@ -446,6 +449,27 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           <Text style={styles.actionTileTitle}>Upload</Text>
           <Text style={styles.actionTileSub}>Gallery</Text>
         </TouchableOpacity>
+
+        {/* e-Statement Button */}
+        {onImportStatement ? (
+          <TouchableOpacity
+            style={styles.actionTile}
+            onPress={() => {
+              AppHaptics.light();
+              onImportStatement();
+            }}
+            disabled={scanning}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Import e-Statement PDF or mutation"
+          >
+            <View style={[styles.actionIconBadge, { backgroundColor: '#D97706' }]}>
+              <FileText size={17} color={Palette.white} />
+            </View>
+            <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit>Statement</Text>
+            <Text style={styles.actionTileSub}>e-Bank</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {/* 7-Day Cash Flow Bar Chart */}
@@ -569,12 +593,26 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
       )}
 
       {/* Monthly Transactions */}
-      <View style={[styles.sectionHeader, { marginTop: 16 }]}>
+      <View style={[styles.sectionTitleRow, { marginTop: 16, marginBottom: 8 }]}>
         <Text style={styles.sectionTitle}>
           {selectedMonth === 'all'
             ? 'Recent Transactions'
             : `Transactions • ${periodTitle}`}
         </Text>
+        {onNavigateToHistory ? (
+          <TouchableOpacity
+            onPress={() => {
+              AppHaptics.light();
+              onNavigateToHistory();
+            }}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="See all transactions in history"
+          >
+            <Text style={styles.viewAllPlansLink}>See all ›</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       {monthTransactions.length === 0 ? (
@@ -603,16 +641,36 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           </TouchableOpacity>
         </View>
       ) : (
-        recentTransactions.map((tx) => (
-          <TransactionItemRow
-            key={tx.id}
-            transaction={tx}
-            categoryIcon={getCategoryIconName(tx.category, tx.type)}
-            pocketName={getPocketName(tx.pocketId)}
-            privacyMode={privacyMode}
-            onPress={onSelectTransaction}
-          />
-        ))
+        <>
+          {recentTransactions.map((tx) => (
+            <TransactionItemRow
+              key={tx.id}
+              transaction={tx}
+              categoryIcon={getCategoryIconName(tx.category, tx.type)}
+              pocketName={getPocketName(tx.pocketId)}
+              privacyMode={privacyMode}
+              onPress={onSelectTransaction}
+            />
+          ))}
+
+          {monthTransactions.length > recentTransactions.length && onNavigateToHistory ? (
+            <TouchableOpacity
+              style={styles.seeAllBottomBtn}
+              onPress={() => {
+                AppHaptics.light();
+                onNavigateToHistory();
+              }}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel={`See all ${monthTransactions.length} transactions in history`}
+            >
+              <Text style={styles.seeAllBottomBtnText}>
+                See All {monthTransactions.length} Transactions
+              </Text>
+              <ChevronRight size={15} color={Palette.primary} />
+            </TouchableOpacity>
+          ) : null}
+        </>
       )}
     </View>
   );
@@ -834,7 +892,7 @@ const styles = StyleSheet.create({
   },
   actionRow4Col: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
     height: 84,
     marginBottom: 14,
   },
@@ -843,7 +901,7 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.white,
     borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
     alignItems: 'center',
     justifyContent: 'center',
     height: 84,
@@ -1022,5 +1080,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Palette.muted,
     textAlign: 'center',
+  },
+  seeAllBottomBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  seeAllBottomBtnText: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.primary,
   },
 });

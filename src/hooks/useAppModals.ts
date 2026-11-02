@@ -11,9 +11,15 @@ import {
   ReturnModalType,
   ExtractedReceiptData,
 } from '../types';
+import { ExtractedStatementData } from '../services/statementScanner';
 import { AlertButton, AlertType } from '../components/CustomAlertModal';
 import { AppHaptics } from '../utils/haptics';
-import { getTodayDateStr, getCurrentTimeStr, getTimeStrFromTimestamp } from '../utils/formatters';
+import {
+  getTodayDateStr,
+  getCurrentTimeStr,
+  getDateStrFromTimestamp,
+  getTimeStrFromTimestamp,
+} from '../utils/formatters';
 
 export function useAppModals() {
   // Alert dialog state
@@ -283,8 +289,7 @@ export function useAppModals() {
     setManNotes(tx.notes || '');
     setSelectedWalletId(tx.walletId);
     setSelectedPocketId(tx.pocketId || '');
-    const dStr = tx.timestamp ? tx.timestamp.split('T')[0] : getTodayDateStr();
-    setManDate(dStr);
+    setManDate(getDateStrFromTimestamp(tx.timestamp));
     // Keep the original time of day so editing never silently rewrites it
     setManTime(getTimeStrFromTimestamp(tx.timestamp));
     setTimeout(() => {
@@ -323,6 +328,26 @@ export function useAppModals() {
 
   const closeReviewModal = useCallback(() => {
     setReviewModalVisible(false);
+  }, []);
+
+  // Review e-Statement Modal
+  const [reviewStatementModalVisible, setReviewStatementModalVisible] = useState<boolean>(false);
+  const [statementData, setStatementData] = useState<ExtractedStatementData | null>(null);
+  const [statementTargetWalletId, setStatementTargetWalletId] = useState<string>('');
+  const [statementWalletAutoMatched, setStatementWalletAutoMatched] = useState<boolean>(false);
+
+  const openReviewStatement = useCallback(
+    (data: ExtractedStatementData, matchedWalletId: string, isAutoMatched: boolean) => {
+      setStatementData(data);
+      setStatementTargetWalletId(matchedWalletId);
+      setStatementWalletAutoMatched(isAutoMatched);
+      setReviewStatementModalVisible(true);
+    },
+    []
+  );
+
+  const closeReviewStatement = useCallback(() => {
+    setReviewStatementModalVisible(false);
   }, []);
 
   return {
@@ -436,5 +461,14 @@ export function useAppModals() {
     extractedData,
     setExtractedData,
     closeReviewModal,
+    reviewStatementModalVisible,
+    setReviewStatementModalVisible,
+    statementData,
+    setStatementData,
+    statementTargetWalletId,
+    setStatementTargetWalletId,
+    statementWalletAutoMatched,
+    openReviewStatement,
+    closeReviewStatement,
   };
 }

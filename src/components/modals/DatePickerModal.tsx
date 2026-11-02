@@ -8,6 +8,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
+import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
@@ -44,17 +45,11 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
 
-  const today = useMemo(() => new Date(), []);
-  const todayStr = useMemo(() => {
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-    const d = String(today.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }, [today]);
+  const { todayStr, currentYear, currentMonthIndex } = useCurrentDate(visible);
 
   // Current view month & year in the calendar
-  const [viewYear, setViewYear] = useState<number>(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState<number>(today.getMonth()); // 0-11
+  const [viewYear, setViewYear] = useState<number>(currentYear);
+  const [viewMonth, setViewMonth] = useState<number>(currentMonthIndex); // 0-11
   const [tempSelectedDate, setTempSelectedDate] = useState<string>(selectedDate || todayStr);
 
   useSyncOnChange([visible, selectedDate, todayStr], () => {
@@ -110,8 +105,8 @@ export const DatePickerModal: React.FC<DatePickerModalProps> = ({
   const handleSelectToday = () => {
     AppHaptics.selection();
     setTempSelectedDate(todayStr);
-    setViewYear(today.getFullYear());
-    setViewMonth(today.getMonth());
+    setViewYear(currentYear);
+    setViewMonth(currentMonthIndex);
   };
 
   // Calendar matrix calculation

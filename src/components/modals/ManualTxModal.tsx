@@ -21,6 +21,7 @@ import {
 import { PAYMENT_METHODS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
 import { formatCurrency, parseAmount } from '../../utils/formatters';
+import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
@@ -160,16 +161,18 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
     }
   };
 
-  const todayStr = useMemo(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  }, []);
+  const { todayStr, yesterdayStr } = useCurrentDate(visible);
 
-  const yesterdayStr = useMemo(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  }, []);
+  // If the modal stays open across midnight on a new entry, roll "Today" forward automatically
+  const prevTodayRef = useRef<string>(todayStr);
+  useEffect(() => {
+    if (prevTodayRef.current !== todayStr) {
+      if (!isEditing && manDate === prevTodayRef.current) {
+        onChangeDate(todayStr);
+      }
+      prevTodayRef.current = todayStr;
+    }
+  }, [todayStr, isEditing, manDate, onChangeDate]);
 
   const isCustomDate = manDate !== todayStr && manDate !== yesterdayStr;
 
@@ -177,9 +180,13 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
     if (!manDate) return 'Pick Date';
     const parts = manDate.split('-');
     if (parts.length === 3) {
-      const d = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10) - 1;
+      const day = parseInt(parts[2], 10);
+      const d = new Date(y, m, day);
       if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${day} ${months[d.getMonth()]} '${String(y).slice(-2)}`;
       }
     }
     return manDate;
@@ -349,6 +356,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <TouchableOpacity
                   style={[
                     styles.dateSegmentBtn,
+                    styles.dateSegmentBtnToday,
                     manDate === todayStr && styles.dateSegmentBtnActive,
                   ]}
                   onPress={() => {
@@ -362,6 +370,9 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                       styles.dateSegmentText,
                       manDate === todayStr && styles.dateSegmentTextActive,
                     ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
                   >
                     Today
                   </Text>
@@ -370,6 +381,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <TouchableOpacity
                   style={[
                     styles.dateSegmentBtn,
+                    styles.dateSegmentBtnYesterday,
                     manDate === yesterdayStr && styles.dateSegmentBtnActive,
                   ]}
                   onPress={() => {
@@ -383,6 +395,9 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                       styles.dateSegmentText,
                       manDate === yesterdayStr && styles.dateSegmentTextActive,
                     ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
                   >
                     Yesterday
                   </Text>
@@ -391,6 +406,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <TouchableOpacity
                   style={[
                     styles.dateSegmentBtn,
+                    styles.dateSegmentBtnPick,
                     isCustomDate && styles.dateSegmentBtnActive,
                   ]}
                   onPress={() => {
@@ -400,9 +416,9 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                   activeOpacity={0.7}
                 >
                   <Calendar
-                    size={13}
+                    size={12}
                     color={isCustomDate ? Palette.white : Palette.ink}
-                    style={{ marginRight: 4 }}
+                    style={styles.dateSegmentIcon}
                   />
                   <Text
                     style={[
@@ -410,6 +426,8 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                       isCustomDate && styles.dateSegmentTextActive,
                     ]}
                     numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
                   >
                     {isCustomDate ? dateFormattedLabel : 'Pick Date'}
                   </Text>
@@ -840,12 +858,27 @@ const styles = StyleSheet.create({
   },
   dateSegmentBtn: {
     flex: 1,
+    minWidth: 0,
     height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 11,
-    paddingHorizontal: 4,
+    paddingHorizontal: 8,
+    overflow: 'hidden',
+  },
+  dateSegmentBtnToday: {
+    flex: 0.78,
+  },
+  dateSegmentBtnYesterday: {
+    flex: 1.02,
+  },
+  dateSegmentBtnPick: {
+    flex: 1.35,
+  },
+  dateSegmentIcon: {
+    marginRight: 4,
+    flexShrink: 0,
   },
   dateSegmentBtnActive: {
     backgroundColor: Palette.primary,
@@ -860,6 +893,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.muted,
+    flexShrink: 1,
+    textAlign: 'center',
   },
   dateSegmentTextActive: {
     color: Palette.white,

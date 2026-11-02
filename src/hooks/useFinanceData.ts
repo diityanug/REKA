@@ -44,6 +44,7 @@ import {
 import { AppHaptics } from '../utils/haptics';
 import { parseAmount, formatCurrency } from '../utils/formatters';
 import { getUniqueEntityColor } from '../utils/colors';
+import { useCurrentDate } from './useCurrentDate';
 
 interface UseFinanceDataProps {
   showAlert: (
@@ -53,6 +54,154 @@ interface UseFinanceDataProps {
     type?: 'info' | 'warning' | 'error' | 'success' | 'confirm'
   ) => void;
 }
+
+const SEMANTIC_CATEGORY_ICON_FALLBACKS: Record<string, string> = {
+  // Shopping & Retail
+  shopping: 'ShoppingCart',
+  belanja: 'ShoppingCart',
+  groceries: 'ShoppingCart',
+  grocery: 'ShoppingCart',
+  supermarket: 'ShoppingCart',
+  minimarket: 'ShoppingCart',
+  retail: 'ShoppingCart',
+  mall: 'ShoppingCart',
+  ecommerce: 'ShoppingCart',
+  marketplace: 'ShoppingCart',
+  toko: 'ShoppingCart',
+
+  // Snacks & Camilan
+  snacks: 'Cookie',
+  snack: 'Cookie',
+  camilan: 'Cookie',
+  dessert: 'Cookie',
+  bakery: 'Cookie',
+  pastry: 'Cookie',
+  roti: 'Cookie',
+  kue: 'Cookie',
+
+  // Coffee & Drinks
+  coffee: 'Coffee',
+  cafe: 'Coffee',
+  kopi: 'Coffee',
+  tea: 'Coffee',
+  teh: 'Coffee',
+  bar: 'Beer',
+
+  // Food & Dining
+  'food & beverages': 'Utensils',
+  food: 'Utensils',
+  makanan: 'Utensils',
+  beverages: 'Utensils',
+  minuman: 'Utensils',
+  dining: 'Utensils',
+  restaurant: 'Utensils',
+  resto: 'Utensils',
+  lunch: 'Utensils',
+  dinner: 'Utensils',
+  breakfast: 'Utensils',
+  sarapan: 'Utensils',
+
+  // Utilities & Bills
+  'bills & utilities': 'Zap',
+  bills: 'Zap',
+  utilities: 'Zap',
+  tagihan: 'Zap',
+  listrik: 'Zap',
+  electricity: 'Zap',
+  water: 'Droplet',
+  air: 'Droplet',
+  pdam: 'Droplet',
+
+  // Subscriptions & Entertainment
+  subscriptions: 'Film',
+  subscription: 'Film',
+  langganan: 'Film',
+  entertainment: 'Film',
+  streaming: 'Film',
+  hiburan: 'Film',
+  movie: 'Film',
+  cinema: 'Film',
+  bioskop: 'Film',
+  netflix: 'Film',
+  spotify: 'Music2',
+  music: 'Music2',
+  musik: 'Music2',
+  game: 'Gamepad2',
+  gaming: 'Gamepad2',
+
+  // Transport & Travel
+  fuel: 'Fuel',
+  bensin: 'Fuel',
+  gas: 'Fuel',
+  spbu: 'Fuel',
+  pertamina: 'Fuel',
+  shell: 'Fuel',
+  parking: 'CircleParking',
+  parkir: 'CircleParking',
+  transport: 'Car',
+  transportation: 'Car',
+  taxi: 'Car',
+  taksi: 'Car',
+  ojol: 'Car',
+  grab: 'Car',
+  gojek: 'Car',
+  travel: 'Plane',
+  flight: 'Plane',
+  pesawat: 'Plane',
+  train: 'Bus',
+  kereta: 'Bus',
+
+  // Housing
+  'housing / rent': 'Home',
+  housing: 'Home',
+  rent: 'Home',
+  sewa: 'Home',
+  kost: 'Home',
+  kontrakan: 'Home',
+
+  // Health
+  'health & medical': 'HeartPulse',
+  health: 'HeartPulse',
+  medical: 'HeartPulse',
+  kesehatan: 'HeartPulse',
+  pharmacy: 'Pill',
+  apotek: 'Pill',
+  doctor: 'Stethoscope',
+  dokter: 'Stethoscope',
+  rumahsakit: 'HeartPulse',
+  hospital: 'HeartPulse',
+
+  // Fitness
+  'fitness & gym': 'Dumbbell',
+  fitness: 'Dumbbell',
+  gym: 'Dumbbell',
+  olahraga: 'Dumbbell',
+  sports: 'Dumbbell',
+
+  // Income
+  salary: 'DollarSign',
+  gaji: 'DollarSign',
+  wage: 'DollarSign',
+  income: 'DollarSign',
+  pendapatan: 'DollarSign',
+  allowance: 'HandCoins',
+  uangsaku: 'HandCoins',
+  investments: 'TrendingUp',
+  investment: 'TrendingUp',
+  investasi: 'TrendingUp',
+  interest: 'Percent',
+  bunga: 'Percent',
+  bonus: 'Award',
+  gift: 'Gift',
+  hadiah: 'Gift',
+
+  // Others
+  transfer: 'ArrowLeftRight',
+  others: 'CircleEllipsis',
+  lainnya: 'CircleEllipsis',
+  general: 'Tag',
+  umum: 'Tag',
+};
 
 export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
@@ -71,12 +220,18 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const [initialAppReady, setInitialAppReady] = useState<boolean>(false);
   const [activeCurrency, setActiveCurrency] = useState<CurrencyType>('IDR');
 
-  // Unified Month State across Overview & Analytics
-  const currentMonthKey = useMemo(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  }, []);
+  // Unified Month State across Overview & Analytics (updates live on month rollover)
+  const { todayStr, currentMonthKey } = useCurrentDate();
   const [selectedMonth, setSelectedMonth] = useState<string>(() => currentMonthKey);
+  const prevMonthKeyRef = useRef<string>(currentMonthKey);
+
+  useEffect(() => {
+    if (prevMonthKeyRef.current !== currentMonthKey) {
+      const prevKey = prevMonthKeyRef.current;
+      prevMonthKeyRef.current = currentMonthKey;
+      setSelectedMonth((curr) => (curr === prevKey ? currentMonthKey : curr));
+    }
+  }, [currentMonthKey]);
 
   // Budgets always belong to exactly one calendar month (never "all")
   const budgetMonthKey = useMemo(
@@ -187,10 +342,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   // 7-Day Cash Flow Bar Chart data
   const last7DaysFlow = useMemo(() => {
     const days: { key: string; label: string; income: number; expense: number }[] = [];
-    const now = new Date();
+    const [ty, tm, td] = todayStr.split('-').map(Number);
+    const baseDate = new Date(ty, tm - 1, td);
     for (let i = 6; i >= 0; i--) {
-      const d = new Date(now);
-      d.setDate(now.getDate() - i);
+      const d = new Date(baseDate);
+      d.setDate(baseDate.getDate() - i);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
         d.getDate()
       ).padStart(2, '0')}`;
@@ -221,7 +377,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     );
 
     return { days, maxVal };
-  }, [transactions, activeCurrency]);
+  }, [transactions, activeCurrency, todayStr]);
 
   // Helpers
   const getPocketName = useCallback(
@@ -238,14 +394,59 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       const lower = (catName || '').toLowerCase().trim();
       if (lower === 'transfer') return 'ArrowLeftRight';
       if (lower === 'others') return 'CircleEllipsis';
+
+      // 1. Direct semantic overrides for high-frequency categories where icons were previously mismatched
+      if (lower === 'shopping' || lower === 'belanja') return 'ShoppingCart';
+      if (lower === 'snacks' || lower === 'snack' || lower === 'camilan') return 'Cookie';
+
+      // 2. Exact match in user's category list with matching type
       if (type) {
         const foundWithType = categories.find(
           (c) => c.name.toLowerCase() === lower && c.type === type
         );
-        if (foundWithType) return foundWithType.icon;
+        if (foundWithType) {
+          if (foundWithType.name.toLowerCase() === 'shopping' && (foundWithType.icon === 'ShoppingBag' || foundWithType.icon === 'Gift')) {
+            return 'ShoppingCart';
+          }
+          if ((foundWithType.name.toLowerCase() === 'snacks' || foundWithType.name.toLowerCase() === 'snack') && foundWithType.icon === 'Coffee') {
+            return 'Cookie';
+          }
+          return foundWithType.icon;
+        }
       }
+
+      // 3. Exact match in user's category list
       const found = categories.find((c) => c.name.toLowerCase() === lower);
-      return found ? found.icon : 'HelpCircle';
+      if (found) {
+        if (found.name.toLowerCase() === 'shopping' && (found.icon === 'ShoppingBag' || found.icon === 'Gift')) {
+          return 'ShoppingCart';
+        }
+        if ((found.name.toLowerCase() === 'snacks' || found.name.toLowerCase() === 'snack') && found.icon === 'Coffee') {
+          return 'Cookie';
+        }
+        return found.icon;
+      }
+
+      // 4. Semantic fallback mapping
+      if (SEMANTIC_CATEGORY_ICON_FALLBACKS[lower]) {
+        return SEMANTIC_CATEGORY_ICON_FALLBACKS[lower];
+      }
+
+      // 5. Partial keyword matching
+      if (lower.includes('shop') || lower.includes('belanja') || lower.includes('store') || lower.includes('market')) {
+        return 'ShoppingCart';
+      }
+      if (lower.includes('snack') || lower.includes('camilan') || lower.includes('kue') || lower.includes('roti') || lower.includes('cookie') || lower.includes('biscuit')) {
+        return 'Cookie';
+      }
+      if (lower.includes('kopi') || lower.includes('coffee') || lower.includes('cafe')) {
+        return 'Coffee';
+      }
+      if (lower.includes('makan') || lower.includes('food') || lower.includes('resto') || lower.includes('dining')) {
+        return 'Utensils';
+      }
+
+      return 'CircleEllipsis';
     },
     [categories]
   );

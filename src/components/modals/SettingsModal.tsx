@@ -24,6 +24,7 @@ import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 import { saveTextFileDirectly, pickBackupFile } from '../../utils/fileStorage';
+import { getTodayDateStr } from '../../utils/formatters';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -139,7 +140,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       AppHaptics.light();
       const jsonBackup = await onExportBackup();
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = getTodayDateStr();
       const filename = `REKA_backup_${dateStr}.json`;
 
       const result = await saveTextFileDirectly(filename, jsonBackup, 'application/json');
@@ -159,7 +160,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     try {
       AppHaptics.light();
       const csvData = await onExportCSV();
-      const dateStr = new Date().toISOString().slice(0, 10);
+      const dateStr = getTodayDateStr();
       const filename = `REKA_ledger_${dateStr}.csv`;
 
       const result = await saveTextFileDirectly(filename, csvData, 'text/csv');

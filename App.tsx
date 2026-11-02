@@ -13,13 +13,20 @@ import * as SplashScreen from 'expo-splash-screen';
 // Domain Services & Utilities
 import {
   insertTransactionWithItems,
+  insertStatementTransactionsBatch,
   updateTransaction,
   getSetting,
   setSetting,
 } from './src/services/database';
 import { extractReceiptFromBase64, isReceiptScannerConfigured } from './src/services/receiptScanner';
+import {
+  pickStatementFile,
+  extractStatementFromFile,
+  matchWalletForStatement,
+  ExtractedStatementTx,
+} from './src/services/statementScanner';
 import { Palette } from './src/theme/tokens';
-import { formatCurrency, parseAmount, formatCurrencyInput } from './src/utils/formatters';
+import { formatCurrency, parseAmount, formatCurrencyInput, getCurrentTimeStr } from './src/utils/formatters';
 import { sanitizeExpressionForCurrency } from './src/utils/calculator';
 import { AppHaptics } from './src/utils/haptics';
 import { TabType, FilterType, CurrencyType, Wallet, Transaction } from './src/types';
@@ -39,6 +46,7 @@ import { AnalyticsTab } from './src/components/tabs/AnalyticsTab';
 
 // Modal Views
 import { ReviewReceiptModal } from './src/components/modals/ReviewReceiptModal';
+import { ReviewStatementModal } from './src/components/modals/ReviewStatementModal';
 import { ScanningReceiptModal } from './src/components/modals/ScanningReceiptModal';
 import { ManualTxModal } from './src/components/modals/ManualTxModal';
 import { NewAccountModal } from './src/components/modals/NewAccountModal';
@@ -105,6 +113,7 @@ function MainApp() {
   const [activeTab, setActiveTab] = useState<TabType>('overview');
   const [splashFinished, setSplashFinished] = useState<boolean>(false);
   const [scanning, setScanning] = useState<boolean>(false);
+  const [scanningMode, setScanningMode] = useState<'receipt' | 'statement'>('receipt');
   const [privacyMode, setPrivacyMode] = useState<boolean>(false);
   const scanAbortRef = useRef<AbortController | null>(null);
 
@@ -393,6 +402,7 @@ function MainApp() {
   const processReceiptImage = async (base64: string) => {
     const controller = new AbortController();
     scanAbortRef.current = controller;
+    setScanningMode('receipt');
     setScanning(true);
     try {
       const data = await extractReceiptFromBase64(base64, 'image/jpeg', controller.signal);
@@ -430,6 +440,112 @@ function MainApp() {
     } finally {
       scanAbortRef.current = null;
       setScanning(false);
+    }
+  };
+
+  // Pick & process e-Statement (PDF, images, CSV)
+  const handlePickStatement = async (preferredWallet?: Wallet) => {
+    if (promptScannerNotConfigured()) return;
+    try {
+      AppHaptics.light();
+      const file = await pickStatementFile();
+      if (file.cancelled) return;
+
+      const controller = new AbortController();
+      scanAbortRef.current = controller;
+      setScanningMode('statement');
+      setScanning(true);
+
+      try {
+        const stmtData = await extractStatementFromFile(
+          file as any,
+          finance.wallets.map((w) => w.name),
+          controller.signal
+        );
+        AppHaptics.success();
+
+        const { matchedWallet, isAutoMatched } = matchWalletForStatement(
+          stmtData,
+          finance.wallets,
+          preferredWallet?.id
+        );
+
+        if (matchedWallet && matchedWallet.currency !== finance.activeCurrency) {
+          finance.setActiveCurrency(matchedWallet.currency);
+        }
+
+        modals.openReviewStatement(
+          stmtData,
+          matchedWallet ? matchedWallet.id : '',
+          isAutoMatched
+        );
+      } catch (err: any) {
+        if (controller.signal.aborted) return;
+        AppHaptics.error();
+        modals.showAlert(
+          'e-Statement Notice',
+          err.message || 'Could not read e-Statement. Please make sure the document is not password-protected and try again.',
+          undefined,
+          'error'
+        );
+      } finally {
+        scanAbortRef.current = null;
+        setScanning(false);
+      }
+    } catch (err: any) {
+      modals.showAlert('File Selection Error', err.message, undefined, 'error');
+    }
+  };
+
+  const handleConfirmImportStatement = async (
+    selectedTxs: ExtractedStatementTx[],
+    targetWalletId: string,
+    updateWalletBalance: boolean
+  ) => {
+    const targetWallet = finance.wallets.find((w) => w.id === targetWalletId);
+    if (!targetWallet) {
+      modals.showAlert('Account Required', 'Please select a valid account to save these transactions.', undefined, 'warning');
+      return;
+    }
+
+    try {
+      AppHaptics.heavy();
+      const mappedTxs: Omit<Transaction, 'id'>[] = selectedTxs.map((stx) => {
+        const timestamp = buildLocalTimestamp(
+          stx.transactionDate,
+          stx.transactionTime || getCurrentTimeStr()
+        );
+        return {
+          walletId: targetWallet.id,
+          pocketId: '',
+          merchantName: stx.merchantName,
+          category: stx.category,
+          type: stx.type,
+          amount: stx.amount,
+          currency: targetWallet.currency,
+          taxAmount: 0,
+          discountAmount: 0,
+          timestamp,
+          paymentMethod: stx.paymentMethod,
+          notes: stx.notes,
+        };
+      });
+
+      await insertStatementTransactionsBatch(mappedTxs, { updateWalletBalance });
+      modals.closeReviewStatement();
+      await finance.loadData();
+      AppHaptics.success();
+
+      modals.showAlert(
+        'e-Statement Imported Successfully',
+        `Successfully imported ${selectedTxs.length} transaction${selectedTxs.length === 1 ? '' : 's'} to ${targetWallet.name}.${
+          updateWalletBalance ? ' Account balance has been updated.' : ''
+        }`,
+        undefined,
+        'info'
+      );
+    } catch (err: any) {
+      modals.showAlert('Import Error', err.message || 'Failed to save e-Statement transactions.', undefined, 'error');
     }
   };
 
@@ -527,13 +643,13 @@ function MainApp() {
 
       let txTimestamp = new Date().toISOString();
       if (modals.extractedData.transactionDate) {
-        const d = new Date(modals.extractedData.transactionDate);
-        if (!isNaN(d.getTime())) {
-          if (modals.extractedData.transactionDate.length <= 10) {
-            const now = new Date();
-            d.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+        if (/^\d{4}-\d{2}-\d{2}$/.test(modals.extractedData.transactionDate)) {
+          txTimestamp = buildLocalTimestamp(modals.extractedData.transactionDate, getCurrentTimeStr());
+        } else {
+          const d = new Date(modals.extractedData.transactionDate);
+          if (!isNaN(d.getTime())) {
+            txTimestamp = d.toISOString();
           }
-          txTimestamp = d.toISOString();
         }
       }
 
@@ -740,6 +856,10 @@ function MainApp() {
     setActiveTab('accounts');
   }, []);
 
+  const handleNavigateToHistory = useCallback(() => {
+    setActiveTab('history');
+  }, []);
+
   const handleOpenOverviewMonthPicker = useCallback(() => {
     modals.openMonthPicker('overview');
   }, [modals]);
@@ -857,12 +977,14 @@ function MainApp() {
               last7DaysFlow={finance.last7DaysFlow}
               scanning={scanning}
               onNavigateToAccounts={handleNavigateToAccounts}
+              onNavigateToHistory={handleNavigateToHistory}
               onSelectMonth={finance.setSelectedMonth}
               onOpenMonthPicker={handleOpenOverviewMonthPicker}
               onOpenTransferModal={handleOpenTransferModal}
               onOpenManualModal={handleOpenManualTransaction}
               onScanReceipt={handleScanReceipt}
               onPickFromGallery={handlePickFromGallery}
+              onImportStatement={() => handlePickStatement()}
               onOpenAccountDetail={handleOpenAccountDetail}
               onOpenAddAccount={handleOpenAddAccount}
               onSelectTransaction={handleSelectTransaction}
@@ -880,6 +1002,7 @@ function MainApp() {
               allocationPlans={finance.allocationPlans}
               onOpenAccountDetail={handleOpenAccountDetail}
               onOpenAddAccount={handleOpenAddAccount}
+              onImportStatement={() => handlePickStatement()}
               onOpenManageOrder={handleOpenManageOrder}
               onCreateAllocationPlan={modals.openCreateAllocationPlan}
               onEditAllocationPlan={modals.openEditAllocationPlan}
@@ -915,7 +1038,11 @@ function MainApp() {
       />
 
       {/* Scanning Receipt In-Progress Custom Modal */}
-      <ScanningReceiptModal visible={scanning} onCancel={handleCancelScan} />
+      <ScanningReceiptModal
+        visible={scanning}
+        mode={scanningMode}
+        onCancel={handleCancelScan}
+      />
 
       {/* Modal 1: Review Scanned Receipt */}
       <ReviewReceiptModal
@@ -932,6 +1059,27 @@ function MainApp() {
         onOpenAddPocket={() => modals.openAddPocketModal('review')}
         onConfirm={handleSaveScanTransaction}
         onClose={modals.closeReviewModal}
+      />
+
+      {/* Modal 1b: Review & Import Bank e-Statement */}
+      <ReviewStatementModal
+        visible={modals.reviewStatementModalVisible}
+        statementData={modals.statementData}
+        wallets={finance.wallets}
+        categories={finance.categories}
+        existingTransactions={finance.transactions}
+        selectedWalletId={modals.statementTargetWalletId}
+        isAutoMatched={modals.statementWalletAutoMatched}
+        privacyMode={privacyMode}
+        onSelectWallet={modals.setStatementTargetWalletId}
+        onOpenAddAccount={(prefillName, prefillCurrency, prefillNumber) => {
+          modals.openAddAccountModal(prefillCurrency || finance.activeCurrency, 'none');
+          if (prefillName) modals.setNewAccName(prefillName);
+          if (prefillNumber) modals.setNewAccNumber(prefillNumber);
+        }}
+        onConfirmImport={handleConfirmImportStatement}
+        onClose={modals.closeReviewStatement}
+        getCategoryIconName={finance.getCategoryIconName}
       />
 
       {/* Modal 2: Manual Transaction Input */}
@@ -1146,6 +1294,7 @@ function MainApp() {
         privacyMode={privacyMode}
         onRenameWallet={finance.handleRenameWallet}
         onAdjustWalletBalance={finance.handleAdjustWalletBalance}
+        onImportStatement={(w) => handlePickStatement(w)}
         onRenamePocket={finance.handleRenamePocket}
         onOpenAddPocket={modals.openAddPocketForWallet}
         onAdjustPocket={modals.openAdjustPocketFromDetail}
