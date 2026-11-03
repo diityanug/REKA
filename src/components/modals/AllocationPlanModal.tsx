@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Trash2, Check, Layers, Edit3 } from 'lucide-react-native';
+import { Plus, Trash2, Check, Layers, Edit3, Copy } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useLastDefined } from '../../hooks/useLastDefined';
@@ -27,6 +27,7 @@ interface AllocationPlanModalProps {
   activeCurrency: CurrencyType;
   plan: AllocationPlan | null;
   onSave: (plan: AllocationPlan) => void | Promise<void>;
+  onDuplicate?: (plan: AllocationPlan) => void | Promise<void>;
   onDelete?: (planId: string) => void | Promise<void>;
   onClose: () => void;
 }
@@ -62,6 +63,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   activeCurrency,
   plan,
   onSave,
+  onDuplicate,
   onDelete,
   onClose,
 }) => {
@@ -74,6 +76,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const [activeAmountRowId, setActiveAmountRowId] = useState<string | null>(null);
   const [saving, setSaving] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
+  const [duplicating, setDuplicating] = useState<boolean>(false);
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
@@ -169,6 +172,23 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     setRows((prev) => {
       if (prev.length <= 1) return prev;
       return prev.filter((r) => r.id !== id);
+    });
+  };
+
+  const handleDuplicateRow = (id: string) => {
+    AppHaptics.selection();
+    setRows((prev) => {
+      const targetIndex = prev.findIndex((r) => r.id === id);
+      if (targetIndex === -1) return prev;
+      const targetRow = prev[targetIndex];
+      const newRow: DraftRow = {
+        id: Date.now().toString() + Math.random().toString(36).slice(2, 6),
+        label: targetRow.label,
+        amountStr: targetRow.amountStr,
+      };
+      const next = [...prev];
+      next.splice(targetIndex + 1, 0, newRow);
+      return next;
     });
   };
 
@@ -290,6 +310,34 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     );
   };
 
+  const handleDuplicateCurrentPlan = async () => {
+    if (!plan || !onDuplicate || duplicating || saving) return;
+    const trimmedTitle = title.trim() || plan.title;
+    const validItems: AllocationItem[] = filledRows.map((r) => {
+      const amt = parseAmount(r.amountStr, planCurrency);
+      return {
+        id: r.id,
+        label: r.label.trim() || 'Untitled Allocation',
+        amount: isNaN(amt) ? 0 : amt,
+      };
+    });
+
+    const currentPlanSnapshot: AllocationPlan = {
+      id: plan.id,
+      title: trimmedTitle,
+      currency: planCurrency,
+      items: validItems.length > 0 ? validItems : (plan.items || []),
+    };
+
+    AppHaptics.heavy();
+    setDuplicating(true);
+    try {
+      await onDuplicate(currentPlanSnapshot);
+    } finally {
+      setDuplicating(false);
+    }
+  };
+
   return (
     <BottomSheetModal
       visible={visible}
@@ -392,7 +440,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             {/* Column Headers */}
             <View style={styles.tableHeaderRow}>
               <Text style={[styles.colHeader, { flex: 1.1 }]}>DESCRIPTION</Text>
-              <Text style={[styles.colHeader, { flex: 1.1, textAlign: 'right', paddingRight: 36 }]}>
+              <Text style={[styles.colHeader, { flex: 1.1, textAlign: 'right', paddingRight: 60 }]}>
                 AMOUNT
               </Text>
             </View>
@@ -436,17 +484,33 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
                   <Edit3 size={13} color={Palette.muted} style={{ marginLeft: 6 }} />
                 </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[
-                    styles.deleteRowBtn,
-                    rows.length <= 1 && { opacity: 0.3 },
-                  ]}
-                  onPress={() => handleRemoveRow(row.id)}
-                  disabled={rows.length <= 1}
-                  activeOpacity={0.7}
-                >
-                  <Trash2 size={16} color={rows.length > 1 ? Palette.error : Palette.muted} />
-                </TouchableOpacity>
+                <View style={styles.rowActions}>
+                  <TouchableOpacity
+                    style={styles.actionRowBtn}
+                    onPress={() => handleDuplicateRow(row.id)}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Duplicate row"
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  >
+                    <Copy size={15} color={Palette.muted} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.actionRowBtn,
+                      rows.length <= 1 && { opacity: 0.3 },
+                    ]}
+                    onPress={() => handleRemoveRow(row.id)}
+                    disabled={rows.length <= 1}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete row"
+                    hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+                  >
+                    <Trash2 size={15} color={rows.length > 1 ? Palette.error : Palette.muted} />
+                  </TouchableOpacity>
+                </View>
               </View>
             ))}
 
@@ -474,7 +538,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             <TouchableOpacity
               style={[styles.saveBtn, saving && { opacity: 0.7 }]}
               onPress={handleSave}
-              disabled={saving}
+              disabled={saving || duplicating}
               activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel="Save plan"
@@ -492,24 +556,48 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
               )}
             </TouchableOpacity>
 
-            {plan && onDelete && (
-              <TouchableOpacity
-                style={[styles.deletePlanBtn, deleting && { opacity: 0.6 }]}
-                onPress={handleDelete}
-                disabled={deleting}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Delete this plan"
-              >
-                {deleting ? (
-                  <ActivityIndicator size="small" color={Palette.error} />
-                ) : (
-                  <>
-                    <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
-                    <Text style={styles.deletePlanBtnText}>Delete This Plan</Text>
-                  </>
+            {plan && (onDuplicate || onDelete) && (
+              <View style={styles.secondaryFooterRow}>
+                {onDuplicate && (
+                  <TouchableOpacity
+                    style={[styles.secondaryActionBtn, styles.duplicatePlanBtn, duplicating && { opacity: 0.6 }]}
+                    onPress={handleDuplicateCurrentPlan}
+                    disabled={duplicating || saving}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Duplicate this plan"
+                  >
+                    {duplicating ? (
+                      <ActivityIndicator size="small" color={Palette.ink} />
+                    ) : (
+                      <>
+                        <Copy size={15} color={Palette.ink} style={{ marginRight: 6 }} />
+                        <Text style={styles.duplicatePlanBtnText}>Duplicate Plan</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 )}
-              </TouchableOpacity>
+
+                {onDelete && (
+                  <TouchableOpacity
+                    style={[styles.secondaryActionBtn, styles.deletePlanBtn, deleting && { opacity: 0.6 }]}
+                    onPress={handleDelete}
+                    disabled={deleting || saving || duplicating}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete this plan"
+                  >
+                    {deleting ? (
+                      <ActivityIndicator size="small" color={Palette.error} />
+                    ) : (
+                      <>
+                        <Trash2 size={15} color={Palette.error} style={{ marginRight: 6 }} />
+                        <Text style={styles.deletePlanBtnText}>Delete Plan</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
             )}
           </View>
 
@@ -692,6 +780,17 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     fontWeight: '400',
   },
+  rowActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  actionRowBtn: {
+    width: 28,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   deleteRowBtn: {
     width: 32,
     height: 38,
@@ -763,14 +862,31 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.white,
   },
-  deletePlanBtn: {
+  secondaryFooterRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  secondaryActionBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FEF8F8',
     borderRadius: 12,
     paddingVertical: 10,
     borderWidth: 1,
+  },
+  duplicatePlanBtn: {
+    backgroundColor: Palette.surfaceSoft,
+    borderColor: Palette.hairline,
+  },
+  duplicatePlanBtnText: {
+    ...Typography.caption,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  deletePlanBtn: {
+    backgroundColor: '#FEF8F8',
     borderColor: '#F8D7DA',
   },
   deletePlanBtnText: {

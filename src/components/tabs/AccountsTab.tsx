@@ -18,6 +18,7 @@ interface AccountsTabProps {
   onOpenManageOrder?: () => void;
   onCreateAllocationPlan: () => void;
   onEditAllocationPlan: (plan: AllocationPlan) => void;
+  onDuplicateAllocationPlan?: (plan: AllocationPlan) => void;
 }
 
 export const AccountsTab = React.memo<AccountsTabProps>(({
@@ -31,6 +32,7 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
   onOpenManageOrder,
   onCreateAllocationPlan,
   onEditAllocationPlan,
+  onDuplicateAllocationPlan,
 }) => {
   return (
     <View>
@@ -76,6 +78,7 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
               activeCurrency={activeCurrency}
               privacyMode={privacyMode}
               onEdit={onEditAllocationPlan}
+              onDuplicate={onDuplicateAllocationPlan}
             />
           ))}
           <TouchableOpacity

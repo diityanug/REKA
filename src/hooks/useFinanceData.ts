@@ -987,6 +987,51 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   };
 
+  const handleDuplicateAllocationPlan = async (plan: AllocationPlan) => {
+    try {
+      AppHaptics.heavy();
+      const targetCurrency: CurrencyType = plan.currency || 'IDR';
+      const currPlans = allocationPlansMap[targetCurrency] || [];
+      const newPlanId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+      let newTitle = `${plan.title} (Copy)`;
+      let copyIndex = 1;
+      while (currPlans.some((p) => p.title.toLowerCase() === newTitle.toLowerCase())) {
+        copyIndex += 1;
+        newTitle = `${plan.title} (Copy ${copyIndex})`;
+      }
+
+      const duplicatedPlan: AllocationPlan = {
+        id: newPlanId,
+        title: newTitle,
+        currency: targetCurrency,
+        items: (plan.items || []).map((it) => ({
+          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          label: it.label,
+          amount: it.amount,
+        })),
+      };
+
+      const updatedPlans = [...currPlans, duplicatedPlan];
+      await saveAllocationPlans(updatedPlans, targetCurrency);
+      setAllocationPlansMap((prev) => ({
+        ...prev,
+        [targetCurrency]: updatedPlans,
+      }));
+      AppHaptics.success();
+      showAlert(
+        'Plan Duplicated',
+        `Created "${newTitle}" with ${duplicatedPlan.items.length} items.`,
+        undefined,
+        'success'
+      );
+      return duplicatedPlan;
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to duplicate allocation plan.', undefined, 'error');
+      return null;
+    }
+  };
+
   const handleExportBackup = async () => {
     return await exportAllData();
   };
@@ -1051,6 +1096,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleUndoRestore,
     handleSaveAllocationPlan,
     handleDeleteAllocationPlan,
+    handleDuplicateAllocationPlan,
     handleExportBackup,
     handleExportCSV,
     handleImportBackup,

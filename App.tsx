@@ -1007,6 +1007,7 @@ function MainApp() {
               onOpenManageOrder={handleOpenManageOrder}
               onCreateAllocationPlan={modals.openCreateAllocationPlan}
               onEditAllocationPlan={modals.openEditAllocationPlan}
+              onDuplicateAllocationPlan={finance.handleDuplicateAllocationPlan}
             />
           )}
 
@@ -1388,6 +1389,10 @@ function MainApp() {
         plan={modals.selectedAllocationPlan}
         onSave={async (plan) => {
           await finance.handleSaveAllocationPlan(plan);
+          modals.closeAllocationPlan();
+        }}
+        onDuplicate={async (plan) => {
+          await finance.handleDuplicateAllocationPlan(plan);
           modals.closeAllocationPlan();
         }}
         onDelete={async (planId) => {

@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Layers } from 'lucide-react-native';
+import { Layers, Copy } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { AllocationPlan, CurrencyType } from '../types';
 import { formatCurrency } from '../utils/formatters';
@@ -11,6 +11,7 @@ interface AllocationPlanCardProps {
   activeCurrency: CurrencyType;
   privacyMode: boolean;
   onEdit: (plan: AllocationPlan) => void;
+  onDuplicate?: (plan: AllocationPlan) => void;
 }
 
 export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
@@ -18,6 +19,7 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
   activeCurrency,
   privacyMode,
   onEdit,
+  onDuplicate,
 }) => {
   const planCurrency = plan.currency || activeCurrency;
   const totalAmount = plan.items.reduce((sum, it) => sum + (it.amount || 0), 0);
@@ -44,8 +46,26 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
             </Text>
           </View>
         </View>
-        <View style={styles.currencyBadge}>
-          <Text style={styles.currencyBadgeText}>{planCurrency}</Text>
+        <View style={styles.headerRightWrap}>
+          {onDuplicate && (
+            <TouchableOpacity
+              style={styles.duplicateCardBtn}
+              onPress={(e) => {
+                e?.stopPropagation?.();
+                AppHaptics.light();
+                onDuplicate(plan);
+              }}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel={`Duplicate ${plan.title}`}
+              hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+            >
+              <Copy size={14} color={Palette.muted} />
+            </TouchableOpacity>
+          )}
+          <View style={styles.currencyBadge}>
+            <Text style={styles.currencyBadgeText}>{planCurrency}</Text>
+          </View>
         </View>
       </View>
 
@@ -129,6 +149,22 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     marginTop: 1,
   },
+  headerRightWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 8,
+  },
+  duplicateCardBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6,
+  },
   currencyBadge: {
     backgroundColor: Palette.surfaceSoft,
     paddingHorizontal: 8,
@@ -136,7 +172,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    marginLeft: 8,
   },
   currencyBadgeText: {
     ...Typography.caption,
