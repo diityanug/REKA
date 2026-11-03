@@ -98,14 +98,6 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     () => usdWallets.reduce((sum, w) => sum + w.balance, 0),
     [usdWallets]
   );
-  const hasBothWalletCurrencies = idrWallets.length > 0 && usdWallets.length > 0;
-  const hasMultiCurrency = useMemo(
-    () =>
-      hasBothWalletCurrencies ||
-      usdWallets.length > 0 ||
-      transactions.some((tx) => tx.currency === 'USD'),
-    [hasBothWalletCurrencies, usdWallets.length, transactions]
-  );
   const activeTotalBalance =
     activeCurrency === 'USD' ? usdTotalBalance : idrTotalBalance;
 
@@ -204,7 +196,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
       <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
           <Text style={styles.heroLabel}>Total Balance</Text>
-          {hasMultiCurrency && onCurrencyChange ? (
+          {onCurrencyChange ? (
             <View style={styles.heroCurrencySwitch}>
               {(['IDR', 'USD'] as const).map((curr) => {
                 const isSelected = activeCurrency === curr;

@@ -25,6 +25,7 @@ import { BottomSheetModal } from '../BottomSheetModal';
 import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 import { saveTextFileDirectly, pickBackupFile } from '../../utils/fileStorage';
 import { getTodayDateStr } from '../../utils/formatters';
+import { toUserFriendlyErrorMessage } from '../../utils/errorHandling';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -206,7 +207,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 );
               } catch (err: any) {
                 AppHaptics.error();
-                showAlert('Restore Error', err.message || 'Failed to parse and restore backup file.', undefined, 'error');
+                showAlert('Restore Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
               } finally {
                 setImporting(false);
               }
@@ -217,7 +218,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       );
     } catch (err: any) {
       AppHaptics.error();
-      showAlert('File Picker Error', err.message || 'Could not read file from storage.', undefined, 'error');
+      showAlert('File Picker Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
     }
   };
 

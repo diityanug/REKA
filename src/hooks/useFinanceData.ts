@@ -22,6 +22,7 @@ import {
   createPocket,
   updatePocketName,
   adjustPocketBalance,
+  setPocketBalanceDirect,
   deletePocket,
   createCategory,
   deleteCategory,
@@ -43,6 +44,7 @@ import {
 } from '../services/database';
 import { AppHaptics } from '../utils/haptics';
 import { parseAmount, formatCurrency } from '../utils/formatters';
+import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
 import { getUniqueEntityColor } from '../utils/colors';
 import { useCurrentDate } from './useCurrentDate';
 
@@ -292,7 +294,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         setExchangeRate(storedRate);
       }
     } catch (err: any) {
-      showAlert('Database Error', err.message || 'Failed to load database.', undefined, 'error');
+      showAlert('Storage Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
     } finally {
       setLoading(false);
       setInitialAppReady(true);
@@ -741,6 +743,21 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   };
 
+  const handleDirectAdjustPocketBalance = async (
+    pocket: Pocket,
+    newBalance: number
+  ): Promise<boolean> => {
+    try {
+      await setPocketBalanceDirect(pocket.id, newBalance);
+      await loadData();
+      AppHaptics.success();
+      return true;
+    } catch (err: any) {
+      showAlert('Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
+      return false;
+    }
+  };
+
   const handleDeletePocket = (pocket: Pocket) => {
     showAlert(
       'Delete Pocket',
@@ -1021,6 +1038,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleCreatePocket,
     handleRenamePocket,
     handleAdjustPocket,
+    handleDirectAdjustPocketBalance,
     handleDeletePocket,
     handleCreateCategory,
     handleDeleteCategory,

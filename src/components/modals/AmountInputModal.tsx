@@ -63,11 +63,14 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   const [rawExpr, setRawExpr] = useState<string>('0');
   const [isFocused, setIsFocused] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
+  const [selection, setSelection] = useState<{ start: number; end: number }>({
+    start: 0,
+    end: 0,
+  });
   const selectionRef = useRef<{ start: number; end: number }>({
     start: 0,
     end: 0,
   });
-  const isTextInputFocusedRef = useRef<boolean>(false);
   const inputRef = useRef<React.ElementRef<typeof TextInput>>(null);
   const [pasteAnim] = useState(() => new Animated.Value(1));
 
@@ -91,8 +94,9 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       setRawExpr(nextRaw);
       const nextFormatted =
         nextRaw !== '0' ? formatExpressionDisplay(nextRaw, currency) : '';
-      selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
-      isTextInputFocusedRef.current = false;
+      const initialPos = nextFormatted.length;
+      selectionRef.current = { start: initialPos, end: initialPos };
+      setSelection({ start: initialPos, end: initialPos });
       setIsFocused(true);
     }
   });
@@ -116,17 +120,17 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
   const zeroBlocked = numericValue < 0 || (!allowZero && numericValue <= 0);
 
   const getActiveSelection = () => {
-    if (!isTextInputFocusedRef.current) {
-      return { start: formattedExpr.length, end: formattedExpr.length };
-    }
+    const curLen = displayFormatted.length;
     return {
-      start: Math.min(selectionRef.current.start, formattedExpr.length),
-      end: Math.min(selectionRef.current.end, formattedExpr.length),
+      start: Math.min(Math.max(0, selectionRef.current.start), curLen),
+      end: Math.min(Math.max(0, selectionRef.current.end), curLen),
     };
   };
 
   const handleSelectionChange = (e: TextInputSelectionChangeEvent) => {
-    selectionRef.current = e.nativeEvent.selection;
+    const sel = e.nativeEvent.selection;
+    selectionRef.current = sel;
+    setSelection(sel);
   };
 
   const handleKeyPress = (key: string) => {
@@ -169,17 +173,20 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     }
 
     AppHaptics.selection();
-    const nextFormatted = formatExpressionDisplay(nextExpr, currency);
-    const nextFormattedPos = rawToFormattedCursor(
-      nextFormatted,
-      nextExpr,
-      nextRawCursor,
-      currency
-    );
+    const nextFormatted = nextExpr !== '0' ? formatExpressionDisplay(nextExpr, currency) : '';
+    const nextFormattedPos =
+      nextExpr === '0'
+        ? 0
+        : rawToFormattedCursor(
+            nextFormatted,
+            nextExpr,
+            nextRawCursor,
+            currency
+          );
 
     setRawExpr(nextExpr);
     selectionRef.current = { start: nextFormattedPos, end: nextFormattedPos };
-    isTextInputFocusedRef.current = false;
+    setSelection({ start: nextFormattedPos, end: nextFormattedPos });
   };
 
   const handleChangeText = (nextText: string) => {
@@ -212,9 +219,10 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     setRawExpr(nextRaw);
     const nextFormatted =
       nextRaw !== '0' ? formatExpressionDisplay(nextRaw, currency) : '';
-    selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
+    const nextPos = nextFormatted.length;
+    selectionRef.current = { start: nextPos, end: nextPos };
+    setSelection({ start: nextPos, end: nextPos });
     // Blur native TextInput after paste so selection handles/toolbar dismiss cleanly without cursor jump
-    isTextInputFocusedRef.current = false;
     inputRef.current?.blur();
     setIsFocused(true);
     runSmoothPasteTransition();
@@ -225,7 +233,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     AppHaptics.light();
     setRawExpr('0');
     selectionRef.current = { start: 0, end: 0 };
-    isTextInputFocusedRef.current = false;
+    setSelection({ start: 0, end: 0 });
   };
 
   const handleQuickAdd = (addVal: number) => {
@@ -239,14 +247,16 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     const nextRaw = rounded > 0 ? String(rounded) : '0';
     const nextFormatted = nextRaw !== '0' ? formatExpressionDisplay(nextRaw, currency) : '';
     setRawExpr(nextRaw);
-    selectionRef.current = { start: nextFormatted.length, end: nextFormatted.length };
-    isTextInputFocusedRef.current = false;
+    const nextPos = nextFormatted.length;
+    selectionRef.current = { start: nextPos, end: nextPos };
+    setSelection({ start: nextPos, end: nextPos });
   };
 
   const handlePrefixPress = () => {
     AppHaptics.selection();
     inputRef.current?.focus();
     selectionRef.current = { start: 0, end: 0 };
+    setSelection({ start: 0, end: 0 });
   };
 
   const handleConfirm = async () => {
@@ -340,18 +350,15 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
               style={[styles.textInput, { fontSize: inputFontSize }]}
               showSoftInputOnFocus={false}
               contextMenuHidden={false}
-              selectTextOnFocus={true}
+              selectTextOnFocus={false}
               value={displayFormatted}
+              selection={selection}
               placeholder="0"
               placeholderTextColor={Palette.ink}
               onChangeText={handleChangeText}
               onSelectionChange={handleSelectionChange}
               onFocus={() => {
-                isTextInputFocusedRef.current = true;
                 setIsFocused(true);
-              }}
-              onBlur={() => {
-                isTextInputFocusedRef.current = false;
               }}
               cursorColor={Palette.primary}
               selectionColor={Palette.primary + '33'}

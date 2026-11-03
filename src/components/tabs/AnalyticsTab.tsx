@@ -392,11 +392,6 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
     return sum;
   }, [categoryBreakdown]);
 
-  const hasMultiCurrency = useMemo(
-    () => transactions.some((tx) => tx.currency === 'USD') || activeCurrency === 'USD',
-    [transactions, activeCurrency]
-  );
-
   const donutData = useMemo(() => {
     return categoryBreakdown.map((item) => ({
       label: item.category,
@@ -433,7 +428,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
         <View>
           <Text style={styles.headerTitle}>Analytics</Text>
         </View>
-        {hasMultiCurrency && onCurrencyChange ? (
+        {onCurrencyChange ? (
           <View style={styles.analyticsCurrencyToggle}>
             {(['IDR', 'USD'] as const).map((curr) => {
               const active = activeCurrency === curr;

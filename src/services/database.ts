@@ -770,6 +770,51 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
   });
 }
 
+/**
+ * Direct real-value balance adjustment for a pocket (e.g. investment fluctuations,
+ * interest yield, portfolio market value changes).
+ *
+ * Automatically keeps the unallocated free balance intact by adjusting the
+ * parent wallet's total balance by the exact same delta.
+ */
+export async function setPocketBalanceDirect(
+  pocketId: string,
+  newBalance: number
+): Promise<{ oldBalance: number; newBalance: number; delta: number }> {
+  const db = await getDatabase();
+  const safeNewBalance =
+    isNaN(newBalance) || newBalance < 0 ? 0 : Math.round(newBalance * 100) / 100;
+  let result = { oldBalance: 0, newBalance: safeNewBalance, delta: 0 };
+
+  await db.withTransactionAsync(async () => {
+    const pocket = await db.getFirstAsync<{ wallet_id: string; balance: number }>(
+      'SELECT wallet_id, balance FROM pockets WHERE id = ?',
+      pocketId
+    );
+    if (!pocket) throw new Error('Pocket not found.');
+
+    const oldBalance = pocket.balance || 0;
+    const delta = safeNewBalance - oldBalance;
+
+    if (delta !== 0) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = ? WHERE id = ?',
+        safeNewBalance,
+        pocketId
+      );
+      await db.runAsync(
+        'UPDATE wallets SET balance = MAX(balance + ?, 0) WHERE id = ?',
+        delta,
+        pocket.wallet_id
+      );
+    }
+
+    result = { oldBalance, newBalance: safeNewBalance, delta };
+  });
+
+  return result;
+}
+
 export async function updatePocketName(
   id: string,
   newName: string,

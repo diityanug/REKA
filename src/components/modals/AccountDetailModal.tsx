@@ -68,6 +68,7 @@ interface AccountDetailModalProps {
   ) => Promise<void> | void;
   onOpenAddPocket: (w: Wallet) => void;
   onAdjustPocket: (pocket: Pocket, w: Wallet) => void;
+  onDirectAdjustPocketBalance?: (pocketId: string, newBalance: number) => Promise<void> | void;
   onDeletePocket: (pocket: Pocket) => void;
   onSelectTransaction: (tx: Transaction) => void;
   onDeleteWallet: (w: Wallet) => void;
@@ -87,6 +88,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   onRenamePocket,
   onOpenAddPocket,
   onAdjustPocket,
+  onDirectAdjustPocketBalance,
   onDeletePocket,
   onSelectTransaction,
   onDeleteWallet,
@@ -106,6 +108,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [editType, setEditType] = useState<AccountType>('Bank');
   const [editAccountNumber, setEditAccountNumber] = useState<string>('');
   const [showAdjustAmountModal, setShowAdjustAmountModal] = useState<boolean>(false);
+  const [adjustingPocket, setAdjustingPocket] = useState<Pocket | null>(null);
   const [editingPocketId, setEditingPocketId] = useState<string | null>(null);
   const [pocketEditName, setPocketEditName] = useState<string>('');
   const [pocketEditIcon, setPocketEditIcon] = useState<string>('Briefcase');
@@ -267,6 +270,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       styles.accountActionBtnText,
                       isRenaming && styles.accountActionBtnTextActive,
                     ]}
+                    numberOfLines={1}
                   >
                     Edit Account
                   </Text>
@@ -285,28 +289,28 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     size={15}
                     color={Palette.ink}
                   />
-                  <Text style={styles.accountActionBtnText}>
+                  <Text style={styles.accountActionBtnText} numberOfLines={1}>
                     Adjust Balance
                   </Text>
                 </TouchableOpacity>
-
-                {onImportStatement ? (
-                  <TouchableOpacity
-                    style={styles.accountActionBtn}
-                    onPress={() => {
-                      AppHaptics.light();
-                      setIsRenaming(false);
-                      onImportStatement(wallet);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <FileText size={15} color={Palette.ink} />
-                    <Text style={styles.accountActionBtnText} numberOfLines={1}>
-                      e-Statement
-                    </Text>
-                  </TouchableOpacity>
-                ) : null}
               </View>
+
+              {onImportStatement ? (
+                <TouchableOpacity
+                  style={styles.importStatementActionBtn}
+                  onPress={() => {
+                    AppHaptics.light();
+                    setIsRenaming(false);
+                    onImportStatement(wallet);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <FileText size={15} color={Palette.ink} />
+                  <Text style={styles.accountActionBtnText} numberOfLines={1}>
+                    Import e-Statement
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
 
               {/* Inline Form: Edit Account (Name, Note / Account Number, Category / Type) */}
               {isRenaming && (
@@ -632,16 +636,36 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         </Text>
                       </View>
 
-                      <TouchableOpacity
-                        style={styles.adjustFundsBtn}
-                        onPress={() => onAdjustPocket(p, wallet)}
-                        activeOpacity={0.8}
-                      >
-                        <ArrowUpDown size={15} color={Palette.primary} style={{ marginRight: 6 }} />
-                        <Text style={styles.adjustFundsText}>
-                          Allocate or Release Funds
-                        </Text>
-                      </TouchableOpacity>
+                      <View style={styles.pocketActionRow}>
+                        <TouchableOpacity
+                          style={styles.pocketActionBtn}
+                          onPress={() => onAdjustPocket(p, wallet)}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Move funds between pocket and account"
+                        >
+                          <ArrowUpDown size={14} color={Palette.primary} style={{ marginRight: 6 }} />
+                          <Text style={styles.pocketActionBtnText} numberOfLines={1}>
+                            Move Funds
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.pocketActionBtn}
+                          onPress={() => {
+                            AppHaptics.light();
+                            setAdjustingPocket(p);
+                          }}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel="Directly adjust pocket balance"
+                        >
+                          <SlidersHorizontal size={14} color={Palette.ink} style={{ marginRight: 6 }} />
+                          <Text style={styles.pocketActionBtnText} numberOfLines={1}>
+                            Adjust Balance
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   );
                 })
@@ -713,6 +737,46 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         }}
         onClose={() => setShowAdjustAmountModal(false)}
       />
+
+      {/* Pocket Direct Balance Adjustment Modal */}
+      {adjustingPocket && (
+        <AmountInputModal
+          visible={!!adjustingPocket}
+          title={`Adjust ${adjustingPocket.name}`}
+          subtitle="Set real pocket balance (yield / fluctuation)"
+          initialAmount={String(adjustingPocket.balance)}
+          currency={wallet.currency}
+          allowZero
+          onConfirm={async (_str, num) => {
+            const targetPocket = adjustingPocket;
+            setAdjustingPocket(null);
+            if (!onDirectAdjustPocketBalance) return;
+            const delta = num - targetPocket.balance;
+            const deltaStr =
+              delta > 0
+                ? `+${formatCurrency(delta, wallet.currency)}`
+                : delta < 0
+                ? `-${formatCurrency(Math.abs(delta), wallet.currency)}`
+                : '0';
+
+            showAlert(
+              'Adjust Pocket Balance',
+              `Set "${targetPocket.name}" balance to ${formatCurrency(num, wallet.currency)}? (${deltaStr})\n\nTotal ${wallet.name} balance will automatically adjust by ${deltaStr} while keeping unallocated free balance intact.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Update',
+                  onPress: async () => {
+                    await onDirectAdjustPocketBalance(targetPocket.id, num);
+                  },
+                },
+              ],
+              'confirm'
+            );
+          }}
+          onClose={() => setAdjustingPocket(null)}
+        />
+      )}
 
       <CustomAlertModal
         visible={alertConfig.visible}
@@ -884,21 +948,28 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
-  adjustFundsBtn: {
+  pocketActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
+  pocketActionBtn: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 9,
+    paddingHorizontal: 8,
     borderRadius: 10,
     backgroundColor: Palette.surfaceSoft,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
-  adjustFundsText: {
+  pocketActionBtnText: {
     ...Typography.caption,
     fontSize: 12,
     fontWeight: '600',
-    color: Palette.primary,
+    color: Palette.ink,
   },
   deleteAccountBtn: {
     flexDirection: 'row',
@@ -921,7 +992,7 @@ const styles = StyleSheet.create({
   accountActionRow: {
     flexDirection: 'row',
     gap: 10,
-    marginBottom: 16,
+    marginBottom: 10,
   },
   accountActionBtn: {
     flex: 1,
@@ -930,7 +1001,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     backgroundColor: Palette.white,
-    paddingVertical: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -947,6 +1019,19 @@ const styles = StyleSheet.create({
   },
   accountActionBtnTextActive: {
     color: Palette.primary,
+  },
+  importStatementActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Palette.white,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginBottom: 16,
   },
   editCard: {
     backgroundColor: Palette.white,

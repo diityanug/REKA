@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import { AccountType, CurrencyType, Transaction, TransactionType, Wallet } from './database';
 import { getTodayDateStr, getDateStrFromTimestamp } from '../utils/formatters';
+import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
 
 export interface ExtractedStatementTx {
   id: string;
@@ -79,9 +80,8 @@ function withTimeout<T>(
   });
 }
 
-const sanitizeErrorMessage = (msg: string): string => {
-  if (!apiKey) return msg;
-  return msg.split(apiKey).join('[REDACTED_KEY]');
+const sanitizeErrorMessage = (err: unknown): string => {
+  return toUserFriendlyErrorMessage(err, 'statement');
 };
 
 function parseSafeAmount(val: any, currency: CurrencyType = 'IDR'): number {

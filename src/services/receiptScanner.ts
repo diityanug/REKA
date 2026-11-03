@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getTodayDateStr } from '../utils/formatters';
+import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
 
 export interface ExtractedReceiptData {
   merchantName: string;
@@ -74,9 +75,8 @@ function withTimeout<T>(
   });
 }
 
-const sanitizeErrorMessage = (msg: string): string => {
-  if (!apiKey) return msg;
-  return msg.split(apiKey).join('[REDACTED_KEY]');
+const sanitizeErrorMessage = (err: unknown): string => {
+  return toUserFriendlyErrorMessage(err, 'receipt');
 };
 
 // Fast candidate model cascade for instant nominal reading

@@ -29,6 +29,7 @@ import { Palette } from './src/theme/tokens';
 import { formatCurrency, parseAmount, formatCurrencyInput, getCurrentTimeStr } from './src/utils/formatters';
 import { sanitizeExpressionForCurrency } from './src/utils/calculator';
 import { AppHaptics } from './src/utils/haptics';
+import { toUserFriendlyErrorMessage } from './src/utils/errorHandling';
 import { TabType, FilterType, CurrencyType, Wallet, Transaction } from './src/types';
 
 // Custom Hooks
@@ -368,7 +369,7 @@ function MainApp() {
         processReceiptImage(result.assets[0].base64);
       }
     } catch (err: any) {
-      modals.showAlert('Scanner Error', err.message, undefined, 'error');
+      modals.showAlert('Scanner Notice', toUserFriendlyErrorMessage(err, 'receipt'), undefined, 'error');
     }
   };
 
@@ -387,7 +388,7 @@ function MainApp() {
         processReceiptImage(result.assets[0].base64);
       }
     } catch (err: any) {
-      modals.showAlert('Upload Error', err.message, undefined, 'error');
+      modals.showAlert('Upload Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
     }
   };
 
@@ -425,7 +426,7 @@ function MainApp() {
       AppHaptics.error();
       modals.showAlert(
         'Receipt Analysis Notice',
-        err.message || 'We could not automatically extract the receipt details. Would you like to enter them manually?',
+        toUserFriendlyErrorMessage(err, 'receipt'),
         [
           { text: 'Cancel', style: 'cancel' },
           {
@@ -484,7 +485,7 @@ function MainApp() {
         AppHaptics.error();
         modals.showAlert(
           'e-Statement Notice',
-          err.message || 'Could not read e-Statement. Please make sure the document is not password-protected and try again.',
+          toUserFriendlyErrorMessage(err, 'statement'),
           undefined,
           'error'
         );
@@ -493,7 +494,7 @@ function MainApp() {
         setScanning(false);
       }
     } catch (err: any) {
-      modals.showAlert('File Selection Error', err.message, undefined, 'error');
+      modals.showAlert('File Selection Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
     }
   };
 
@@ -545,7 +546,7 @@ function MainApp() {
         'info'
       );
     } catch (err: any) {
-      modals.showAlert('Import Error', err.message || 'Failed to save e-Statement transactions.', undefined, 'error');
+      modals.showAlert('Import Notice', toUserFriendlyErrorMessage(err, 'statement'), undefined, 'error');
     }
   };
 
@@ -1298,6 +1299,12 @@ function MainApp() {
         onRenamePocket={finance.handleRenamePocket}
         onOpenAddPocket={modals.openAddPocketForWallet}
         onAdjustPocket={modals.openAdjustPocketFromDetail}
+        onDirectAdjustPocketBalance={async (pocketId, newBal) => {
+          const pocket = finance.pockets.find((p) => p.id === pocketId);
+          if (pocket) {
+            await finance.handleDirectAdjustPocketBalance(pocket, newBal);
+          }
+        }}
         onDeletePocket={finance.handleDeletePocket}
         onSelectTransaction={(tx) => modals.setSelectedTx(tx)}
         onDeleteWallet={(w) => finance.handleDeleteAccount(w, () => modals.closeAccountDetail())}

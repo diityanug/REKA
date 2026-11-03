@@ -219,6 +219,20 @@ export function useAppModals() {
     setAdjustPocketTarget(null);
   }, []);
 
+  // Direct Pocket Balance Adjustment (Market Value / Yield Sync)
+  const [directAdjustPocketTarget, setDirectAdjustPocketTarget] = useState<Pocket | null>(null);
+
+  const openDirectAdjustPocket = useCallback((pocket: Pocket, w: Wallet) => {
+    AppHaptics.selection();
+    setReturnWalletDetail(w);
+    setDirectAdjustPocketTarget(pocket);
+  }, []);
+
+  const closeDirectAdjustPocket = useCallback(() => {
+    Keyboard.dismiss();
+    setDirectAdjustPocketTarget(null);
+  }, []);
+
   // Category Manager Modal
   const [categoryModalVisible, setCategoryModalVisible] = useState<boolean>(false);
   const [showAddCategoryForm, setShowAddCategoryForm] = useState<boolean>(false);
@@ -418,6 +432,9 @@ export function useAppModals() {
     setAdjustPocketAmount,
     openAdjustPocketFromDetail,
     closeAdjustPocketModal,
+    directAdjustPocketTarget,
+    openDirectAdjustPocket,
+    closeDirectAdjustPocket,
     categoryModalVisible,
     showAddCategoryForm,
     setShowAddCategoryForm,
