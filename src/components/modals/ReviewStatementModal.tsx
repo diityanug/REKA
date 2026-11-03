@@ -589,7 +589,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
                       },
                     ]}
                   >
-                    {item.type === 'income' ? 'Inflow (CR)' : 'Outflow (DB)'}
+                    {item.type === 'income' ? 'Inflow' : 'Outflow'}
                   </Text>
                 </TouchableOpacity>
               </View>

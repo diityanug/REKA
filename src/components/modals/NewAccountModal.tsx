@@ -102,7 +102,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
               </Text>
               <TextInput
                 style={styles.textInputBox}
-                placeholder="e.g. BCA, Cash Wallet, Chase"
+                placeholder="e.g. BCA, Cash Wallet, etc."
                 placeholderTextColor={Palette.mutedSoft}
                 value={name}
                 onChangeText={onChangeName}
@@ -269,7 +269,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 
               {/* Starting Balance */}
               <Text style={[styles.inputLabel, { marginTop: 10 }]}>
-                Starting Balance <Text style={styles.optionalTag}>(optional)</Text>
+                Starting Balance
               </Text>
               <TouchableOpacity
                 style={styles.amountPickerBox}
@@ -300,7 +300,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
 
               {/* Account Number / Note */}
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Note / Account Number <Text style={styles.optionalTag}>(optional)</Text>
+                Note / Account Number
               </Text>
               <TextInput
                 style={styles.textInputBox}
@@ -312,7 +312,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 onSubmitEditing={Keyboard.dismiss}
                 maxLength={30}
                 accessibilityLabel="Note or account number"
-                accessibilityHint="Optional short note or account number"
+                accessibilityHint="Short note or account number"
               />
             </KeyboardSafeContainer>
 
