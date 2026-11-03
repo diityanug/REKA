@@ -223,7 +223,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const [activeCurrency, setActiveCurrency] = useState<CurrencyType>('IDR');
 
   // Unified Month State across Overview & Analytics (updates live on month rollover)
-  const { todayStr, currentMonthKey } = useCurrentDate();
+  const { currentMonthKey } = useCurrentDate();
   const [selectedMonth, setSelectedMonth] = useState<string>(() => currentMonthKey);
   const prevMonthKeyRef = useRef<string>(currentMonthKey);
 
@@ -340,46 +340,6 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     },
     [wallets, pockets]
   );
-
-  // 7-Day Cash Flow Bar Chart data
-  const last7DaysFlow = useMemo(() => {
-    const days: { key: string; label: string; income: number; expense: number }[] = [];
-    const [ty, tm, td] = todayStr.split('-').map(Number);
-    const baseDate = new Date(ty, tm - 1, td);
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(baseDate);
-      d.setDate(baseDate.getDate() - i);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(
-        d.getDate()
-      ).padStart(2, '0')}`;
-      const label = d.toLocaleDateString('en-US', { weekday: 'short' });
-      days.push({ key, label, income: 0, expense: 0 });
-    }
-
-    transactions
-      .filter((tx) => tx.currency === activeCurrency)
-      .forEach((tx) => {
-        // Internal transfers move money between accounts, they are not real cash flow
-        if (tx.category === 'Transfer' || tx.transferPairId) return;
-        const dt = new Date(tx.timestamp);
-        if (isNaN(dt.getTime())) return;
-        const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(
-          dt.getDate()
-        ).padStart(2, '0')}`;
-        const slot = days.find((d) => d.key === key);
-        if (slot) {
-          if (tx.type === 'income') slot.income += tx.amount;
-          if (tx.type === 'expense') slot.expense += tx.amount;
-        }
-      });
-
-    const maxVal = Math.max(
-      ...days.map((d) => Math.max(d.income, d.expense)),
-      1
-    );
-
-    return { days, maxVal };
-  }, [transactions, activeCurrency, todayStr]);
 
   // Helpers
   const getPocketName = useCallback(
@@ -1067,7 +1027,6 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     exchangeRate,
     totalBalance,
     getUnallocated,
-    last7DaysFlow,
     availableMonths,
     availableExpenseCategories,
     availableIncomeCategories,

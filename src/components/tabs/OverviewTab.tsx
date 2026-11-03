@@ -35,10 +35,6 @@ interface OverviewTabProps {
   privacyMode: boolean;
   selectedMonth: string; // 'YYYY-MM' or 'all'
   availableMonths?: string[];
-  last7DaysFlow: {
-    days: { key: string; label: string; income: number; expense: number }[];
-    maxVal: number;
-  };
   scanning: boolean;
   onNavigateToAccounts?: () => void;
   onNavigateToHistory?: () => void;
@@ -64,7 +60,6 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
   privacyMode,
   selectedMonth,
   availableMonths = [],
-  last7DaysFlow,
   scanning,
   onNavigateToAccounts,
   onNavigateToHistory,
@@ -464,64 +459,6 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
         ) : null}
       </View>
 
-      {/* 7-Day Cash Flow Bar Chart */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>7-Day Cash Flow</Text>
-      </View>
-
-      <View style={styles.weeklyChartCard}>
-        <View style={styles.weeklyBarsContainer}>
-          {last7DaysFlow.days.map((d) => {
-            const incHeight = Math.max(
-              (d.income / last7DaysFlow.maxVal) * 72,
-              d.income > 0 ? 8 : 3
-            );
-            const expHeight = Math.max(
-              (d.expense / last7DaysFlow.maxVal) * 72,
-              d.expense > 0 ? 8 : 3
-            );
-            return (
-              <View key={d.key} style={styles.dayBarColumn}>
-                <View style={styles.dayBarPair}>
-                  <View
-                    style={[
-                      styles.verticalBar,
-                      {
-                        height: incHeight,
-                        backgroundColor:
-                          d.income > 0 ? Palette.success : Palette.surfaceSoft,
-                      },
-                    ]}
-                  />
-                  <View
-                    style={[
-                      styles.verticalBar,
-                      {
-                        height: expHeight,
-                        backgroundColor:
-                          d.expense > 0 ? Palette.error : Palette.surfaceSoft,
-                      },
-                    ]}
-                  />
-                </View>
-                <Text style={styles.dayBarLabel}>{d.label}</Text>
-              </View>
-            );
-          })}
-        </View>
-
-        <View style={styles.chartLegendRow}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: Palette.success }]} />
-            <Text style={styles.legendText}>Inflow</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: Palette.error }]} />
-            <Text style={styles.legendText}>Outflow</Text>
-          </View>
-        </View>
-      </View>
-
       {/* Accounts & Wallets */}
       <View style={styles.sectionTitleRow}>
         <Text style={styles.sectionTitle}>Accounts & Wallets</Text>
@@ -917,64 +854,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: Palette.muted,
     marginTop: 1,
-  },
-  weeklyChartCard: {
-    backgroundColor: Palette.white,
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 16,
-    height: 162,
-    justifyContent: 'space-between',
-  },
-  weeklyBarsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    height: 94,
-    paddingBottom: 6,
-  },
-  dayBarColumn: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  dayBarPair: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 3,
-    height: 74,
-  },
-  verticalBar: {
-    width: 7,
-    borderRadius: 3.5,
-  },
-  dayBarLabel: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
-    marginTop: 6,
-  },
-  chartLegendRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 16,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Palette.hairline,
-  },
-  legendItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  legendDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  legendText: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
   },
   accountsScroll: {
     marginHorizontal: -20,

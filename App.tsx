@@ -975,7 +975,6 @@ function MainApp() {
               privacyMode={privacyMode}
               selectedMonth={finance.selectedMonth}
               availableMonths={finance.availableMonths}
-              last7DaysFlow={finance.last7DaysFlow}
               scanning={scanning}
               onNavigateToAccounts={handleNavigateToAccounts}
               onNavigateToHistory={handleNavigateToHistory}
