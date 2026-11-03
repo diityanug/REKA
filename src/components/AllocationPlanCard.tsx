@@ -12,6 +12,7 @@ interface AllocationPlanCardProps {
   privacyMode: boolean;
   onEdit: (plan: AllocationPlan) => void;
   onDuplicate?: (plan: AllocationPlan) => void;
+  onApply?: (plan: AllocationPlan) => void;
 }
 
 export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
@@ -20,6 +21,7 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
   privacyMode,
   onEdit,
   onDuplicate,
+  onApply,
 }) => {
   const planCurrency = plan.currency || activeCurrency;
   const totalAmount = plan.items.reduce((sum, it) => sum + (it.amount || 0), 0);
@@ -104,6 +106,24 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
           {formatCurrency(totalAmount, planCurrency, privacyMode)}
         </Text>
       </View>
+
+      {/* Apply to Pockets Action Button */}
+      {onApply && (
+        <TouchableOpacity
+          style={styles.applyBtn}
+          onPress={(e) => {
+            e?.stopPropagation?.();
+            AppHaptics.medium();
+            onApply(plan);
+          }}
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel={`Apply ${plan.title} to pockets`}
+        >
+          <Layers size={14} color={Palette.primary} style={{ marginRight: 6 }} />
+          <Text style={styles.applyBtnText}>Apply to Pockets</Text>
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 };
@@ -245,5 +265,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: Palette.ink,
+  },
+  applyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F4F9F7',
+    borderRadius: 12,
+    paddingVertical: 10,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#D1E6E0',
+  },
+  applyBtnText: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.primary,
   },
 });

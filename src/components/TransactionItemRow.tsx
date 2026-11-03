@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Check } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { Transaction } from '../types';
 import { formatCurrency } from '../utils/formatters';
@@ -10,7 +11,10 @@ interface TransactionItemRowProps {
   categoryIcon: string;
   pocketName?: string;
   privacyMode: boolean;
+  selectionMode?: boolean;
+  isSelected?: boolean;
   onPress: (tx: Transaction) => void;
+  onLongPress?: (tx: Transaction) => void;
 }
 
 export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
@@ -18,7 +22,10 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
   categoryIcon,
   pocketName,
   privacyMode,
+  selectionMode = false,
+  isSelected = false,
   onPress,
+  onLongPress,
 }) => {
   const isTransfer = tx.category === 'Transfer' || !!tx.transferPairId;
   const isExpense = tx.type === 'expense';
@@ -30,8 +37,12 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
 
   return (
     <TouchableOpacity
-      style={styles.txCard}
+      style={[
+        styles.txCard,
+        isSelected && styles.txCardSelected,
+      ]}
       onPress={() => onPress(tx)}
+      onLongPress={() => onLongPress?.(tx)}
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel={`${tx.merchantName}, ${tx.category}${pocketName ? `, ${pocketName}` : ''}, ${
@@ -39,6 +50,18 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
       }. Open details.`}
     >
       <View style={styles.txRow}>
+        {/* Selection Checkbox */}
+        {selectionMode ? (
+          <View
+            style={[
+              styles.checkboxCircle,
+              isSelected && styles.checkboxCircleSelected,
+            ]}
+          >
+            {isSelected && <Check size={12} color={Palette.white} strokeWidth={3} />}
+          </View>
+        ) : null}
+
         {/* Leading Category Icon */}
         <View
           style={[
@@ -70,9 +93,18 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
           <Text style={styles.txMerchantName} numberOfLines={3}>
             {tx.merchantName}
           </Text>
-          <Text style={styles.txMetaText} numberOfLines={1}>
-            {tx.category}{pocketName ? ` • ${pocketName}` : ''}
-          </Text>
+          <View style={styles.metaRow}>
+            <Text style={styles.txMetaText} numberOfLines={1}>
+              {tx.category}{pocketName ? ` • ${pocketName}` : ''}
+            </Text>
+            {tx.isLent ? (
+              <View style={styles.lentBadge}>
+                <Text style={styles.lentBadgeText}>
+                  {tx.lentTo ? `Lent to ${tx.lentTo}` : 'Lent'}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
         {/* Trailing: Right-Aligned Amount */}
@@ -109,10 +141,52 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  txCardSelected: {
+    borderColor: Palette.primary,
+    backgroundColor: Palette.surfaceSoft,
   },
   txRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+  },
+  checkboxCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    marginTop: 8,
+    backgroundColor: Palette.white,
+  },
+  checkboxCircleSelected: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  lentBadge: {
+    backgroundColor: Palette.tintWarning,
+    borderColor: Palette.tintWarningBorder,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  lentBadgeText: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '600',
+    color: Palette.accentAmber,
   },
   txIconBox: {
     width: 38,

@@ -125,6 +125,21 @@ export function useAppModals() {
     setAllocationPlanModalVisible(false);
   }, []);
 
+  // Apply Allocation Plan to Pockets
+  const [applyPlanModalVisible, setApplyPlanModalVisible] = useState<boolean>(false);
+  const [selectedApplyPlan, setSelectedApplyPlan] = useState<AllocationPlan | null>(null);
+
+  const openApplyPlan = useCallback((plan: AllocationPlan) => {
+    AppHaptics.light();
+    setSelectedApplyPlan(plan);
+    setApplyPlanModalVisible(true);
+  }, []);
+
+  const closeApplyPlan = useCallback(() => {
+    Keyboard.dismiss();
+    setApplyPlanModalVisible(false);
+  }, []);
+
   // Account Detail
   const [viewingWallet, setViewingWallet] = useState<Wallet | null>(null);
 
@@ -274,6 +289,8 @@ export function useAppModals() {
   const [manDate, setManDate] = useState<string>(() => getTodayDateStr());
   const [manTime, setManTime] = useState<string>(() => getCurrentTimeStr());
   const [manNotes, setManNotes] = useState<string>('');
+  const [manIsLent, setManIsLent] = useState<boolean>(false);
+  const [manLentTo, setManLentTo] = useState<string>('');
 
   const openManualModal = useCallback((activeCurrency: CurrencyType) => {
     AppHaptics.light();
@@ -281,6 +298,8 @@ export function useAppModals() {
     setManMerchant('');
     setManAmount('');
     setManNotes('');
+    setManIsLent(false);
+    setManLentTo('');
     setManCategory('Food & Beverages');
     setManType('expense');
     setManCurrency(activeCurrency);
@@ -301,6 +320,8 @@ export function useAppModals() {
     setManCurrency(tx.currency);
     setManMethod(tx.paymentMethod);
     setManNotes(tx.notes || '');
+    setManIsLent(Boolean(tx.isLent));
+    setManLentTo(tx.lentTo || '');
     setSelectedWalletId(tx.walletId);
     setSelectedPocketId(tx.pocketId || '');
     setManDate(getDateStrFromTimestamp(tx.timestamp));
@@ -322,6 +343,8 @@ export function useAppModals() {
     setManCurrency(tx.currency);
     setManMethod(tx.paymentMethod);
     setManNotes(tx.notes || '');
+    setManIsLent(Boolean(tx.isLent));
+    setManLentTo(tx.lentTo || '');
     setSelectedWalletId(tx.walletId);
     setSelectedPocketId(tx.pocketId || '');
     setManDate(getTodayDateStr());
@@ -392,6 +415,10 @@ export function useAppModals() {
     openCreateAllocationPlan,
     openEditAllocationPlan,
     closeAllocationPlan,
+    applyPlanModalVisible,
+    selectedApplyPlan,
+    openApplyPlan,
+    closeApplyPlan,
     viewingWallet,
     setViewingWallet,
     openAccountDetail,
@@ -469,6 +496,10 @@ export function useAppModals() {
     setManTime,
     manNotes,
     setManNotes,
+    manIsLent,
+    setManIsLent,
+    manLentTo,
+    setManLentTo,
     openManualModal,
     handleStartEditTransaction,
     handleDuplicateTransaction,

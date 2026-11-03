@@ -71,6 +71,8 @@ export interface Transaction {
   imageUri?: string;
   transferPairId?: string;
   exchangeRate?: number;
+  isLent?: boolean;
+  lentTo?: string;
   items?: TransactionItem[];
 }
 
@@ -328,6 +330,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'transactions', 'image_uri', "TEXT DEFAULT ''");
       await ensureColumn(db, 'transactions', 'transfer_pair_id', 'TEXT DEFAULT NULL');
       await ensureColumn(db, 'transactions', 'exchange_rate', 'REAL DEFAULT 0');
+      await ensureColumn(db, 'transactions', 'is_lent', 'INTEGER DEFAULT 0');
+      await ensureColumn(db, 'transactions', 'lent_to', "TEXT DEFAULT ''");
 
       await ensureColumn(db, 'pockets', 'target_amount', 'REAL NOT NULL DEFAULT 0');
       await ensureColumn(db, 'pockets', 'icon', "TEXT NOT NULL DEFAULT 'Briefcase'");
@@ -815,6 +819,51 @@ export async function setPocketBalanceDirect(
   return result;
 }
 
+export async function applyAllocationPlanToWallet(
+  walletId: string,
+  distributions: { pocketId: string; amount: number }[]
+): Promise<void> {
+  const validDistributions = distributions.filter((d) => d.amount > 0 && d.pocketId);
+  if (validDistributions.length === 0) return;
+
+  const totalToAllocate = validDistributions.reduce((sum, d) => sum + d.amount, 0);
+
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    const wallet = await db.getFirstAsync<{ balance: number }>(
+      'SELECT balance FROM wallets WHERE id = ?',
+      walletId
+    );
+    if (!wallet) throw new Error('Account not found.');
+
+    const allocatedRow = await db.getFirstAsync<{ total: number }>(
+      'SELECT COALESCE(SUM(balance), 0) as total FROM pockets WHERE wallet_id = ?',
+      walletId
+    );
+    const unallocated = Math.max(
+      wallet.balance - (allocatedRow ? allocatedRow.total : 0),
+      0
+    );
+
+    if (totalToAllocate > unallocated + 0.005) {
+      throw new InsufficientFundsError(
+        'allocate',
+        unallocated,
+        'The total allocation amount exceeds available unallocated funds.'
+      );
+    }
+
+    for (const item of validDistributions) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance + ? WHERE id = ? AND wallet_id = ?',
+        item.amount,
+        item.pocketId,
+        walletId
+      );
+    }
+  });
+}
+
 export async function updatePocketName(
   id: string,
   newName: string,
@@ -886,6 +935,8 @@ export async function getTransactions(): Promise<Transaction[]> {
       imageUri: r.image_uri,
       transferPairId: r.transfer_pair_id || undefined,
       exchangeRate: r.exchange_rate ? Number(r.exchange_rate) : undefined,
+      isLent: Boolean(r.is_lent),
+      lentTo: r.lent_to || '',
     };
   });
 }
@@ -925,8 +976,8 @@ export async function insertTransactionWithItems(
 
     await db.runAsync(
       `INSERT INTO transactions 
-       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, is_lent, lent_to)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       txId,
       tx.walletId,
       tx.pocketId || '',
@@ -940,7 +991,9 @@ export async function insertTransactionWithItems(
       tx.timestamp,
       tx.paymentMethod,
       tx.notes || '',
-      tx.imageUri || ''
+      tx.imageUri || '',
+      tx.isLent ? 1 : 0,
+      tx.lentTo || ''
     );
 
     for (let i = 0; i < items.length; i++) {
@@ -1122,6 +1175,65 @@ export async function deleteTransaction(id: string): Promise<void> {
   });
 }
 
+export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
+  if (!ids || ids.length === 0) return;
+  const db = await getDatabase();
+  await db.withTransactionAsync(async () => {
+    const processedIds = new Set<string>();
+
+    for (const id of ids) {
+      if (processedIds.has(id)) continue;
+
+      const tx = await db.getFirstAsync<{
+        id: string;
+        wallet_id: string;
+        pocket_id: string;
+        type: TransactionType;
+        amount: number;
+        transfer_pair_id?: string;
+      }>(
+        'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id FROM transactions WHERE id = ?',
+        id
+      );
+
+      if (!tx) continue;
+
+      const revertTxBalance = async (targetTx: typeof tx) => {
+        const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
+        await db.runAsync(
+          'UPDATE wallets SET balance = balance + ? WHERE id = ?',
+          reverseDelta,
+          targetTx.wallet_id
+        );
+        if (targetTx.pocket_id) {
+          await db.runAsync(
+            'UPDATE pockets SET balance = balance + ? WHERE id = ?',
+            reverseDelta,
+            targetTx.pocket_id
+          );
+        }
+        await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
+        await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
+        processedIds.add(targetTx.id);
+      };
+
+      let pairedTx: typeof tx | null = null;
+      if (tx.transfer_pair_id) {
+        pairedTx = await db.getFirstAsync<typeof tx>(
+          'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id FROM transactions WHERE id = ?',
+          tx.transfer_pair_id
+        );
+      }
+
+      await revertTxBalance(tx);
+
+      if (pairedTx && !processedIds.has(pairedTx.id)) {
+        await revertTxBalance(pairedTx);
+      }
+    }
+  });
+}
+
 export interface UpdateTransactionParams {
   walletId: string;
   pocketId: string;
@@ -1135,6 +1247,8 @@ export interface UpdateTransactionParams {
   timestamp: string;
   paymentMethod: string;
   notes?: string;
+  isLent?: boolean;
+  lentTo?: string;
 }
 
 export async function updateTransaction(
@@ -1212,7 +1326,9 @@ export async function updateTransaction(
          discount_amount = ?,
          timestamp = ?,
          payment_method = ?,
-         notes = ?
+         notes = ?,
+         is_lent = ?,
+         lent_to = ?
        WHERE id = ?`,
       updates.walletId,
       updates.pocketId || '',
@@ -1226,6 +1342,8 @@ export async function updateTransaction(
       updates.timestamp,
       updates.paymentMethod,
       updates.notes || '',
+      updates.isLent ? 1 : 0,
+      updates.lentTo || '',
       id
     );
   });

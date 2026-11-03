@@ -23,10 +23,12 @@ import {
   updatePocketName,
   adjustPocketBalance,
   setPocketBalanceDirect,
+  applyAllocationPlanToWallet,
   deletePocket,
   createCategory,
   deleteCategory,
   deleteTransaction,
+  deleteTransactionsBatch,
   transferFunds,
   getMonthlyBudget,
   setMonthlyBudget,
@@ -38,7 +40,6 @@ import {
   wipeAllData,
   hasPreRestoreSnapshot,
   restorePreRestoreSnapshot,
-  getSetting,
   setSetting,
   InsufficientFundsError,
 } from '../services/database';
@@ -47,6 +48,16 @@ import { parseAmount, formatCurrency } from '../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
 import { getUniqueEntityColor } from '../utils/colors';
 import { useCurrentDate } from './useCurrentDate';
+import { getLiveExchangeRate, ExchangeRateResult } from '../services/currencyService';
+import {
+  getLockSettings,
+  checkBiometricCapabilities,
+  setLockEnabled,
+  setBiometricsEnabled,
+  LockSettings,
+  BiometricCapabilities,
+} from '../services/authService';
+import { generateAndShareStatementPdf } from '../services/statementPdfGenerator';
 
 interface UseFinanceDataProps {
   showAlert: (
@@ -241,8 +252,26 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     [selectedMonth, currentMonthKey]
   );
 
-  // Last exchange rate used for cross-currency transfers
+  // Live exchange rate & status info for cross-currency transfers & analytics
   const [exchangeRate, setExchangeRate] = useState<number>(16000);
+  const [exchangeRateInfo, setExchangeRateInfo] = useState<ExchangeRateResult>({
+    rate: 16000,
+    lastUpdated: '',
+    isLive: false,
+    fromCache: true,
+  });
+
+  // App Lock & Biometrics security settings
+  const [lockSettings, setLockSettings] = useState<LockSettings>({
+    isLockEnabled: false,
+    isBiometricsEnabled: true,
+    hasPin: false,
+  });
+  const [biometricCaps, setBiometricCaps] = useState<BiometricCapabilities>({
+    hasHardware: false,
+    isEnrolled: false,
+    biometricType: 'None',
+  });
 
   // Unified allocation plans across both IDR and USD
   const allocationPlans = useMemo(() => {
@@ -289,10 +318,21 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       setCategories(catList);
       setMonthlyBudgetsMap({ IDR: idrBudget, USD: usdBudget });
       setAllocationPlansMap({ IDR: idrPlans, USD: usdPlans });
-      const storedRate = Number(await getSetting('usd_idr_rate', '16000'));
-      if (isFinite(storedRate) && storedRate > 0) {
-        setExchangeRate(storedRate);
+
+      // Load cached exchange rate first for instant render, then refresh in background
+      const rateResult = await getLiveExchangeRate(false);
+      if (rateResult.rate > 0) {
+        setExchangeRate(rateResult.rate);
+        setExchangeRateInfo(rateResult);
       }
+
+      // Load app lock security settings and biometric hardware capabilities
+      const [fetchedLockSettings, fetchedBioCaps] = await Promise.all([
+        getLockSettings(),
+        checkBiometricCapabilities(),
+      ]);
+      setLockSettings(fetchedLockSettings);
+      setBiometricCaps(fetchedBioCaps);
     } catch (err: any) {
       showAlert('Storage Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
     } finally {
@@ -742,6 +782,28 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     );
   };
 
+  const handleApplyAllocationPlan = async (
+    walletId: string,
+    distributions: { pocketId: string; amount: number }[]
+  ): Promise<boolean> => {
+    try {
+      AppHaptics.heavy();
+      await applyAllocationPlanToWallet(walletId, distributions);
+      await loadData();
+      AppHaptics.success();
+      showAlert(
+        'Allocation Applied',
+        'Funds have been distributed to the selected pockets successfully.',
+        undefined,
+        'success'
+      );
+      return true;
+    } catch (err: any) {
+      showAlert('Allocation Error', err.message || 'Failed to distribute funds to pockets.', undefined, 'error');
+      return false;
+    }
+  };
+
   const handleCreateCategory = async (params: {
     name: string;
     type: TransactionType;
@@ -850,6 +912,18 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     );
   };
 
+  const handleDeleteTransactionsBatch = async (ids: string[]): Promise<void> => {
+    if (!ids || ids.length === 0) return;
+    try {
+      await deleteTransactionsBatch(ids);
+      await loadData();
+      AppHaptics.success();
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to delete selected transactions.', undefined, 'error');
+      throw err;
+    }
+  };
+
   const handleSaveBudget = async (amount: number) => {
     try {
       AppHaptics.heavy();
@@ -880,6 +954,23 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       // rate persistence is a convenience, never block a transfer on it
     }
   };
+
+  const handleRefreshExchangeRate = useCallback(async (force = true): Promise<ExchangeRateResult | null> => {
+    try {
+      AppHaptics.selection();
+      const result = await getLiveExchangeRate(force);
+      if (result.rate > 0) {
+        setExchangeRate(result.rate);
+        setExchangeRateInfo(result);
+        if (result.isLive && !result.fromCache) {
+          AppHaptics.success();
+        }
+      }
+      return result;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const checkPreRestoreSnapshot = async (): Promise<boolean> => {
     try {
@@ -1010,6 +1101,40 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     await loadData();
   };
 
+  const handleReloadLockSettings = useCallback(async () => {
+    try {
+      const [s, caps] = await Promise.all([
+        getLockSettings(),
+        checkBiometricCapabilities(),
+      ]);
+      setLockSettings(s);
+      setBiometricCaps(caps);
+    } catch {
+      // safe fallback
+    }
+  }, []);
+
+  const handleToggleAppLock = async (enabled: boolean) => {
+    await setLockEnabled(enabled);
+    await handleReloadLockSettings();
+  };
+
+  const handleToggleBiometrics = async (enabled: boolean) => {
+    await setBiometricsEnabled(enabled);
+    await handleReloadLockSettings();
+  };
+
+  const handleExportStatementPdf = async (month?: string): Promise<string> => {
+    const targetMonth = month || selectedMonth;
+    return await generateAndShareStatementPdf({
+      monthKey: targetMonth,
+      currency: activeCurrency,
+      wallets,
+      transactions,
+      exchangeRate,
+    });
+  };
+
   return {
     wallets,
     pockets,
@@ -1025,6 +1150,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     setSelectedMonth,
     budgetMonthKey,
     exchangeRate,
+    exchangeRateInfo,
+    lockSettings,
+    biometricCaps,
     totalBalance,
     getUnallocated,
     availableMonths,
@@ -1048,16 +1176,23 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleDeleteCategory,
     handleExecuteTransfer,
     handleDeleteTransaction,
+    handleDeleteTransactionsBatch,
     handleSaveBudget,
     handleRemoveBudget,
     handleSaveExchangeRate,
+    handleRefreshExchangeRate,
+    handleReloadLockSettings,
+    handleToggleAppLock,
+    handleToggleBiometrics,
     checkPreRestoreSnapshot,
     handleUndoRestore,
     handleSaveAllocationPlan,
     handleDeleteAllocationPlan,
     handleDuplicateAllocationPlan,
+    handleApplyAllocationPlan,
     handleExportBackup,
     handleExportCSV,
+    handleExportStatementPdf,
     handleImportBackup,
     handleWipeAllData,
   };

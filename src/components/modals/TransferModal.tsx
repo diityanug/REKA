@@ -6,9 +6,10 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDown, ArrowLeftRight, ArrowRight, Plus } from 'lucide-react-native';
+import { ArrowDown, ArrowLeftRight, ArrowRight, Plus, RefreshCw } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
@@ -39,6 +40,12 @@ interface TransferModalProps {
   privacyMode: boolean;
   /** Persisted USD -> IDR rate, seeds the exchange rate input */
   initialExchangeRate: number;
+  exchangeRateInfo?: {
+    rate: number;
+    lastUpdated: string;
+    isLive: boolean;
+  };
+  onRefreshExchangeRate?: () => Promise<any>;
   /** Opens the create-account flow when a transfer needs another account */
   onOpenAddAccount?: () => void;
   onExecuteTransfer: (
@@ -58,6 +65,8 @@ export const TransferModal = React.memo<TransferModalProps>(({
   activeCurrency,
   privacyMode,
   initialExchangeRate,
+  exchangeRateInfo,
+  onRefreshExchangeRate,
   onOpenAddAccount,
   onExecuteTransfer,
   onClose,
@@ -76,6 +85,20 @@ export const TransferModal = React.memo<TransferModalProps>(({
   const [quickPercentHint, setQuickPercentHint] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const [refreshingRate, setRefreshingRate] = useState<boolean>(false);
+
+  const handleRefreshLiveRate = async () => {
+    if (!onRefreshExchangeRate || refreshingRate || submitting) return;
+    setRefreshingRate(true);
+    try {
+      const res = await onRefreshExchangeRate();
+      if (res && res.rate > 0) {
+        setExchangeRateStr(formatCurrencyInput(String(res.rate), 'IDR'));
+      }
+    } finally {
+      setRefreshingRate(false);
+    }
+  };
 
   // Freeze wallet balances while submitting or closing so chips and warnings never jump on save/close
   const eligibleWallets =
@@ -123,7 +146,11 @@ export const TransferModal = React.memo<TransferModalProps>(({
       setQuickPercentHint('');
       setSubmitting(false);
       setKeypadOpen(false);
-      setExchangeRateStr(formatCurrencyInput(String(initialExchangeRate), 'IDR'));
+      const activeRate =
+        exchangeRateInfo?.rate && exchangeRateInfo.rate > 0
+          ? exchangeRateInfo.rate
+          : initialExchangeRate;
+      setExchangeRateStr(formatCurrencyInput(String(activeRate), 'IDR'));
     }
   });
 
@@ -485,9 +512,28 @@ export const TransferModal = React.memo<TransferModalProps>(({
                       </TouchableOpacity>
                     </View>
 
-                    <Text style={styles.fxRateHelper}>
-                      $ 1 = Rp {appliedRateLabel}
-                    </Text>
+                    <View style={styles.fxLiveStatusRow}>
+                      <Text style={styles.fxLiveStatusText}>
+                        {exchangeRateInfo?.isLive ? 'Live Market Rate' : 'Estimated Rate'} · $ 1 = Rp {appliedRateLabel}
+                      </Text>
+                      {onRefreshExchangeRate ? (
+                        <TouchableOpacity
+                          style={styles.fxRefreshBtn}
+                          onPress={handleRefreshLiveRate}
+                          disabled={refreshingRate || submitting}
+                          activeOpacity={0.7}
+                          accessibilityRole="button"
+                          accessibilityLabel="Refresh live exchange rate"
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          {refreshingRate ? (
+                            <ActivityIndicator size="small" color={Palette.primary} />
+                          ) : (
+                            <RefreshCw size={13} color={Palette.primary} />
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
 
                     {rateInvalid ? (
                       <Text style={styles.fxRateError}>
@@ -830,12 +876,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Palette.ink,
   },
-  fxRateHelper: {
+  fxLiveStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: -4,
+    marginBottom: 10,
+    paddingHorizontal: 2,
+  },
+  fxLiveStatusText: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
-    marginTop: -6,
-    marginBottom: 10,
+  },
+  fxRefreshBtn: {
+    padding: 2,
   },
   fxRateError: {
     ...Typography.caption,

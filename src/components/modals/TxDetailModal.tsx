@@ -446,6 +446,17 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                   </Text>
                 </View>
               ) : null}
+
+              {currentTx.isLent ? (
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>Lent Money</Text>
+                  <View style={styles.lentBadgeDetail}>
+                    <Text style={styles.lentBadgeDetailText}>
+                      {currentTx.lentTo ? `Lent to ${currentTx.lentTo}` : 'Lent (Talangan)'}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
             </>
           )}
         </View>
@@ -763,6 +774,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  lentBadgeDetail: {
+    backgroundColor: Palette.tintWarning,
+    borderColor: Palette.tintWarningBorder,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  lentBadgeDetailText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.accentAmber,
   },
   sectionTitle: {
     ...Typography.subheading,

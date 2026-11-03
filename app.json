@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.aes.finance",
-      "versionCode": 5,
+      "versionCode": 6,
       "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
@@ -44,7 +44,13 @@
         }
       ],
       "expo-status-bar",
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow REKA to use Face ID for biometric app lock."
+        }
+      ]
     ],
     "owner": "descend12s-team",
     "extra": {

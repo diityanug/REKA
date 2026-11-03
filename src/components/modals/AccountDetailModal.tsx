@@ -636,6 +636,38 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                         </Text>
                       </View>
 
+                      {p.targetAmount && p.targetAmount > 0 ? (
+                        <View style={styles.pocketGoalSection}>
+                          <View style={styles.pocketGoalHeader}>
+                            <Text style={styles.pocketGoalLabel}>Target Goal</Text>
+                            <Text style={styles.pocketGoalRatio}>
+                              {Math.min(Math.round((p.balance / p.targetAmount) * 100), 100)}%
+                            </Text>
+                          </View>
+                          <View style={styles.pocketGoalTrack}>
+                            <View
+                              style={[
+                                styles.pocketGoalBar,
+                                {
+                                  width: `${Math.min(Math.max((p.balance / p.targetAmount) * 100, 0), 100)}%`,
+                                  backgroundColor: p.color || Palette.primary,
+                                },
+                              ]}
+                            />
+                          </View>
+                          <View style={styles.pocketGoalFooter}>
+                            <Text style={styles.pocketGoalTargetVal}>
+                              Target: {formatCurrency(p.targetAmount, wallet.currency, privacyMode)}
+                            </Text>
+                            <Text style={styles.pocketGoalRemaining}>
+                              {p.balance >= p.targetAmount
+                                ? 'Goal Reached'
+                                : `${formatCurrency(Math.max(p.targetAmount - p.balance, 0), wallet.currency, privacyMode)} left`}
+                            </Text>
+                          </View>
+                        </View>
+                      ) : null}
+
                       <View style={styles.pocketActionRow}>
                         <TouchableOpacity
                           style={styles.pocketActionBtn}
@@ -1223,5 +1255,59 @@ const styles = StyleSheet.create({
   pocketIconPlaceholder: {
     width: 42,
     height: 42,
+  },
+  pocketGoalSection: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    padding: 10,
+    marginTop: 10,
+    marginBottom: 4,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  pocketGoalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  pocketGoalLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+  },
+  pocketGoalRatio: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  pocketGoalTrack: {
+    height: 6,
+    backgroundColor: Palette.hairline,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  pocketGoalBar: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  pocketGoalFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pocketGoalTargetVal: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+  },
+  pocketGoalRemaining: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.ink,
   },
 });

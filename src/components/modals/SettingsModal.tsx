@@ -13,9 +13,14 @@ import {
   Trash2,
   AlertTriangle,
   FileSpreadsheet,
+  FileText,
   FolderOpen,
   ShieldCheck,
   Undo2,
+  DollarSign,
+  RefreshCw,
+  Lock,
+  KeyRound,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { AppHaptics } from '../../utils/haptics';
@@ -26,15 +31,31 @@ import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
 import { saveTextFileDirectly, pickBackupFile } from '../../utils/fileStorage';
 import { getTodayDateStr } from '../../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../../utils/errorHandling';
+import { BiometricType } from '../../services/authService';
 
 interface SettingsModalProps {
   visible: boolean;
   onExportBackup: () => Promise<string>;
   onExportCSV?: () => Promise<string>;
+  onExportStatementPdf?: () => Promise<string>;
   onImportBackup: (jsonString: string) => Promise<void>;
   onWipeAllData: () => Promise<void>;
   canUndoRestore?: boolean;
   onUndoRestore?: () => Promise<void>;
+  exchangeRate?: number;
+  exchangeRateInfo?: {
+    rate: number;
+    lastUpdated: string;
+    isLive: boolean;
+  };
+  onRefreshExchangeRate?: () => Promise<any>;
+  isLockEnabled?: boolean;
+  isBiometricsEnabled?: boolean;
+  biometricType?: BiometricType;
+  hasPin?: boolean;
+  onToggleLock?: () => void;
+  onChangePin?: () => void;
+  onToggleBiometrics?: () => void;
   appVersion?: string;
   onClose: () => void;
 }
@@ -43,18 +64,54 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   visible,
   onExportBackup,
   onExportCSV,
+  onExportStatementPdf,
   onImportBackup,
   onWipeAllData,
   canUndoRestore = false,
   onUndoRestore,
+  exchangeRate = 16000,
+  exchangeRateInfo,
+  onRefreshExchangeRate,
+  isLockEnabled = false,
+  isBiometricsEnabled = true,
+  biometricType = 'None',
+  onToggleLock,
+  onChangePin,
+  onToggleBiometrics,
   appVersion = '1.0.0',
   onClose,
 }) => {
   const [exporting, setExporting] = useState<boolean>(false);
   const [exportingCSV, setExportingCSV] = useState<boolean>(false);
+  const [exportingPDF, setExportingPDF] = useState<boolean>(false);
   const [importing, setImporting] = useState<boolean>(false);
   const [undoing, setUndoing] = useState<boolean>(false);
   const [wiping, setWiping] = useState<boolean>(false);
+  const [refreshingRate, setRefreshingRate] = useState<boolean>(false);
+
+  const handleExportPDF = async () => {
+    if (!onExportStatementPdf || exportingPDF) return;
+    setExportingPDF(true);
+    try {
+      await onExportStatementPdf();
+      AppHaptics.success();
+    } catch (err: any) {
+      AppHaptics.error();
+      showAlert('PDF Export Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
+    } finally {
+      setExportingPDF(false);
+    }
+  };
+
+  const handleRefreshLiveRate = async () => {
+    if (!onRefreshExchangeRate || refreshingRate) return;
+    setRefreshingRate(true);
+    try {
+      await onRefreshExchangeRate();
+    } finally {
+      setRefreshingRate(false);
+    }
+  };
 
   // Custom alert dialog state
   const [alertConfig, setAlertConfig] = useState<{
@@ -413,6 +470,158 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </>
             )}
           </TouchableOpacity>
+
+          {/* Export Monthly Statement PDF */}
+          {onExportStatementPdf ? (
+            <TouchableOpacity
+              style={[styles.outlineActionBtn, { marginTop: 10 }]}
+              onPress={handleExportPDF}
+              disabled={exportingPDF}
+              activeOpacity={0.7}
+            >
+              {exportingPDF ? (
+                <ActivityIndicator size="small" color={Palette.primary} />
+              ) : (
+                <>
+                  <FileText size={16} color={Palette.primary} />
+                  <Text style={styles.outlineActionBtnText}>Export Statement (PDF)</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {/* Currency & Live Exchange Rate Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <DollarSign size={16} color={Palette.primary} />
+            <Text style={styles.sectionTitle}>Currency & Live Exchange Rate</Text>
+          </View>
+          <Text style={styles.sectionDesc}>
+            Used for cross-currency transfers and multi-currency portfolio valuation.
+          </Text>
+
+          <View style={styles.rateDisplayRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rateTitle}>USD / IDR</Text>
+              <Text style={styles.rateValue}>
+                $1 = Rp {exchangeRate.toLocaleString('id-ID')}
+              </Text>
+              <Text style={styles.rateStatusText}>
+                {exchangeRateInfo?.isLive ? 'Live Market Rate · Synchronized' : 'Offline / Estimated Rate'}
+              </Text>
+            </View>
+
+            {onRefreshExchangeRate ? (
+              <TouchableOpacity
+                style={styles.refreshRateActionBtn}
+                onPress={handleRefreshLiveRate}
+                disabled={refreshingRate}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Refresh live exchange rate"
+              >
+                {refreshingRate ? (
+                  <ActivityIndicator size="small" color={Palette.primary} />
+                ) : (
+                  <>
+                    <RefreshCw size={13} color={Palette.primary} style={{ marginRight: 6 }} />
+                    <Text style={styles.refreshRateActionText}>Update</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Security & App Lock Section */}
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Lock size={16} color={Palette.primary} />
+            <Text style={styles.sectionTitle}>Security & App Lock</Text>
+          </View>
+          <Text style={styles.sectionDesc}>
+            Protect your accounts, transactions, and balances with a 4-digit PIN and biometric authentication.
+          </Text>
+
+          <View style={styles.securityRow}>
+            <View style={{ flex: 1, marginRight: 12 }}>
+              <Text style={styles.securityTitle}>App Lock</Text>
+              <Text style={styles.securitySubtitle}>
+                {isLockEnabled
+                  ? isBiometricsEnabled && biometricType !== 'None'
+                    ? `Protected by ${biometricType} & PIN`
+                    : 'Protected by 4-digit PIN'
+                  : 'Disabled · Anyone can view app data'}
+              </Text>
+            </View>
+            {onToggleLock ? (
+              <TouchableOpacity
+                style={[
+                  styles.securityActionBtn,
+                  isLockEnabled && styles.securityActionBtnActive,
+                ]}
+                onPress={onToggleLock}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.securityActionText,
+                    isLockEnabled && styles.securityActionTextActive,
+                  ]}
+                >
+                  {isLockEnabled ? 'Disable' : 'Enable'}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {isLockEnabled ? (
+            <>
+              {/* Change PIN Button */}
+              {onChangePin ? (
+                <TouchableOpacity
+                  style={[styles.outlineActionBtn, { marginTop: 10 }]}
+                  onPress={onChangePin}
+                  activeOpacity={0.7}
+                >
+                  <KeyRound size={16} color={Palette.primary} />
+                  <Text style={styles.outlineActionBtnText}>Change PIN</Text>
+                </TouchableOpacity>
+              ) : null}
+
+              {/* Biometrics Toggle (if device has biometric hardware) */}
+              {biometricType !== 'None' && onToggleBiometrics ? (
+                <View style={[styles.securityRow, { marginTop: 10 }]}>
+                  <View style={{ flex: 1, marginRight: 12 }}>
+                    <Text style={styles.securityTitle}>{`Unlock with ${biometricType}`}</Text>
+                    <Text style={styles.securitySubtitle}>
+                      {isBiometricsEnabled
+                        ? `Use ${biometricType} on app launch`
+                        : 'Manual PIN entry required'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.securityActionBtn,
+                      isBiometricsEnabled && styles.securityActionBtnActive,
+                    ]}
+                    onPress={onToggleBiometrics}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.securityActionText,
+                        isBiometricsEnabled && styles.securityActionTextActive,
+                      ]}
+                    >
+                      {isBiometricsEnabled ? 'On' : 'Off'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+            </>
+          ) : null}
         </View>
 
         {/* Privacy & Data Section */}
@@ -524,6 +733,101 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Palette.mutedSoft,
     marginTop: 2,
+  },
+  rateDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginTop: 4,
+  },
+  rateTitle: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  rateValue: {
+    ...Typography.mono,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.ink,
+    marginTop: 2,
+  },
+  rateStatusText: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 2,
+  },
+  refreshRateActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.white,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  refreshRateActionText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.primary,
+  },
+  securityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginTop: 4,
+  },
+  securityTitle: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  securitySubtitle: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 2,
+  },
+  securityActionBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  securityActionBtnActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  securityActionText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  securityActionTextActive: {
+    color: Palette.white,
   },
   outlineActionBtn: {
     flexDirection: 'row',

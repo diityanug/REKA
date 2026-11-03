@@ -5,6 +5,8 @@ import {
   StatusBar,
   Keyboard,
   StyleSheet,
+  AppState,
+  AppStateStatus,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -61,10 +63,13 @@ import { SettingsModal } from './src/components/modals/SettingsModal';
 import { MonthPickerModal } from './src/components/modals/MonthPickerModal';
 import { SetBudgetModal } from './src/components/modals/SetBudgetModal';
 import { AllocationPlanModal } from './src/components/modals/AllocationPlanModal';
+import { ApplyAllocationPlanModal } from './src/components/modals/ApplyAllocationPlanModal';
 import { ManageAccountOrderModal } from './src/components/modals/ManageAccountOrderModal';
 import { CustomAlertModal } from './src/components/CustomAlertModal';
 import { AnimatedSplashScreen } from './src/components/AnimatedSplashScreen';
 import { ErrorBoundary } from './src/components/ErrorBoundary';
+import { AppLockScreen } from './src/components/AppLockScreen';
+import { PinSetupModal } from './src/components/modals/PinSetupModal';
 
 // Pastikan splash bawaan tetap tampil sampai layar React siap
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -144,6 +149,60 @@ function MainApp() {
       return next;
     });
   }, []);
+
+  // Security & App Lock State
+  const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
+  const [pinSetupVisible, setPinSetupVisible] = useState<boolean>(false);
+  const [isChangingPin, setIsChangingPin] = useState<boolean>(false);
+
+  // Auto-lock on app launch once lockSettings are loaded
+  const initialLockChecked = useRef<boolean>(false);
+  useEffect(() => {
+    if (finance.initialAppReady && !initialLockChecked.current) {
+      initialLockChecked.current = true;
+      if (finance.lockSettings.isLockEnabled) {
+        setIsAppLocked(true);
+      }
+    }
+  }, [finance.initialAppReady, finance.lockSettings.isLockEnabled]);
+
+  // Listen to AppState transitions (lock app when entering background)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        if (finance.lockSettings.isLockEnabled) {
+          setIsAppLocked(true);
+        }
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [finance.lockSettings.isLockEnabled]);
+
+  const handleToggleLock = useCallback(async () => {
+    if (finance.lockSettings.isLockEnabled) {
+      await finance.handleToggleAppLock(false);
+      setIsAppLocked(false);
+      AppHaptics.light();
+    } else {
+      setIsChangingPin(false);
+      setPinSetupVisible(true);
+    }
+  }, [finance]);
+
+  const handleChangePin = useCallback(() => {
+    setIsChangingPin(true);
+    setPinSetupVisible(true);
+  }, []);
+
+  const handlePinSetupSuccess = useCallback(async () => {
+    if (!finance.lockSettings.isLockEnabled) {
+      await finance.handleToggleAppLock(true);
+    }
+    AppHaptics.success();
+    modals.showAlert('Security Updated', 'Your 4-digit PIN is now active.', undefined, 'success');
+  }, [finance, modals]);
 
   // Whether a "undo last restore" snapshot is available
   const [canUndoRestore, setCanUndoRestore] = useState<boolean>(false);
@@ -796,6 +855,8 @@ function MainApp() {
             timestamp: txTimestamp,
             paymentMethod: modals.manMethod,
             notes: modals.manNotes.trim(),
+            isLent: modals.manIsLent,
+            lentTo: modals.manIsLent ? modals.manLentTo.trim() : '',
           });
         } else {
           await insertTransactionWithItems(
@@ -812,6 +873,8 @@ function MainApp() {
               timestamp: txTimestamp,
               paymentMethod: modals.manMethod,
               notes: modals.manNotes.trim(),
+              isLent: modals.manIsLent,
+              lentTo: modals.manIsLent ? modals.manLentTo.trim() : '',
             },
             []
           );
@@ -957,6 +1020,7 @@ function MainApp() {
           onResetAllFilters={handleResetAllHistoryFilters}
           onOpenManualModal={handleOpenManualTransaction}
           onSelectTransaction={handleSelectTransaction}
+          onDeleteTransactionsBatch={finance.handleDeleteTransactionsBatch}
           getCategoryIconName={finance.getCategoryIconName}
           getPocketName={finance.getPocketName}
         />
@@ -1007,6 +1071,7 @@ function MainApp() {
               onCreateAllocationPlan={modals.openCreateAllocationPlan}
               onEditAllocationPlan={modals.openEditAllocationPlan}
               onDuplicateAllocationPlan={finance.handleDuplicateAllocationPlan}
+              onApplyAllocationPlan={modals.openApplyPlan}
             />
           )}
 
@@ -1134,6 +1199,10 @@ function MainApp() {
         onChangeDate={modals.setManDate}
         onChangeTime={modals.setManTime}
         onChangeNotes={modals.setManNotes}
+        manIsLent={modals.manIsLent}
+        manLentTo={modals.manLentTo}
+        onChangeIsLent={modals.setManIsLent}
+        onChangeLentTo={modals.setManLentTo}
         onSelectWallet={modals.setSelectedWalletId}
         onSelectPocket={modals.setSelectedPocketId}
         onOpenAddAccount={() => modals.openAddAccountModal(modals.manCurrency, 'manual')}
@@ -1320,6 +1389,8 @@ function MainApp() {
         activeCurrency={finance.activeCurrency}
         privacyMode={privacyMode}
         initialExchangeRate={finance.exchangeRate}
+        exchangeRateInfo={finance.exchangeRateInfo}
+        onRefreshExchangeRate={finance.handleRefreshExchangeRate}
         onOpenAddAccount={() => modals.openAddAccountModal(finance.activeCurrency, 'none')}
         onExecuteTransfer={finance.handleExecuteTransfer}
         onClose={() => modals.setTransferModalVisible(false)}
@@ -1330,6 +1401,7 @@ function MainApp() {
         visible={modals.settingsModalVisible}
         onExportBackup={finance.handleExportBackup}
         onExportCSV={finance.handleExportCSV}
+        onExportStatementPdf={() => finance.handleExportStatementPdf(finance.selectedMonth)}
         onImportBackup={finance.handleImportBackup}
         onWipeAllData={finance.handleWipeAllData}
         canUndoRestore={canUndoRestore}
@@ -1337,6 +1409,16 @@ function MainApp() {
           await finance.handleUndoRestore();
           setCanUndoRestore(false);
         }}
+        exchangeRate={finance.exchangeRate}
+        exchangeRateInfo={finance.exchangeRateInfo}
+        onRefreshExchangeRate={finance.handleRefreshExchangeRate}
+        isLockEnabled={finance.lockSettings.isLockEnabled}
+        isBiometricsEnabled={finance.lockSettings.isBiometricsEnabled}
+        biometricType={finance.biometricCaps.biometricType}
+        hasPin={finance.lockSettings.hasPin}
+        onToggleLock={handleToggleLock}
+        onChangePin={handleChangePin}
+        onToggleBiometrics={() => finance.handleToggleBiometrics(!finance.lockSettings.isBiometricsEnabled)}
         appVersion={APP_VERSION}
         onClose={() => modals.setSettingsModalVisible(false)}
       />
@@ -1401,6 +1483,18 @@ function MainApp() {
         onClose={modals.closeAllocationPlan}
       />
 
+      {/* Modal 13b: Apply Allocation Plan to Pockets */}
+      <ApplyAllocationPlanModal
+        visible={modals.applyPlanModalVisible}
+        plan={modals.selectedApplyPlan}
+        wallets={finance.wallets}
+        pockets={finance.pockets}
+        getUnallocated={finance.getUnallocated}
+        privacyMode={privacyMode}
+        onApply={finance.handleApplyAllocationPlan}
+        onClose={modals.closeApplyPlan}
+      />
+
       {/* Modal 14: Manage Account Order */}
       <ManageAccountOrderModal
         visible={modals.manageOrderModalVisible}
@@ -1410,6 +1504,22 @@ function MainApp() {
           await finance.handleUpdateWalletsOrder(orderedWallets.map((w) => w.id));
         }}
         onClose={() => modals.setManageOrderModalVisible(false)}
+      />
+
+      {/* Modal 15: PIN Setup & Security Configuration */}
+      <PinSetupModal
+        visible={pinSetupVisible}
+        isChanging={isChangingPin}
+        onSuccess={handlePinSetupSuccess}
+        onClose={() => setPinSetupVisible(false)}
+      />
+
+      {/* Fullscreen App Lock Screen (rendered on top of app when locked) */}
+      <AppLockScreen
+        visible={isAppLocked}
+        biometricsEnabled={finance.lockSettings.isBiometricsEnabled}
+        biometricType={finance.biometricCaps.biometricType}
+        onUnlock={() => setIsAppLocked(false)}
       />
 
       {/* Custom Global Alert Dialog */}

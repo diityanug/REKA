@@ -7,9 +7,19 @@ import {
   SectionList,
   StyleSheet,
   Keyboard,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Search, X, Receipt, RotateCcw, SlidersHorizontal, Plus } from 'lucide-react-native';
+import {
+  Search,
+  X,
+  Receipt,
+  RotateCcw,
+  SlidersHorizontal,
+  Plus,
+  Trash2,
+  CheckSquare,
+} from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, CurrencyType, FilterType } from '../../types';
 import { formatCurrency, formatMonthYear, formatMonthShort } from '../../utils/formatters';
@@ -46,6 +56,7 @@ interface HistoryTabProps {
   onResetAllFilters: () => void;
   onOpenManualModal?: () => void;
   onSelectTransaction: (tx: Transaction) => void;
+  onDeleteTransactionsBatch?: (ids: string[]) => Promise<void>;
   getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
 }
@@ -72,6 +83,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   onResetAllFilters,
   onOpenManualModal,
   onSelectTransaction,
+  onDeleteTransactionsBatch,
   getCategoryIconName,
   getPocketName,
 }) => {
@@ -95,6 +107,71 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     }, 250);
     return () => clearTimeout(timer);
   }, [localSearch, searchQuery, onChangeSearch]);
+
+  // Multi-Select Batch Actions State
+  const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const handleToggleSelectTransaction = useCallback((tx: Transaction) => {
+    AppHaptics.selection();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(tx.id)) {
+        next.delete(tx.id);
+      } else {
+        next.add(tx.id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleLongPressTransaction = useCallback((tx: Transaction) => {
+    AppHaptics.heavy();
+    if (!isSelectionMode) {
+      setIsSelectionMode(true);
+      setSelectedIds(new Set([tx.id]));
+    } else {
+      handleToggleSelectTransaction(tx);
+    }
+  }, [isSelectionMode, handleToggleSelectTransaction]);
+
+  const handleSelectAll = useCallback(() => {
+    AppHaptics.selection();
+    if (selectedIds.size === transactions.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(transactions.map((t) => t.id)));
+    }
+  }, [selectedIds.size, transactions]);
+
+  const handleExitSelectionMode = useCallback(() => {
+    AppHaptics.light();
+    setIsSelectionMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBatchDelete = useCallback(() => {
+    if (selectedIds.size === 0) return;
+    AppHaptics.heavy();
+    Alert.alert(
+      `Delete ${selectedIds.size} Transaction${selectedIds.size > 1 ? 's' : ''}?`,
+      'This will restore all corresponding account balances and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (onDeleteTransactionsBatch) {
+              const ids = Array.from(selectedIds);
+              handleExitSelectionMode();
+              await onDeleteTransactionsBatch(ids);
+            }
+          },
+        },
+      ]
+    );
+  }, [selectedIds, onDeleteTransactionsBatch, handleExitSelectionMode]);
 
   const handleClearSearch = useCallback(() => {
     setLocalSearch('');
@@ -279,7 +356,55 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             </View>
           ) : null}
         </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.selectModeToggleBtn,
+            isSelectionMode && styles.selectModeToggleBtnActive,
+          ]}
+          onPress={() => {
+            AppHaptics.light();
+            if (isSelectionMode) {
+              handleExitSelectionMode();
+            } else {
+              setIsSelectionMode(true);
+            }
+          }}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Toggle multi-select mode"
+        >
+          <CheckSquare
+            size={16}
+            color={isSelectionMode ? Palette.white : Palette.ink}
+          />
+        </TouchableOpacity>
       </View>
+
+      {/* Multi-Select Control Bar */}
+      {isSelectionMode ? (
+        <View style={styles.selectionControlRow}>
+          <TouchableOpacity
+            style={styles.selectionControlBtn}
+            onPress={handleExitSelectionMode}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.selectionControlBtnText}>Cancel</Text>
+          </TouchableOpacity>
+          <Text style={styles.selectionCountText}>
+            {selectedIds.size} of {transactions.length} selected
+          </Text>
+          <TouchableOpacity
+            style={styles.selectionControlBtn}
+            onPress={handleSelectAll}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.selectionControlBtnText}>
+              {selectedIds.size === transactions.length ? 'Deselect All' : 'Select All'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Active Filter Tags (Minimal & Dismissible) */}
       {activeFilterCount > 0 ? (
@@ -361,6 +486,10 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     historyCategory,
     onChangeCategory,
     onResetAllFilters,
+    isSelectionMode,
+    selectedIds.size,
+    handleExitSelectionMode,
+    handleSelectAll,
   ]);
 
   // Two distinct empty states: filters/search hid everything vs. no records at all
@@ -431,9 +560,21 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       categoryIcon={getCategoryIconName(item.category, item.type)}
       pocketName={getPocketName(item.pocketId)}
       privacyMode={privacyMode}
-      onPress={onSelectTransaction}
+      selectionMode={isSelectionMode}
+      isSelected={selectedIds.has(item.id)}
+      onPress={isSelectionMode ? handleToggleSelectTransaction : onSelectTransaction}
+      onLongPress={handleLongPressTransaction}
     />
-  ), [getCategoryIconName, getPocketName, privacyMode, onSelectTransaction]);
+  ), [
+    getCategoryIconName,
+    getPocketName,
+    privacyMode,
+    isSelectionMode,
+    selectedIds,
+    handleToggleSelectTransaction,
+    onSelectTransaction,
+    handleLongPressTransaction,
+  ]);
 
   return (
     <View style={styles.container}>
@@ -456,6 +597,25 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         maxToRenderPerBatch={20}
         windowSize={7}
       />
+
+      {/* Floating Batch Action Bar */}
+      {isSelectionMode && selectedIds.size > 0 ? (
+        <View style={[styles.floatingBatchBar, { bottom: Math.max(insets.bottom, 16) + 64 }]}>
+          <Text style={styles.floatingBatchText}>
+            {selectedIds.size} selected
+          </Text>
+          <TouchableOpacity
+            style={styles.batchDeleteBtn}
+            onPress={handleBatchDelete}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete ${selectedIds.size} selected transactions`}
+          >
+            <Trash2 size={15} color={Palette.white} style={{ marginRight: 6 }} />
+            <Text style={styles.batchDeleteBtnText}>Delete ({selectedIds.size})</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Filter Modal */}
       <HistoryFilterModal
@@ -589,6 +749,88 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 10,
     fontWeight: '700',
+    color: Palette.white,
+  },
+  selectModeToggleBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  selectModeToggleBtnActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  selectionControlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  selectionControlBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  selectionControlBtnText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.primary,
+  },
+  selectionCountText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  floatingBatchBar: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    backgroundColor: Palette.surfaceDarkElevated,
+    borderRadius: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 999,
+  },
+  floatingBatchText: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Palette.onDark,
+  },
+  batchDeleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.error,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  batchDeleteBtnText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
     color: Palette.white,
   },
   activeFiltersRow: {

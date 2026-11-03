@@ -43,6 +43,8 @@ interface ManualTxModalProps {
   manDate: string;
   manTime: string;
   manNotes: string;
+  manIsLent?: boolean;
+  manLentTo?: string;
   wallets: Wallet[];
   pockets: Pocket[];
   categories: Category[];
@@ -58,6 +60,8 @@ interface ManualTxModalProps {
   onChangeDate: (dateString: string) => void;
   onChangeTime: (time: string) => void;
   onChangeNotes: (notes: string) => void;
+  onChangeIsLent?: (isLent: boolean) => void;
+  onChangeLentTo?: (lentTo: string) => void;
   onSelectWallet: (id: string) => void;
   onSelectPocket: (id: string) => void;
   onOpenAddAccount: () => void;
@@ -79,6 +83,8 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
   manDate,
   manTime,
   manNotes,
+  manIsLent = false,
+  manLentTo = '',
   wallets,
   pockets,
   categories,
@@ -94,6 +100,8 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
   onChangeDate,
   onChangeTime,
   onChangeNotes,
+  onChangeIsLent,
+  onChangeLentTo,
   onSelectWallet,
   onSelectPocket,
   onOpenAddAccount,
@@ -698,6 +706,54 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
               />
+
+              {/* Lent / Talangan Split Tagging */}
+              <View style={styles.lentCard}>
+                <View style={styles.lentHeaderRow}>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={styles.lentTitle}>Lent Money (Talangan)</Text>
+                    <Text style={styles.lentSubtitle}>
+                      Mark as money lent to someone else for tracking
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.lentToggleBtn,
+                      manIsLent && styles.lentToggleBtnActive,
+                    ]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      onChangeIsLent?.(!manIsLent);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        styles.lentToggleText,
+                        manIsLent && styles.lentToggleTextActive,
+                      ]}
+                    >
+                      {manIsLent ? 'Lent' : 'Off'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {manIsLent ? (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={styles.lentInputLabel}>Lent to (Recipient)</Text>
+                    <TextInput
+                      style={styles.lentInput}
+                      placeholder="e.g. John Doe, Sarah"
+                      placeholderTextColor={Palette.mutedSoft}
+                      value={manLentTo}
+                      onChangeText={onChangeLentTo}
+                      maxLength={50}
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
+                    />
+                  </View>
+                ) : null}
+              </View>
             </KeyboardSafeContainer>
 
             <View
@@ -1098,6 +1154,70 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.primary,
+  },
+  lentCard: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginTop: 16,
+  },
+  lentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  lentTitle: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  lentSubtitle: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 2,
+  },
+  lentToggleBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  lentToggleBtnActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  lentToggleText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  lentToggleTextActive: {
+    color: Palette.white,
+  },
+  lentInputLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+    marginBottom: 6,
+  },
+  lentInput: {
+    backgroundColor: Palette.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: Palette.ink,
   },
   stickyFooter: {
     paddingHorizontal: 20,
