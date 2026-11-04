@@ -26,6 +26,7 @@ interface BottomSheetModalProps {
   maxHeight?: DimensionValue;
   sheetStyle?: StyleProp<ViewStyle>;
   dismissOnBackdropPress?: boolean;
+  fullPage?: boolean;
 }
 
 export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
@@ -36,6 +37,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   maxHeight,
   sheetStyle,
   dismissOnBackdropPress = true,
+  fullPage = false,
 }) => {
   const insets = useSafeAreaInsets();
   const [modalMounted, setModalMounted] = useState(visible);
@@ -116,30 +118,33 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
       <View
         style={[
           styles.rootContainer,
-          { paddingTop: Math.max(insets.top, 24) + 8 },
+          fullPage ? styles.rootContainerFullPage : { paddingTop: Math.max(insets.top, 24) + 8 },
         ]}
       >
         {/* Soft Stationary Fading Scrim - Warm Editorial Overlay */}
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            styles.backdrop,
-            { opacity: backdropOpacity },
-          ]}
-        >
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={handleBackdropPress}
-          />
-        </Animated.View>
+        {!fullPage && (
+          <Animated.View
+            style={[
+              StyleSheet.absoluteFill,
+              styles.backdrop,
+              { opacity: backdropOpacity },
+            ]}
+          >
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={handleBackdropPress}
+            />
+          </Animated.View>
+        )}
 
-        {/* Sliding Sheet Container with Curved Header */}
+        {/* Sliding Sheet / Page Container with Curved Header */}
         <Animated.View
           style={[
             styles.sheet,
-            height ? { height } : null,
-            maxHeight ? { maxHeight } : null,
+            fullPage && [styles.sheetFullPage, { paddingTop: insets.top }],
+            height && !fullPage ? { height } : null,
+            maxHeight && !fullPage ? { maxHeight } : null,
             sheetStyle,
             { transform: [{ translateY: sheetTranslateY }] },
           ]}
@@ -156,6 +161,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  rootContainerFullPage: {
+    justifyContent: 'flex-start',
+    backgroundColor: Palette.white,
+    paddingTop: 0,
+  },
   backdrop: {
     backgroundColor: 'rgba(18, 18, 16, 0.32)', // Soft warm subtle scrim (No harsh pitch-black)
   },
@@ -164,5 +174,13 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
+  },
+  sheetFullPage: {
+    flex: 1,
+    height: '100%',
+    maxHeight: '100%',
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    backgroundColor: Palette.white,
   },
 });

@@ -8,19 +8,27 @@ interface ModalHeaderProps {
   title: string;
   subtitle?: string;
   onClose: () => void;
+  hideDragHandle?: boolean;
 }
 
-export const ModalHeader: React.FC<ModalHeaderProps> = ({ title, subtitle, onClose }) => {
+export const ModalHeader: React.FC<ModalHeaderProps> = ({
+  title,
+  subtitle,
+  onClose,
+  hideDragHandle = false,
+}) => {
   return (
-    <View style={styles.headerContainer}>
+    <View style={[styles.headerContainer, hideDragHandle && styles.headerContainerFullPage]}>
       {/* Tier 1: Drag handle + top anchored close button */}
-      <View style={styles.topBar}>
-        {/* Decorative grab handle — hidden from screen readers */}
-        <View
-          style={styles.dragHandle}
-          accessibilityElementsHidden
-          importantForAccessibility="no"
-        />
+      <View style={[styles.topBar, hideDragHandle && styles.topBarFullPage]}>
+        {/* Decorative grab handle — hidden on full-page modals */}
+        {!hideDragHandle ? (
+          <View
+            style={styles.dragHandle}
+            accessibilityElementsHidden
+            importantForAccessibility="no"
+          />
+        ) : null}
         <TouchableOpacity
           style={styles.closeBtn}
           onPress={() => {
@@ -53,6 +61,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Palette.hairline,
   },
+  headerContainerFullPage: {
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
   topBar: {
     height: 40,
     flexDirection: 'row',
@@ -60,6 +72,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'relative',
     marginBottom: 2,
+  },
+  topBarFullPage: {
+    height: 38,
+    justifyContent: 'flex-end',
+    marginBottom: 4,
   },
   dragHandle: {
     width: 36,

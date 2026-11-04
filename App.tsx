@@ -949,6 +949,14 @@ function MainApp() {
     modals.setTransferModalVisible(true);
   }, [modals]);
 
+  const handleCloseTransferModal = useCallback(() => {
+    modals.setTransferModalVisible(false);
+  }, [modals]);
+
+  const handleCloseSettingsModal = useCallback(() => {
+    modals.setSettingsModalVisible(false);
+  }, [modals]);
+
   const handleOpenAccountDetail = useCallback((w: Wallet) => {
     modals.setSelectedWalletId(w.id);
     modals.openAccountDetail(w);
@@ -1426,9 +1434,9 @@ function MainApp() {
         initialExchangeRate={finance.exchangeRate}
         exchangeRateInfo={finance.exchangeRateInfo}
         onRefreshExchangeRate={finance.handleRefreshExchangeRate}
-        onOpenAddAccount={() => modals.openAddAccountModal(finance.activeCurrency, 'none')}
+        onOpenAddAccount={handleOpenAddAccount}
         onExecuteTransfer={finance.handleExecuteTransfer}
-        onClose={() => modals.setTransferModalVisible(false)}
+        onClose={handleCloseTransferModal}
       />
 
       {/* Modal 10: Settings & Data Management */}
@@ -1455,7 +1463,7 @@ function MainApp() {
         onChangePin={handleChangePin}
         onToggleBiometrics={() => finance.handleToggleBiometrics(!finance.lockSettings.isBiometricsEnabled)}
         appVersion={APP_VERSION}
-        onClose={() => modals.setSettingsModalVisible(false)}
+        onClose={handleCloseSettingsModal}
       />
 
       {/* Modal 11: Month / Calendar Picker */}

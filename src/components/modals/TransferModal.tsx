@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
-  ActivityIndicator,
+  Animated,
+  Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDown, ArrowLeftRight, ArrowRight, Plus, RefreshCw } from 'lucide-react-native';
@@ -86,16 +87,47 @@ export const TransferModal = React.memo<TransferModalProps>(({
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [refreshingRate, setRefreshingRate] = useState<boolean>(false);
+  const [spinAnim] = useState(() => new Animated.Value(0));
+  const spinLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const startSpin = () => {
+    spinAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    spinLoopRef.current = loop;
+    loop.start();
+  };
+
+  const stopSpin = () => {
+    if (spinLoopRef.current) {
+      spinLoopRef.current.stop();
+      spinLoopRef.current = null;
+    }
+    Animated.timing(spinAnim, {
+      toValue: 0,
+      duration: 200,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  };
 
   const handleRefreshLiveRate = async () => {
     if (!onRefreshExchangeRate || refreshingRate || submitting) return;
     setRefreshingRate(true);
+    startSpin();
     try {
       const res = await onRefreshExchangeRate();
       if (res && res.rate > 0) {
         setExchangeRateStr(formatCurrencyInput(String(res.rate), 'IDR'));
       }
     } finally {
+      stopSpin();
       setRefreshingRate(false);
     }
   };
@@ -513,7 +545,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
                     </View>
 
                     <View style={styles.fxLiveStatusRow}>
-                      <Text style={styles.fxLiveStatusText}>
+                      <Text style={styles.fxLiveStatusText} numberOfLines={1}>
                         {exchangeRateInfo?.isLive ? 'Live Market Rate' : 'Estimated Rate'} · $ 1 = Rp {appliedRateLabel}
                       </Text>
                       {onRefreshExchangeRate ? (
@@ -526,11 +558,20 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           accessibilityLabel="Refresh live exchange rate"
                           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         >
-                          {refreshingRate ? (
-                            <ActivityIndicator size="small" color={Palette.primary} />
-                          ) : (
+                          <Animated.View
+                            style={{
+                              transform: [
+                                {
+                                  rotate: spinAnim.interpolate({
+                                    inputRange: [0, 1],
+                                    outputRange: ['0deg', '360deg'],
+                                  }),
+                                },
+                              ],
+                            }}
+                          >
                             <RefreshCw size={13} color={Palette.primary} />
-                          )}
+                          </Animated.View>
                         </TouchableOpacity>
                       ) : null}
                     </View>
@@ -880,6 +921,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    height: 28,
     marginTop: -4,
     marginBottom: 10,
     paddingHorizontal: 2,
@@ -888,9 +930,16 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
+    flex: 1,
+    marginRight: 8,
   },
   fxRefreshBtn: {
-    padding: 2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   fxRateError: {
     ...Typography.caption,

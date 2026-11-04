@@ -204,14 +204,14 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
       dismissOnBackdropPress={false}
     >
       <ModalHeader
         title={isEditing ? 'Edit Transaction' : 'New Transaction'}
         subtitle={isEditing ? 'Update transaction details' : 'Manual entry'}
         onClose={onClose}
+        hideDragHandle={true}
       />
 
           <KeyboardSafeContainer extraBottomSpace={48}>
@@ -711,7 +711,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               <View style={styles.lentCard}>
                 <View style={styles.lentHeaderRow}>
                   <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.lentTitle}>Lent Money (Talangan)</Text>
+                    <Text style={styles.lentTitle}>Lent Money</Text>
                     <Text style={styles.lentSubtitle}>
                       Mark as money lent to someone else for tracking
                     </Text>

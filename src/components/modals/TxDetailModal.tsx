@@ -492,7 +492,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             <View style={styles.lentCardHeader}>
               <View style={styles.lentCardTitleRow}>
                 <HandCoins size={16} color={Palette.accentAmber} style={{ marginRight: 6 }} />
-                <Text style={styles.lentCardTitle}>Lent Money (Talangan)</Text>
+                <Text style={styles.lentCardTitle}>Lent Money</Text>
               </View>
               <View
                 style={[

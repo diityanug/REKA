@@ -7,6 +7,8 @@ import {
   Keyboard,
   ActivityIndicator,
   Platform,
+  Animated,
+  Easing,
 } from 'react-native';
 import {
   Download,
@@ -88,6 +90,35 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [undoing, setUndoing] = useState<boolean>(false);
   const [wiping, setWiping] = useState<boolean>(false);
   const [refreshingRate, setRefreshingRate] = useState<boolean>(false);
+  const [spinAnim] = useState(() => new Animated.Value(0));
+  const spinLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  const startSpin = () => {
+    spinAnim.setValue(0);
+    const loop = Animated.loop(
+      Animated.timing(spinAnim, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    spinLoopRef.current = loop;
+    loop.start();
+  };
+
+  const stopSpin = () => {
+    if (spinLoopRef.current) {
+      spinLoopRef.current.stop();
+      spinLoopRef.current = null;
+    }
+    Animated.timing(spinAnim, {
+      toValue: 0,
+      duration: 200,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  };
 
   const handleExportPDF = async () => {
     if (!onExportStatementPdf || exportingPDF) return;
@@ -106,9 +137,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleRefreshLiveRate = async () => {
     if (!onRefreshExchangeRate || refreshingRate) return;
     setRefreshingRate(true);
+    startSpin();
     try {
       await onRefreshExchangeRate();
     } finally {
+      stopSpin();
       setRefreshingRate(false);
     }
   };
@@ -381,13 +414,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
     >
       <ModalHeader
         title="Settings"
         subtitle="Preferences & Data Management"
         onClose={onClose}
+        hideDragHandle={true}
       />
 
       <KeyboardSafeContainer extraBottomSpace={40}>
@@ -521,14 +554,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 accessibilityRole="button"
                 accessibilityLabel="Refresh live exchange rate"
               >
-                {refreshingRate ? (
-                  <ActivityIndicator size="small" color={Palette.primary} />
-                ) : (
-                  <>
-                    <RefreshCw size={13} color={Palette.primary} style={{ marginRight: 6 }} />
-                    <Text style={styles.refreshRateActionText}>Update</Text>
-                  </>
-                )}
+                <Animated.View
+                  style={{
+                    transform: [
+                      {
+                        rotate: spinAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['0deg', '360deg'],
+                        }),
+                      },
+                    ],
+                    marginRight: 6,
+                  }}
+                >
+                  <RefreshCw size={13} color={Palette.primary} />
+                </Animated.View>
+                <Text style={styles.refreshRateActionText}>
+                  {refreshingRate ? 'Updating' : 'Update'}
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -777,6 +820,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
     borderColor: Palette.hairline,
+    minWidth: 84,
+    height: 36,
   },
   refreshRateActionText: {
     ...Typography.caption,
