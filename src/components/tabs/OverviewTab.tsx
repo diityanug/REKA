@@ -104,7 +104,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     ? availableMonths[availableMonths.length - 1]
     : null;
 
-  // Deduplicate same-currency paired transfers while keeping all currencies unified in the list
+  // Deduplicate paired transfers (both same-currency and cross-currency) so transfers appear as 1 clean unified card
   const unifiedTransactions = useMemo(() => {
     return transactions.filter((tx) => {
       if (
@@ -113,7 +113,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
         (tx.category === 'Transfer' || tx.merchantName.toLowerCase().startsWith('transfer '))
       ) {
         const counterpart = transactions.find((c) => c.id === tx.transferPairId);
-        if (counterpart && counterpart.currency === tx.currency) {
+        if (counterpart) {
           return false;
         }
       }

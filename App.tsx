@@ -316,7 +316,7 @@ function MainApp() {
     const q = searchQuery.toLowerCase().trim();
     const cleanDigits = q.replace(/[^0-9]/g, '');
 
-    // Exclude the incoming mirror leg only for same-currency transfers so cross-currency transfers remain visible in both currencies
+    // Exclude the incoming mirror leg of any paired transfer so all transfers appear as 1 clean unified card
     const deduplicated = finance.transactions.filter((tx) => {
       if (
         tx.type === 'income' &&
@@ -324,7 +324,7 @@ function MainApp() {
         (tx.category === 'Transfer' || tx.merchantName.toLowerCase().startsWith('transfer '))
       ) {
         const counterpart = finance.transactions.find((c) => c.id === tx.transferPairId);
-        if (counterpart && counterpart.currency === tx.currency) {
+        if (counterpart) {
           return false;
         }
       }
@@ -337,7 +337,7 @@ function MainApp() {
       const amtStr = String(Math.round(tx.amount));
       const formattedAmt = formatCurrency(Math.abs(tx.amount), tx.currency, false).toLowerCase();
 
-      const matchesSearch =
+      let matchesSearch =
         !q ||
         tx.merchantName.toLowerCase().includes(q) ||
         tx.category.toLowerCase().includes(q) ||
@@ -346,6 +346,21 @@ function MainApp() {
         (tx.notes && tx.notes.toLowerCase().includes(q)) ||
         (cleanDigits.length >= 2 && amtStr.includes(cleanDigits)) ||
         formattedAmt.includes(q);
+
+      // If this is a transfer, also allow searching by counterpart wallet name or amount
+      if (!matchesSearch && tx.transferPairId) {
+        const counterpart = finance.transactions.find((c) => c.id === tx.transferPairId);
+        if (counterpart) {
+          const counterpartAmtStr = String(Math.round(counterpart.amount));
+          const counterpartFormatted = formatCurrency(Math.abs(counterpart.amount), counterpart.currency, false).toLowerCase();
+          const counterpartWalletName = (finance.wallets.find((w) => w.id === counterpart.walletId)?.name || '').toLowerCase();
+          matchesSearch =
+            counterpart.merchantName.toLowerCase().includes(q) ||
+            counterpartWalletName.includes(q) ||
+            (cleanDigits.length >= 2 && counterpartAmtStr.includes(cleanDigits)) ||
+            counterpartFormatted.includes(q);
+        }
+      }
 
       const matchesType = historyFilter === 'all' ? true : tx.type === historyFilter;
       const matchesCategory =

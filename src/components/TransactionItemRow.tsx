@@ -121,6 +121,10 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
               <View style={styles.repaymentBadge}>
                 <Text style={styles.repaymentBadgeText}>Repayment</Text>
               </View>
+            ) : isTransfer && Boolean(tx.exchangeRate && tx.exchangeRate > 0) ? (
+              <View style={styles.fxBadge}>
+                <Text style={styles.fxBadgeText}>Cross-Currency</Text>
+              </View>
             ) : null}
           </View>
         </View>
@@ -226,6 +230,20 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: Palette.accentTeal,
+  },
+  fxBadge: {
+    backgroundColor: Palette.surfaceSoft,
+    borderColor: Palette.hairline,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  fxBadgeText: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '600',
+    color: Palette.primary,
   },
   txIconBox: {
     width: 38,
