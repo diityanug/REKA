@@ -329,7 +329,7 @@ export function useAppModals() {
     setManTime(getTimeStrFromTimestamp(tx.timestamp));
     setTimeout(() => {
       setManualTxModalVisible(true);
-    }, 220);
+    }, 320);
   }, []);
 
   const handleDuplicateTransaction = useCallback((tx: Transaction) => {
@@ -351,7 +351,7 @@ export function useAppModals() {
     setManTime(getCurrentTimeStr());
     setTimeout(() => {
       setManualTxModalVisible(true);
-    }, 220);
+    }, 320);
   }, []);
 
   const handleCloseManualModal = useCallback(() => {
@@ -397,7 +397,7 @@ export function useAppModals() {
     setRepaymentParentTx(parentTx);
     setTimeout(() => {
       setRepaymentModalVisible(true);
-    }, 200);
+    }, 320);
   }, []);
 
   const closeRecordRepayment = useCallback(() => {

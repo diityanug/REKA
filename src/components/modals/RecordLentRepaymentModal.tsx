@@ -4,7 +4,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  ScrollView,
   StyleSheet,
   ActivityIndicator,
   Keyboard,
@@ -21,13 +20,14 @@ import {
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, Wallet } from '../../types';
-import { formatCurrency, parseAmount } from '../../utils/formatters';
+import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
+import { useLastDefined } from '../../hooks/useLastDefined';
 
 export interface RecordLentRepaymentModalProps {
   visible: boolean;
@@ -68,17 +68,18 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   onSubmit,
 }) => {
   const insets = useSafeAreaInsets();
+  const currentTx = useLastDefined(tx);
   const [amountStr, setAmountStr] = useState<string>('');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
-  const currency = tx?.currency || 'IDR';
-  const totalAmount = tx?.amount || 0;
-  const repaidAmount = tx?.lentRepaidAmount || 0;
+  const currency = currentTx?.currency || 'IDR';
+  const totalAmount = currentTx?.amount || 0;
+  const repaidAmount = currentTx?.lentRepaidAmount || 0;
   const remainingDue = Math.max(0, totalAmount - repaidAmount);
-  const borrower = tx?.lentTo?.trim() || tx?.merchantName || 'Borrower';
+  const borrower = currentTx?.lentTo?.trim() || currentTx?.merchantName || 'Borrower';
 
   // Compatible wallets that match loan currency
   const compatibleWallets = useMemo(() => {
@@ -86,10 +87,11 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   }, [wallets, currency]);
 
   // Synchronize initial input when modal opens
-  useSyncOnChange([visible, tx?.id], () => {
-    if (visible && tx) {
-      setAmountStr(remainingDue > 0 ? String(remainingDue) : '');
-      const matchOrig = compatibleWallets.find((w) => w.id === tx.walletId);
+  useSyncOnChange([visible, currentTx?.id], () => {
+    if (visible && currentTx) {
+      const rem = Math.max(0, currentTx.amount - (currentTx.lentRepaidAmount || 0));
+      setAmountStr(rem > 0 ? formatCurrencyInput(String(rem), currentTx.currency) : '');
+      const matchOrig = compatibleWallets.find((w) => w.id === currentTx.walletId);
       setSelectedWalletId(matchOrig ? matchOrig.id : compatibleWallets[0]?.id || '');
       setNotes('');
       setErrorMsg('');
@@ -103,7 +105,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   const isOverRemaining = !isNaN(parsedAmount) && parsedAmount > remainingDue + 0.01;
 
   const handleConfirm = async () => {
-    if (!tx) return;
+    if (!currentTx) return;
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setErrorMsg('Please enter a valid repayment amount greater than 0.');
       AppHaptics.error();
@@ -126,7 +128,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
 
     try {
       await onSubmit({
-        parentTxId: tx.id,
+        parentTxId: currentTx.id,
         walletId: selectedWalletId,
         amount: parsedAmount,
         notes: notes.trim() || undefined,
@@ -141,13 +143,14 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
     }
   };
 
-  if (!tx) return null;
+  if (!currentTx) return null;
 
   return (
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      maxHeight="90%"
+      height="92%"
+      maxHeight="94%"
     >
       <ModalHeader
         title="Record Repayment"
@@ -155,84 +158,83 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
         onClose={onClose}
       />
 
-      <KeyboardSafeContainer style={styles.container}>
-        <ScrollView
-          style={styles.scrollContent}
-          contentContainerStyle={{
-            paddingBottom: Math.max(insets.bottom, 20) + 16,
-          }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* 1. Loan Overview Card */}
-          <View style={styles.overviewCard}>
-            <View style={styles.overviewRow}>
-              <View style={styles.overviewCol}>
-                <Text style={styles.overviewLabel}>Total Lent</Text>
-                <Text style={styles.overviewValue}>
-                  {formatCurrency(totalAmount, currency, privacyMode)}
-                </Text>
-              </View>
-              <View style={[styles.overviewCol, { alignItems: 'center' }]}>
-                <Text style={styles.overviewLabel}>Repaid</Text>
-                <Text style={[styles.overviewValue, { color: Palette.success }]}>
-                  {formatCurrency(repaidAmount, currency, privacyMode)}
-                </Text>
-              </View>
-              <View style={[styles.overviewCol, { alignItems: 'flex-end' }]}>
-                <Text style={styles.overviewLabel}>Remaining</Text>
-                <Text style={[styles.overviewValue, { color: Palette.accentAmber }]}>
-                  {formatCurrency(remainingDue, currency, privacyMode)}
-                </Text>
-              </View>
+      <KeyboardSafeContainer
+        style={styles.container}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 20) + 24 },
+        ]}
+      >
+        {/* 1. Loan Overview Card */}
+        <View style={styles.overviewCard}>
+          <View style={styles.overviewRow}>
+            <View style={styles.overviewCol}>
+              <Text style={styles.overviewLabel}>Total Lent</Text>
+              <Text style={styles.overviewValue}>
+                {formatCurrency(totalAmount, currency, privacyMode)}
+              </Text>
             </View>
-
-            {/* Progress Bar */}
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${totalAmount > 0 ? Math.min(100, Math.round((repaidAmount / totalAmount) * 100)) : 0}%`,
-                  },
-                ]}
-              />
+            <View style={[styles.overviewCol, { alignItems: 'center' }]}>
+              <Text style={styles.overviewLabel}>Repaid</Text>
+              <Text style={[styles.overviewValue, { color: Palette.success }]}>
+                {formatCurrency(repaidAmount, currency, privacyMode)}
+              </Text>
+            </View>
+            <View style={[styles.overviewCol, { alignItems: 'flex-end' }]}>
+              <Text style={styles.overviewLabel}>Remaining</Text>
+              <Text style={[styles.overviewValue, { color: Palette.accentAmber }]}>
+                {formatCurrency(remainingDue, currency, privacyMode)}
+              </Text>
             </View>
           </View>
 
-          {/* 2. Repayment Amount Section */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Repayment Amount</Text>
-              {remainingDue > 0 ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    AppHaptics.selection();
-                    setAmountStr(String(remainingDue));
-                  }}
-                  activeOpacity={0.7}
-                  style={styles.quickFillPill}
-                >
-                  <Text style={styles.quickFillPillText}>Pay Full</Text>
-                </TouchableOpacity>
-              ) : null}
-            </View>
+          {/* Progress Bar */}
+          <View style={styles.progressTrack}>
+            <View
+              style={[
+                styles.progressFill,
+                {
+                  width: `${totalAmount > 0 ? Math.min(100, Math.round((repaidAmount / totalAmount) * 100)) : 0}%`,
+                },
+              ]}
+            />
+          </View>
+        </View>
 
-            <View style={[styles.inputBox, isOverRemaining && styles.inputBoxError]}>
-              <Text style={styles.currencyPrefix}>{currency === 'IDR' ? 'Rp' : '$'}</Text>
-              <TextInput
-                style={styles.amountInput}
-                keyboardType="numeric"
-                value={amountStr}
-                onChangeText={(text) => {
-                  setAmountStr(text);
-                  if (errorMsg) setErrorMsg('');
+        {/* 2. Repayment Amount Section */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionTitle}>Repayment Amount</Text>
+            {remainingDue > 0 ? (
+              <TouchableOpacity
+                onPress={() => {
+                  AppHaptics.selection();
+                  setAmountStr(formatCurrencyInput(String(remainingDue), currency));
                 }}
-                placeholder="0"
-                placeholderTextColor={Palette.mutedSoft}
-                selectTextOnFocus
-              />
-            </View>
+                activeOpacity={0.7}
+                style={styles.quickFillPill}
+              >
+                <Text style={styles.quickFillPillText}>Pay Full</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={[styles.inputBox, isOverRemaining && styles.inputBoxError]}>
+            <Text style={styles.currencyPrefix}>{currency === 'IDR' ? 'Rp' : '$'}</Text>
+            <TextInput
+              style={styles.amountInput}
+              keyboardType="numeric"
+              value={amountStr}
+              onChangeText={(text) => {
+                const formatted = formatCurrencyInput(text, currency);
+                setAmountStr(formatted);
+                if (errorMsg) setErrorMsg('');
+              }}
+              placeholder="0"
+              placeholderTextColor={Palette.mutedSoft}
+              selectTextOnFocus
+            />
+          </View>
 
             {/* Helper status text */}
             {isOverRemaining ? (
@@ -355,7 +357,6 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
               </Text>
             )}
           </TouchableOpacity>
-        </ScrollView>
       </KeyboardSafeContainer>
     </BottomSheetModal>
   );
