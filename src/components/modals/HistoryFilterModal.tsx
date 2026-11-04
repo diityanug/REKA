@@ -150,14 +150,14 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
               </View>
             </View>
 
-            {/* Section 1.5: Lent / Receivables */}
+            {/* Section 1.5: Lent & Borrowed */}
             <View style={styles.filterSection}>
-              <Text style={styles.sectionTitle}>Lent / Receivables</Text>
+              <Text style={styles.sectionTitle}>Lent & Borrowed</Text>
               <View style={styles.chipsRow}>
                 {[
                   { id: 'all', label: 'All Transactions' },
-                  { id: 'outstanding', label: 'Outstanding Lent' },
-                  { id: 'settled', label: 'Settled Lent' },
+                  { id: 'outstanding', label: 'Outstanding' },
+                  { id: 'settled', label: 'Settled' },
                 ].map((item) => {
                   const isActive = lentFilter === item.id;
                   return (

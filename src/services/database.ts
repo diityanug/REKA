@@ -1509,6 +1509,7 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
   await db.withTransactionAsync(async () => {
     const parent = await db.getFirstAsync<{
       id: string;
+      type: TransactionType;
       amount: number;
       currency: CurrencyType;
       merchant_name: string;
@@ -1516,14 +1517,15 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       lent_repaid_amount: number;
       lent_status: string;
     }>(
-      'SELECT id, amount, currency, merchant_name, lent_to, lent_repaid_amount, lent_status FROM transactions WHERE id = ?',
+      'SELECT id, type, amount, currency, merchant_name, lent_to, lent_repaid_amount, lent_status FROM transactions WHERE id = ?',
       params.parentTxId
     );
 
     if (!parent) {
-      throw new Error('Original lent transaction was not found.');
+      throw new Error('Original loan transaction was not found.');
     }
 
+    const isBorrowed = parent.type === 'income';
     const currentRepaid = Number(parent.lent_repaid_amount) || 0;
     const remainingDue = parent.amount - currentRepaid;
     if (params.amount <= 0) {
@@ -1533,19 +1535,35 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       throw new Error('Repayment amount cannot exceed remaining balance.');
     }
 
-    // 1. Validate destination wallet exists
-    const destWallet = await db.getFirstAsync<{ id: string }>(
-      'SELECT id FROM wallets WHERE id = ?',
+    // 1. Validate target wallet exists (and has sufficient funds if paying back borrowed debt)
+    const targetWallet = await db.getFirstAsync<{ id: string; balance: number }>(
+      'SELECT id, balance FROM wallets WHERE id = ?',
       params.walletId
     );
-    if (!destWallet) {
-      throw new Error('Destination account not found.');
+    if (!targetWallet) {
+      throw new Error('Selected account not found.');
+    }
+    if (isBorrowed && targetWallet.balance < params.amount - 0.005) {
+      throw new InsufficientFundsError(
+        'account',
+        targetWallet.balance,
+        'Selected account does not have enough balance to pay this debt.'
+      );
     }
 
-    // 2. Insert repayment income transaction (child transaction)
-    const borrower = (parent.lent_to || '').trim() || parent.merchant_name;
+    // 2. Insert child repayment transaction (expense if paying back borrowed debt; income if receiving lent repayment)
+    const counterparty = (parent.lent_to || '').trim() || parent.merchant_name;
     const txTimestamp = params.timestamp || new Date().toISOString();
-    const txNotes = params.notes?.trim() || `Repayment for lent to ${borrower}`;
+    const txNotes =
+      params.notes?.trim() ||
+      (isBorrowed
+        ? `Debt repayment to ${counterparty}`
+        : `Repayment for lent to ${counterparty}`);
+    const childMerchantName = isBorrowed
+      ? `Debt Repayment: ${counterparty}`
+      : `Repayment: ${counterparty}`;
+    const childCategory = isBorrowed ? 'Bills' : 'Allowance';
+    const childType: TransactionType = isBorrowed ? 'expense' : 'income';
 
     await db.runAsync(
       `INSERT INTO transactions
@@ -1554,9 +1572,9 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       repaymentTxId,
       params.walletId,
       '',
-      `Repayment: ${borrower}`,
-      'Allowance',
-      'income',
+      childMerchantName,
+      childCategory,
+      childType,
       params.amount,
       parent.currency || 'IDR',
       0,
@@ -1572,10 +1590,11 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       parent.id
     );
 
-    // 3. Credit destination wallet balance
+    // 3. Update wallet balance (-amount if paying back borrowed debt, +amount if receiving lent repayment)
+    const walletDelta = isBorrowed ? -params.amount : params.amount;
     await db.runAsync(
       'UPDATE wallets SET balance = balance + ? WHERE id = ?',
-      params.amount,
+      walletDelta,
       params.walletId
     );
 

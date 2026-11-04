@@ -19,6 +19,7 @@ import {
   AlertCircle,
   HandCoins,
   User,
+  Calculator,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, Wallet } from '../../types';
@@ -28,6 +29,7 @@ import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
+import { AmountInputModal } from './AmountInputModal';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
@@ -74,16 +76,21 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   const footerKeyboardOffset = useFooterKeyboardOffset();
   const currentTx = useLastDefined(tx);
   const [amountStr, setAmountStr] = useState<string>('');
+  const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
+  const isBorrowed = currentTx?.type === 'income';
   const currency = currentTx?.currency || 'IDR';
   const totalAmount = currentTx?.amount || 0;
   const repaidAmount = currentTx?.lentRepaidAmount || 0;
   const remainingDue = Math.max(0, totalAmount - repaidAmount);
-  const borrower = currentTx?.lentTo?.trim() || currentTx?.merchantName || 'Borrower';
+  const borrower =
+    currentTx?.lentTo?.trim() ||
+    currentTx?.merchantName ||
+    (isBorrowed ? 'Lender' : 'Borrower');
   const progressPercent =
     totalAmount > 0 ? Math.min(100, Math.round((repaidAmount / totalAmount) * 100)) : 0;
 
@@ -102,6 +109,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       setNotes('');
       setErrorMsg('');
       setIsSubmitting(false);
+      setAmountModalVisible(false);
     }
   });
 
@@ -123,9 +131,23 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       return;
     }
     if (!selectedWalletId) {
-      setErrorMsg('Please choose the destination account receiving the funds.');
+      setErrorMsg(
+        isBorrowed
+          ? 'Please choose the account to pay this debt from.'
+          : 'Please choose the destination account receiving the funds.'
+      );
       AppHaptics.error();
       return;
+    }
+    if (isBorrowed) {
+      const sourceWallet = compatibleWallets.find((w) => w.id === selectedWalletId);
+      if (sourceWallet && sourceWallet.balance < parsedAmount - 0.005) {
+        setErrorMsg(
+          `Insufficient balance in ${sourceWallet.name} (${formatCurrency(sourceWallet.balance, currency, false)} available).`
+        );
+        AppHaptics.error();
+        return;
+      }
     }
 
     Keyboard.dismiss();
@@ -159,8 +181,8 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       maxHeight="92%"
     >
       <ModalHeader
-        title="Record Repayment"
-        subtitle={`Borrower: ${borrower}`}
+        title={isBorrowed ? 'Pay Back Debt' : 'Record Repayment'}
+        subtitle={`${isBorrowed ? 'Lender' : 'Borrower'}: ${borrower}`}
         onClose={onClose}
       />
 
@@ -207,14 +229,16 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
             </View>
           </View>
 
-          <Text style={styles.heroMetricLabel}>Remaining Balance to Collect</Text>
+          <Text style={styles.heroMetricLabel}>
+            {isBorrowed ? 'Remaining Debt to Pay' : 'Remaining Balance to Collect'}
+          </Text>
           <Text style={styles.heroMetricValue}>
             {formatCurrency(remainingDue, currency, privacyMode)}
           </Text>
 
           <View style={styles.heroStatsRow}>
             <Text style={styles.heroStatItem}>
-              Total Loan: <Text style={styles.heroStatValue}>{formatCurrency(totalAmount, currency, privacyMode)}</Text>
+              {isBorrowed ? 'Total Borrowed' : 'Total Loan'}: <Text style={styles.heroStatValue}>{formatCurrency(totalAmount, currency, privacyMode)}</Text>
             </Text>
             <Text style={styles.heroStatDivider}>•</Text>
             <Text style={styles.heroStatItem}>
@@ -253,24 +277,30 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
             ) : null}
           </View>
 
-          <View style={[styles.inputBox, isOverRemaining && styles.inputBoxError]}>
+          <TouchableOpacity
+            style={[styles.inputBox, isOverRemaining && styles.inputBoxError]}
+            activeOpacity={0.8}
+            onPress={() => {
+              AppHaptics.light();
+              Keyboard.dismiss();
+              setAmountModalVisible(true);
+            }}
+          >
             <View style={styles.currencyBadge}>
               <Text style={styles.currencyBadgeText}>{currency === 'IDR' ? 'Rp' : '$'}</Text>
             </View>
-            <TextInput
-              style={styles.amountInput}
-              keyboardType="numeric"
-              value={amountStr}
-              onChangeText={(text) => {
-                const formatted = formatCurrencyInput(text, currency);
-                setAmountStr(formatted);
-                if (errorMsg) setErrorMsg('');
-              }}
-              placeholder="0"
-              placeholderTextColor={Palette.mutedSoft}
-              selectTextOnFocus
-            />
-          </View>
+            <Text
+              style={[
+                styles.amountInput,
+                !amountStr && styles.amountInputPlaceholder,
+              ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {amountStr || (currency === 'IDR' ? '0' : '0.00')}
+            </Text>
+            <Calculator size={16} color={Palette.mutedSoft} />
+          </TouchableOpacity>
 
           {/* Contextual Feedback Hint */}
           {isOverRemaining ? (
@@ -284,7 +314,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
             <View style={styles.hintRow}>
               <Check size={13} color={Palette.success} strokeWidth={3} />
               <Text style={[styles.hintText, { color: Palette.success }]}>
-                Full settlement • Loan status will become Settled
+                Full settlement • {isBorrowed ? 'Debt' : 'Loan'} status will become Settled
               </Text>
             </View>
           ) : isAmountValid ? (
@@ -296,10 +326,14 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
           ) : null}
         </View>
 
-        {/* 3. Receiving Account Selection (Sleek Account Chips) */}
+        {/* 3. Account Selection (Sleek Account Chips) */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Receiving Account</Text>
-          <Text style={styles.sectionSubtitle}>Select account to receive the funds</Text>
+          <Text style={styles.sectionTitle}>
+            {isBorrowed ? 'Pay From Account' : 'Receiving Account'}
+          </Text>
+          <Text style={styles.sectionSubtitle}>
+            {isBorrowed ? 'Select account to pay the debt from' : 'Select account to receive the funds'}
+          </Text>
 
           <View style={styles.accountChipsRow}>
             {compatibleWallets.map((w) => {
@@ -362,7 +396,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
 
         {/* 4. Notes (Optional) */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Notes (Optional)</Text>
+          <Text style={styles.sectionTitle}>Notes</Text>
           <TextInput
             style={styles.notesInput}
             value={notes}
@@ -411,6 +445,19 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
           )}
         </TouchableOpacity>
       </View>
+
+      <AmountInputModal
+        visible={amountModalVisible}
+        title={isBorrowed ? 'Set Debt Payment Amount' : 'Set Repayment Amount'}
+        subtitle={`Remaining balance: ${formatCurrency(remainingDue, currency, false)}`}
+        initialAmount={amountStr}
+        currency={currency}
+        onConfirm={(formatted) => {
+          setAmountStr(formatted);
+          if (errorMsg) setErrorMsg('');
+        }}
+        onClose={() => setAmountModalVisible(false)}
+      />
     </BottomSheetModal>
   );
 };
@@ -602,6 +649,10 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     padding: 0,
   },
+  amountInputPlaceholder: {
+    color: Palette.mutedSoft,
+    fontWeight: '600',
+  },
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -692,6 +743,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     paddingHorizontal: 14,
     paddingVertical: 12,
+    marginTop: 8,
     fontSize: 14,
     color: Palette.ink,
     minHeight: 48,

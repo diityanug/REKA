@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.aes.finance",
-      "versionCode": 6,
+      "versionCode": 7,
       "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"

@@ -1193,6 +1193,73 @@ function MainApp() {
         getCategoryIconName={finance.getCategoryIconName}
       />
 
+      {/* Modal 8: Account Details & Unified Sub-Pockets Breakdown */}
+      <AccountDetailModal
+        wallet={currentViewingWallet}
+        pockets={currentViewingPockets}
+        transactions={currentViewingTransactions}
+        privacyMode={privacyMode}
+        onRenameWallet={finance.handleRenameWallet}
+        onAdjustWalletBalance={finance.handleAdjustWalletBalance}
+        onImportStatement={(w) => handlePickStatement(w)}
+        onRenamePocket={finance.handleRenamePocket}
+        onOpenAddPocket={modals.openAddPocketForWallet}
+        onAdjustPocket={modals.openAdjustPocketFromDetail}
+        onDirectAdjustPocketBalance={async (pocketId, newBal) => {
+          const pocket = finance.pockets.find((p) => p.id === pocketId);
+          if (pocket) {
+            await finance.handleDirectAdjustPocketBalance(pocket, newBal);
+          }
+        }}
+        onDeletePocket={finance.handleDeletePocket}
+        onSelectTransaction={(tx) => modals.setSelectedTx(tx)}
+        onDeleteWallet={(w) => finance.handleDeleteAccount(w, () => modals.closeAccountDetail())}
+        getCategoryIconName={finance.getCategoryIconName}
+        getPocketName={finance.getPocketName}
+        onClose={modals.closeAccountDetail}
+      />
+
+      {/* Modal 9: Transfer Funds */}
+      <TransferModal
+        visible={modals.transferModalVisible}
+        wallets={finance.wallets}
+        activeCurrency={finance.activeCurrency}
+        privacyMode={privacyMode}
+        initialExchangeRate={finance.exchangeRate}
+        exchangeRateInfo={finance.exchangeRateInfo}
+        onRefreshExchangeRate={finance.handleRefreshExchangeRate}
+        onOpenAddAccount={handleOpenAddAccount}
+        onExecuteTransfer={finance.handleExecuteTransfer}
+        onClose={handleCloseTransferModal}
+      />
+
+      {/* Modal 5: Transaction Detail */}
+      <TxDetailModal
+        transaction={modals.selectedTx}
+        categoryIcon={modals.selectedTx ? finance.getCategoryIconName(modals.selectedTx.category, modals.selectedTx.type) : ''}
+        pocketName={modals.selectedTx ? finance.getPocketName(modals.selectedTx.pocketId) : undefined}
+        wallets={finance.wallets}
+        transactions={finance.transactions}
+        privacyMode={privacyMode}
+        onEdit={modals.handleStartEditTransaction}
+        onDuplicate={modals.handleDuplicateTransaction}
+        onDelete={(tx) => finance.handleDeleteTransaction(tx, () => modals.setSelectedTx(null))}
+        onRecordRepayment={modals.openRecordRepayment}
+        onClose={() => modals.setSelectedTx(null)}
+      />
+
+      {/* Modal 5b: Record Lent Repayment */}
+      <RecordLentRepaymentModal
+        visible={modals.repaymentModalVisible}
+        parentTransaction={modals.repaymentParentTx}
+        wallets={finance.wallets}
+        privacyMode={privacyMode}
+        onClose={modals.closeRecordRepayment}
+        onSubmit={async (params) => {
+          await finance.handleRecordLentRepayment(params);
+        }}
+      />
+
       {/* Modal 2: Manual Transaction Input */}
       <ManualTxModal
         visible={modals.manualTxModalVisible}
@@ -1327,33 +1394,6 @@ function MainApp() {
         onClose={modals.closeCategoryManager}
       />
 
-      {/* Modal 5: Transaction Detail */}
-      <TxDetailModal
-        transaction={modals.selectedTx}
-        categoryIcon={modals.selectedTx ? finance.getCategoryIconName(modals.selectedTx.category, modals.selectedTx.type) : ''}
-        pocketName={modals.selectedTx ? finance.getPocketName(modals.selectedTx.pocketId) : undefined}
-        wallets={finance.wallets}
-        transactions={finance.transactions}
-        privacyMode={privacyMode}
-        onEdit={modals.handleStartEditTransaction}
-        onDuplicate={modals.handleDuplicateTransaction}
-        onDelete={(tx) => finance.handleDeleteTransaction(tx, () => modals.setSelectedTx(null))}
-        onRecordRepayment={modals.openRecordRepayment}
-        onClose={() => modals.setSelectedTx(null)}
-      />
-
-      {/* Modal 5b: Record Lent Repayment */}
-      <RecordLentRepaymentModal
-        visible={modals.repaymentModalVisible}
-        parentTransaction={modals.repaymentParentTx}
-        wallets={finance.wallets}
-        privacyMode={privacyMode}
-        onClose={modals.closeRecordRepayment}
-        onSubmit={async (params) => {
-          await finance.handleRecordLentRepayment(params);
-        }}
-      />
-
       {/* Modal 6: Create Pocket */}
       <NewPocketModal
         visible={modals.newPocketModalVisible}
@@ -1412,46 +1452,6 @@ function MainApp() {
           if (applied) modals.closeAdjustPocketModal();
         }}
         onClose={modals.closeAdjustPocketModal}
-      />
-
-      {/* Modal 8: Account Details & Unified Sub-Pockets Breakdown */}
-      <AccountDetailModal
-        wallet={currentViewingWallet}
-        pockets={currentViewingPockets}
-        transactions={currentViewingTransactions}
-        privacyMode={privacyMode}
-        onRenameWallet={finance.handleRenameWallet}
-        onAdjustWalletBalance={finance.handleAdjustWalletBalance}
-        onImportStatement={(w) => handlePickStatement(w)}
-        onRenamePocket={finance.handleRenamePocket}
-        onOpenAddPocket={modals.openAddPocketForWallet}
-        onAdjustPocket={modals.openAdjustPocketFromDetail}
-        onDirectAdjustPocketBalance={async (pocketId, newBal) => {
-          const pocket = finance.pockets.find((p) => p.id === pocketId);
-          if (pocket) {
-            await finance.handleDirectAdjustPocketBalance(pocket, newBal);
-          }
-        }}
-        onDeletePocket={finance.handleDeletePocket}
-        onSelectTransaction={(tx) => modals.setSelectedTx(tx)}
-        onDeleteWallet={(w) => finance.handleDeleteAccount(w, () => modals.closeAccountDetail())}
-        getCategoryIconName={finance.getCategoryIconName}
-        getPocketName={finance.getPocketName}
-        onClose={modals.closeAccountDetail}
-      />
-
-      {/* Modal 9: Transfer Funds */}
-      <TransferModal
-        visible={modals.transferModalVisible}
-        wallets={finance.wallets}
-        activeCurrency={finance.activeCurrency}
-        privacyMode={privacyMode}
-        initialExchangeRate={finance.exchangeRate}
-        exchangeRateInfo={finance.exchangeRateInfo}
-        onRefreshExchangeRate={finance.handleRefreshExchangeRate}
-        onOpenAddAccount={handleOpenAddAccount}
-        onExecuteTransfer={finance.handleExecuteTransfer}
-        onClose={handleCloseTransferModal}
       />
 
       {/* Modal 10: Settings & Data Management */}

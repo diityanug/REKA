@@ -188,6 +188,10 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
       ? transactions.find((t) => t.id === currentTx.transferPairId)
       : undefined;
 
+  const parentLentTx = currentTx.lentParentTxId
+    ? transactions.find((t) => t.id === currentTx.lentParentTxId)
+    : undefined;
+
   const isCrossCurrency = !!(
     (fromWallet && toWallet && fromWallet.currency !== toWallet.currency) ||
     (pairedTransferTx && pairedTransferTx.currency !== currentTx.currency)
@@ -477,10 +481,21 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               ) : null}
 
               {currentTx.lentParentTxId ? (
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Repayment For</Text>
-                  <View style={styles.repaymentInlineBadge}>
-                    <Text style={styles.repaymentInlineBadgeText}>Original Loan Repayment</Text>
+                <View style={[styles.metaRow, { alignItems: 'flex-start' }]}>
+                  <Text style={[styles.metaLabel, { marginTop: 1 }]}>Repayment For</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.metaValue}>
+                      {parentLentTx
+                        ? parentLentTx.merchantName
+                        : currentTx.type === 'expense'
+                          ? 'Borrowed Debt Repayment'
+                          : 'Original Loan Repayment'}
+                    </Text>
+                    {parentLentTx?.lentTo ? (
+                      <Text style={[styles.routeMeta, { marginTop: 2 }]}>
+                        {parentLentTx.type === 'income' ? 'Lender' : 'Borrower'}: {parentLentTx.lentTo}
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
               ) : null}
@@ -488,13 +503,15 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
           )}
         </View>
 
-        {/* 3.5 Dedicated Lent / Talangan Status & Repayments Card */}
+        {/* 3.5 Dedicated Lent / Borrowed Status & Repayments Card */}
         {currentTx.isLent ? (
           <View style={styles.lentCard}>
             <View style={styles.lentCardHeader}>
               <View style={styles.lentCardTitleRow}>
                 <HandCoins size={16} color={Palette.accentAmber} style={{ marginRight: 6 }} />
-                <Text style={styles.lentCardTitle}>Lent Money</Text>
+                <Text style={styles.lentCardTitle}>
+                  {currentTx.type === 'income' ? 'Borrowed Money' : 'Lent Money'}
+                </Text>
               </View>
               <View
                 style={[
@@ -518,21 +535,33 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             </View>
 
             <View style={styles.lentMetricsRow}>
-              <View style={styles.lentMetricCol}>
-                <Text style={styles.lentMetricLabel}>Borrower</Text>
-                <Text style={styles.lentMetricValue} numberOfLines={1}>
+              <View style={[styles.lentMetricCol, { paddingRight: 8 }]}>
+                <Text style={styles.lentMetricLabel}>
+                  {currentTx.type === 'income' ? 'Lender' : 'Borrower'}
+                </Text>
+                <Text style={styles.lentMetricValue}>
                   {currentTx.lentTo?.trim() || currentTx.merchantName}
                 </Text>
               </View>
-              <View style={styles.lentMetricCol}>
+              <View style={[styles.lentMetricCol, { paddingHorizontal: 4 }]}>
                 <Text style={styles.lentMetricLabel}>Repaid</Text>
-                <Text style={[styles.lentMetricValue, { color: Palette.success }]}>
+                <Text
+                  style={[styles.lentMetricValue, { color: Palette.success }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.55}
+                >
                   {formatCurrency(currentTx.lentRepaidAmount || 0, currentTx.currency, privacyMode)}
                 </Text>
               </View>
-              <View style={[styles.lentMetricCol, { alignItems: 'flex-end' }]}>
+              <View style={[styles.lentMetricCol, { alignItems: 'flex-end', paddingLeft: 4 }]}>
                 <Text style={styles.lentMetricLabel}>Remaining</Text>
-                <Text style={[styles.lentMetricValue, { color: Palette.accentAmber }]}>
+                <Text
+                  style={[styles.lentMetricValue, { color: Palette.accentAmber }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.55}
+                >
                   {formatCurrency(
                     Math.max(0, currentTx.amount - (currentTx.lentRepaidAmount || 0)),
                     currentTx.currency,
@@ -549,7 +578,9 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 activeOpacity={0.8}
               >
                 <HandCoins size={15} color={Palette.white} style={{ marginRight: 6 }} />
-                <Text style={styles.recordRepaymentBtnText}>Record Repayment</Text>
+                <Text style={styles.recordRepaymentBtnText}>
+                  {currentTx.type === 'income' ? 'Pay Back Debt' : 'Record Repayment'}
+                </Text>
               </TouchableOpacity>
             ) : null}
           </View>
@@ -561,34 +592,57 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             <Text style={styles.sectionTitle}>
               Repayment History ({repayments.length})
             </Text>
-            {repayments.map((rp) => (
-              <TouchableOpacity
-                key={rp.id}
-                style={styles.repaymentRow}
-                onPress={() => onEdit(rp)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={`Edit repayment of ${formatCurrency(rp.amount, rp.currency, privacyMode)}`}
-              >
-                <View style={styles.repaymentIconBox}>
-                  <CheckCircle2 size={15} color={Palette.success} />
-                </View>
-                <View style={styles.repaymentInfo}>
-                  <Text style={styles.repaymentDate}>
-                    {formatDateTime(rp.timestamp)}
-                  </Text>
-                  {rp.notes ? (
-                    <Text style={styles.repaymentNotes} numberOfLines={1}>
-                      {rp.notes}
+            {repayments.map((rp) => {
+              const isDebtPayment = rp.type === 'expense';
+              const rpFormatted = `${isDebtPayment ? '-' : '+'}${formatCurrency(rp.amount, rp.currency, privacyMode)}`;
+              const rpFontSize =
+                rpFormatted.length > 18
+                  ? 13
+                  : rpFormatted.length > 14
+                    ? 13.5
+                    : 14;
+              return (
+                <TouchableOpacity
+                  key={rp.id}
+                  style={styles.repaymentRow}
+                  onPress={() => onEdit(rp)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit repayment of ${formatCurrency(rp.amount, rp.currency, privacyMode)}`}
+                >
+                  <View style={styles.repaymentIconBox}>
+                    <CheckCircle2 size={15} color={Palette.success} />
+                  </View>
+                  <View style={[styles.repaymentInfo, { paddingRight: 10 }]}>
+                    <Text style={styles.repaymentDate}>
+                      {formatDateTime(rp.timestamp)}
                     </Text>
-                  ) : null}
-                </View>
-                <Text style={styles.repaymentAmount}>
-                  +{formatCurrency(rp.amount, rp.currency, privacyMode)}
-                </Text>
-                <ChevronRight size={14} color={Palette.mutedSoft} style={{ marginLeft: 6 }} />
-              </TouchableOpacity>
-            ))}
+                    {rp.notes ? (
+                      <Text style={styles.repaymentNotes}>
+                        {rp.notes}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <View style={{ maxWidth: '56%', alignItems: 'flex-end', flexShrink: 0 }}>
+                    <Text
+                      style={[
+                        styles.repaymentAmount,
+                        {
+                          fontSize: rpFontSize,
+                          color: isDebtPayment ? Palette.error : Palette.success,
+                        },
+                      ]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      {rpFormatted}
+                    </Text>
+                  </View>
+                  <ChevronRight size={14} color={Palette.mutedSoft} style={{ marginLeft: 6 }} />
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
 

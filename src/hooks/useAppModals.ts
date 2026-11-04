@@ -311,7 +311,7 @@ export function useAppModals() {
 
   const handleStartEditTransaction = useCallback((tx: Transaction) => {
     AppHaptics.light();
-    setSelectedTx(null);
+    // Keep parent modal (selectedTx) open so ManualTxModal stacks directly on top
     setEditingTransaction(tx);
     setManMerchant(tx.merchantName);
     setManAmount(String(tx.amount));
@@ -327,14 +327,12 @@ export function useAppModals() {
     setManDate(getDateStrFromTimestamp(tx.timestamp));
     // Keep the original time of day so editing never silently rewrites it
     setManTime(getTimeStrFromTimestamp(tx.timestamp));
-    setTimeout(() => {
-      setManualTxModalVisible(true);
-    }, 320);
+    setManualTxModalVisible(true);
   }, []);
 
   const handleDuplicateTransaction = useCallback((tx: Transaction) => {
     AppHaptics.light();
-    setSelectedTx(null);
+    // Keep parent modal (selectedTx) open so ManualTxModal stacks directly on top
     setEditingTransaction(null);
     setManMerchant(tx.merchantName);
     setManAmount(String(tx.amount));
@@ -349,9 +347,7 @@ export function useAppModals() {
     setSelectedPocketId(tx.pocketId || '');
     setManDate(getTodayDateStr());
     setManTime(getCurrentTimeStr());
-    setTimeout(() => {
-      setManualTxModalVisible(true);
-    }, 320);
+    setManualTxModalVisible(true);
   }, []);
 
   const handleCloseManualModal = useCallback(() => {

@@ -707,13 +707,17 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 onSubmitEditing={Keyboard.dismiss}
               />
 
-              {/* Lent / Talangan Split Tagging */}
+              {/* Lent / Borrowed Split Tagging */}
               <View style={styles.lentCard}>
                 <View style={styles.lentHeaderRow}>
                   <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.lentTitle}>Lent Money</Text>
+                    <Text style={styles.lentTitle}>
+                      {manType === 'income' ? 'Borrowed Money' : 'Lent Money'}
+                    </Text>
                     <Text style={styles.lentSubtitle}>
-                      Mark as money lent to someone else for tracking
+                      {manType === 'income'
+                        ? 'Mark as money borrowed from someone else to repay later'
+                        : 'Mark as money lent to someone else for tracking'}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -733,14 +737,16 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                         manIsLent && styles.lentToggleTextActive,
                       ]}
                     >
-                      {manIsLent ? 'Lent' : 'Off'}
+                      {manIsLent ? (manType === 'income' ? 'Borrowed' : 'Lent') : 'Off'}
                     </Text>
                   </TouchableOpacity>
                 </View>
 
                 {manIsLent ? (
                   <View style={{ marginTop: 10 }}>
-                    <Text style={styles.lentInputLabel}>Lent to (Recipient)</Text>
+                    <Text style={styles.lentInputLabel}>
+                      {manType === 'income' ? 'Borrowed from (Lender)' : 'Lent to (Borrower)'}
+                    </Text>
                     <TextInput
                       style={styles.lentInput}
                       placeholder="e.g. John Doe, Sarah"

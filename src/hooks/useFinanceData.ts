@@ -371,10 +371,14 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     return currencyWallets.reduce((acc, w) => acc + w.balance, 0);
   }, [currencyWallets]);
 
-  // Outstanding lent money summary (unsettled or partial loans across all dates)
+  // Outstanding lent money summary (unsettled or partial receivables across all dates)
   const outstandingLentSummary = useMemo(() => {
     const lentTxs = transactions.filter(
-      (tx) => tx.isLent && tx.currency === activeCurrency && tx.lentStatus !== 'settled'
+      (tx) =>
+        tx.isLent &&
+        tx.type === 'expense' &&
+        tx.currency === activeCurrency &&
+        tx.lentStatus !== 'settled'
     );
     const totalOutstanding = lentTxs.reduce((acc, tx) => {
       const repaid = tx.lentRepaidAmount || 0;

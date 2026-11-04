@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Check } from 'lucide-react-native';
+import { Check, HandCoins, ArrowDownLeft, ArrowUpRight } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { Transaction } from '../types';
 import { formatCurrency } from '../utils/formatters';
@@ -34,6 +34,78 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
     : isTransfer
       ? formatCurrency(Math.abs(tx.amount), tx.currency, false)
       : `${isExpense ? '- ' : '+ '}${formatCurrency(Math.abs(tx.amount), tx.currency, false)}`;
+
+  // Keep amount font large and readable (14px-15px); right column expands up to ~58% (40/60 split) for billion-digit amounts
+  const amountFontSize =
+    formattedAmount.length > 18
+      ? 13.5
+      : formattedAmount.length > 15
+        ? 14
+        : 15;
+
+  // Dedicated sub-bar info for transactions with extra context (Lent / Repayment)
+  const isLent = Boolean(tx.isLent);
+  const isRepayment = Boolean(tx.lentParentTxId);
+  const hasExtraInfo = isLent || isRepayment;
+
+  let extraIcon = null;
+  let extraTitle = '';
+  let extraBadgeLabel = '';
+  let extraBadgeStyle = styles.subBarBadgeWarning;
+  let extraBadgeTextStyle = styles.subBarBadgeWarningText;
+
+  if (isLent) {
+    const isSettled = tx.lentStatus === 'settled';
+    const isPartial = tx.lentStatus === 'partial';
+    const isBorrowed = tx.type === 'income';
+    const counterparty = tx.lentTo?.trim();
+    extraTitle = isBorrowed
+      ? counterparty
+        ? `Borrowed from ${counterparty}`
+        : 'Borrowed Money'
+      : counterparty
+        ? `Lent to ${counterparty}`
+        : 'Lent Money';
+    extraIcon = (
+      <HandCoins
+        size={13}
+        color={isSettled ? Palette.success : Palette.accentAmber}
+        style={styles.subBarIcon}
+      />
+    );
+    if (isSettled) {
+      extraBadgeLabel = 'Settled';
+      extraBadgeStyle = styles.subBarBadgeSuccess;
+      extraBadgeTextStyle = styles.subBarBadgeSuccessText;
+    } else if (isPartial) {
+      extraBadgeLabel = 'Partial';
+      extraBadgeStyle = styles.subBarBadgeWarning;
+      extraBadgeTextStyle = styles.subBarBadgeWarningText;
+    } else {
+      extraBadgeLabel = 'Unsettled';
+      extraBadgeStyle = styles.subBarBadgeWarning;
+      extraBadgeTextStyle = styles.subBarBadgeWarningText;
+    }
+  } else if (isRepayment) {
+    const isDebtRepayment = tx.type === 'expense';
+    extraTitle = isDebtRepayment ? 'Debt Repayment' : 'Loan Repayment';
+    extraIcon = isDebtRepayment ? (
+      <ArrowUpRight
+        size={13}
+        color={Palette.primary}
+        style={styles.subBarIcon}
+      />
+    ) : (
+      <ArrowDownLeft
+        size={13}
+        color={Palette.accentTeal}
+        style={styles.subBarIcon}
+      />
+    );
+    extraBadgeLabel = 'Repayment';
+    extraBadgeStyle = styles.subBarBadgeTeal;
+    extraBadgeTextStyle = styles.subBarBadgeTealText;
+  }
 
   return (
     <TouchableOpacity
@@ -77,7 +149,7 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
         >
           <CategoryIcon
             name={isTransfer ? 'Transfer' : categoryIcon}
-            size={18}
+            size={19}
             color={
               isTransfer
                 ? Palette.primary
@@ -88,53 +160,25 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
           />
         </View>
 
-        {/* Center: Merchant Name & Context Metadata */}
+        {/* Center: Merchant Name & Context Metadata (wraps to new line at boundary, never truncated) */}
         <View style={styles.txInfoBox}>
-          <Text style={styles.txMerchantName} numberOfLines={3}>
+          <Text style={styles.txMerchantName}>
             {tx.merchantName}
           </Text>
           <View style={styles.metaRow}>
-            <Text style={styles.txMetaText} numberOfLines={1}>
+            <Text style={styles.txMetaText}>
               {tx.category}{pocketName ? ` • ${pocketName}` : ''}
             </Text>
-            {tx.isLent ? (
-              <View
-                style={[
-                  styles.lentBadge,
-                  tx.lentStatus === 'settled' && styles.lentBadgeSettled,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.lentBadgeText,
-                    tx.lentStatus === 'settled' && styles.lentBadgeSettledText,
-                  ]}
-                >
-                  {tx.lentStatus === 'settled'
-                    ? tx.lentTo ? `Lent to ${tx.lentTo} • Settled` : 'Lent • Settled'
-                    : tx.lentStatus === 'partial'
-                    ? tx.lentTo ? `Lent to ${tx.lentTo} • Partial` : 'Lent • Partial'
-                    : tx.lentTo ? `Lent to ${tx.lentTo}` : 'Lent'}
-                </Text>
-              </View>
-            ) : tx.lentParentTxId ? (
-              <View style={styles.repaymentBadge}>
-                <Text style={styles.repaymentBadgeText}>Repayment</Text>
-              </View>
-            ) : isTransfer && Boolean(tx.exchangeRate && tx.exchangeRate > 0) ? (
-              <View style={styles.fxBadge}>
-                <Text style={styles.fxBadgeText}>Cross-Currency</Text>
-              </View>
-            ) : null}
           </View>
         </View>
 
-        {/* Trailing: Right-Aligned Amount */}
+        {/* Trailing: Right-Aligned Amount (up to ~60% width for large digits so font stays large & crisp) */}
         <View style={styles.txAmountBox}>
           <Text
             style={[
               styles.txAmountText,
               {
+                fontSize: amountFontSize,
                 color: isTransfer
                   ? Palette.ink
                   : isExpense
@@ -144,12 +188,29 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
             ]}
             numberOfLines={1}
             adjustsFontSizeToFit={true}
-            minimumFontScale={0.75}
+            minimumFontScale={0.82}
           >
             {formattedAmount}
           </Text>
         </View>
       </View>
+
+      {/* Dedicated Bottom Strip for Lent / Repayment */}
+      {hasExtraInfo ? (
+        <View style={styles.subBar}>
+          <View style={styles.subBarLeft}>
+            {extraIcon}
+            <Text style={styles.subBarLeftText}>
+              {extraTitle}
+            </Text>
+          </View>
+          <View style={[styles.subBarBadge, extraBadgeStyle]}>
+            <Text style={[styles.subBarBadgeText, extraBadgeTextStyle]}>
+              {extraBadgeLabel}
+            </Text>
+          </View>
+        </View>
+      ) : null}
     </TouchableOpacity>
   );
 });
@@ -159,12 +220,12 @@ TransactionItemRow.displayName = 'TransactionItemRow';
 const styles = StyleSheet.create({
   txCard: {
     backgroundColor: Palette.white,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    marginBottom: 8,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 10,
     borderWidth: 1,
-    borderColor: 'transparent',
+    borderColor: Palette.hairline,
   },
   txCardSelected: {
     borderColor: Palette.primary,
@@ -172,7 +233,7 @@ const styles = StyleSheet.create({
   },
   txRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
   },
   checkboxCircle: {
     width: 22,
@@ -182,8 +243,7 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
-    marginTop: 8,
+    marginRight: 12,
     backgroundColor: Palette.white,
   },
   checkboxCircleSelected: {
@@ -193,72 +253,22 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    flexWrap: 'wrap',
-  },
-  lentBadge: {
-    backgroundColor: Palette.tintWarning,
-    borderColor: Palette.tintWarningBorder,
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-  },
-  lentBadgeSettled: {
-    backgroundColor: Palette.tintIncome,
-    borderColor: Palette.tintIncomeBorder,
-  },
-  lentBadgeText: {
-    ...Typography.caption,
-    fontSize: 10,
-    fontWeight: '600',
-    color: Palette.accentAmber,
-  },
-  lentBadgeSettledText: {
-    color: Palette.success,
-  },
-  repaymentBadge: {
-    backgroundColor: Palette.tintIncome,
-    borderColor: Palette.tintIncomeBorder,
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-  },
-  repaymentBadgeText: {
-    ...Typography.caption,
-    fontSize: 10,
-    fontWeight: '600',
-    color: Palette.accentTeal,
-  },
-  fxBadge: {
-    backgroundColor: Palette.surfaceSoft,
-    borderColor: Palette.hairline,
-    borderWidth: 1,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-  },
-  fxBadgeText: {
-    ...Typography.caption,
-    fontSize: 10,
-    fontWeight: '600',
-    color: Palette.primary,
+    marginTop: 4,
   },
   txIconBox: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
-    marginTop: 1,
     flexShrink: 0,
   },
   txInfoBox: {
     flex: 1,
-    paddingRight: 8,
+    paddingRight: 10,
     minWidth: 0,
+    justifyContent: 'center',
   },
   txMerchantName: {
     ...Typography.body,
@@ -271,20 +281,80 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     fontSize: 12,
     color: Palette.muted,
-    marginTop: 3,
     lineHeight: 16,
+    flexShrink: 1,
   },
   txAmountBox: {
-    maxWidth: '48%',
+    maxWidth: '58%',
     alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-    marginTop: 1,
+    justifyContent: 'center',
     flexShrink: 0,
   },
   txAmountText: {
     fontSize: 15,
     fontWeight: '700',
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
     textAlign: 'right',
+  },
+  subBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 11,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Palette.hairline,
+  },
+  subBarLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+    minWidth: 0,
+  },
+  subBarIcon: {
+    marginRight: 6,
+    flexShrink: 0,
+  },
+  subBarLeftText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+    flexShrink: 1,
+  },
+  subBarBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: 6,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  subBarBadgeWarning: {
+    backgroundColor: Palette.tintWarning,
+    borderColor: Palette.tintWarningBorder,
+  },
+  subBarBadgeWarningText: {
+    color: Palette.accentAmber,
+  },
+  subBarBadgeSuccess: {
+    backgroundColor: Palette.tintIncome,
+    borderColor: Palette.tintIncomeBorder,
+  },
+  subBarBadgeSuccessText: {
+    color: Palette.success,
+  },
+  subBarBadgeTeal: {
+    backgroundColor: Palette.tintIncome,
+    borderColor: Palette.tintIncomeBorder,
+  },
+  subBarBadgeTealText: {
+    color: Palette.accentTeal,
+  },
+  subBarBadgeText: {
+    ...Typography.caption,
+    fontSize: 10.5,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 });
