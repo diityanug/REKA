@@ -20,6 +20,7 @@ import {
   CreditCard,
   HandCoins,
   CheckCircle2,
+  ChevronRight,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
@@ -73,7 +74,8 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const currentTx = useLastDefined(tx);
+  const latestTx = tx ? (transactions.find((t) => t.id === tx.id) || tx) : null;
+  const currentTx = useLastDefined(latestTx);
   // Never inherit the previously viewed transaction's icon: fall back per render.
   const currentCategoryIcon =
     categoryIcon && categoryIcon !== 'HelpCircle' ? categoryIcon : 'CircleEllipsis';
@@ -86,7 +88,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   const [loadedRepayments, setLoadedRepayments] = useState<{ txId: string; items: Transaction[] } | null>(
     null
   );
-  const activeTxId = tx?.id;
+  const activeTxId = latestTx?.id;
 
   useEffect(() => {
     if (!activeTxId) return;
@@ -104,7 +106,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   }, [activeTxId]);
 
   useEffect(() => {
-    if (!activeTxId || !tx?.isLent) return;
+    if (!activeTxId || !latestTx?.isLent) return;
     let cancelled = false;
     getLentRepayments(activeTxId)
       .then((list) => {
@@ -116,7 +118,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [activeTxId, tx?.isLent, tx?.lentRepaidAmount, tx?.lentStatus]);
+  }, [activeTxId, latestTx?.isLent, latestTx?.lentRepaidAmount, latestTx?.lentStatus]);
 
   if (!currentTx) return null;
 
@@ -560,7 +562,14 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               Repayment History ({repayments.length})
             </Text>
             {repayments.map((rp) => (
-              <View key={rp.id} style={styles.repaymentRow}>
+              <TouchableOpacity
+                key={rp.id}
+                style={styles.repaymentRow}
+                onPress={() => onEdit(rp)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Edit repayment of ${formatCurrency(rp.amount, rp.currency, privacyMode)}`}
+              >
                 <View style={styles.repaymentIconBox}>
                   <CheckCircle2 size={15} color={Palette.success} />
                 </View>
@@ -577,7 +586,8 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 <Text style={styles.repaymentAmount}>
                   +{formatCurrency(rp.amount, rp.currency, privacyMode)}
                 </Text>
-              </View>
+                <ChevronRight size={14} color={Palette.mutedSoft} style={{ marginLeft: 6 }} />
+              </TouchableOpacity>
             ))}
           </View>
         )}

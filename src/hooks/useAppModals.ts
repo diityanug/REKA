@@ -393,11 +393,8 @@ export function useAppModals() {
 
   const openRecordRepayment = useCallback((parentTx: Transaction) => {
     AppHaptics.light();
-    setSelectedTx(null);
     setRepaymentParentTx(parentTx);
-    setTimeout(() => {
-      setRepaymentModalVisible(true);
-    }, 320);
+    setRepaymentModalVisible(true);
   }, []);
 
   const closeRecordRepayment = useCallback(() => {

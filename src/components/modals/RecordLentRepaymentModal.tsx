@@ -17,6 +17,8 @@ import {
   TrendingUp,
   CreditCard,
   AlertCircle,
+  HandCoins,
+  User,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, Wallet } from '../../types';
@@ -28,6 +30,7 @@ import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useLastDefined } from '../../hooks/useLastDefined';
+import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 
 export interface RecordLentRepaymentModalProps {
   visible: boolean;
@@ -68,6 +71,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   onSubmit,
 }) => {
   const insets = useSafeAreaInsets();
+  const footerKeyboardOffset = useFooterKeyboardOffset();
   const currentTx = useLastDefined(tx);
   const [amountStr, setAmountStr] = useState<string>('');
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
@@ -80,6 +84,8 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   const repaidAmount = currentTx?.lentRepaidAmount || 0;
   const remainingDue = Math.max(0, totalAmount - repaidAmount);
   const borrower = currentTx?.lentTo?.trim() || currentTx?.merchantName || 'Borrower';
+  const progressPercent =
+    totalAmount > 0 ? Math.min(100, Math.round((repaidAmount / totalAmount) * 100)) : 0;
 
   // Compatible wallets that match loan currency
   const compatibleWallets = useMemo(() => {
@@ -149,8 +155,8 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      height="88%"
+      maxHeight="92%"
     >
       <ModalHeader
         title="Record Repayment"
@@ -160,32 +166,61 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
 
       <KeyboardSafeContainer
         style={styles.container}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 20) + 24 },
-        ]}
+        contentContainerStyle={styles.scrollContent}
+        extraBottomSpace={24}
       >
-        {/* 1. Loan Overview Card */}
-        <View style={styles.overviewCard}>
-          <View style={styles.overviewRow}>
-            <View style={styles.overviewCol}>
-              <Text style={styles.overviewLabel}>Total Lent</Text>
-              <Text style={styles.overviewValue}>
-                {formatCurrency(totalAmount, currency, privacyMode)}
+        {/* 1. Spacious Hero Loan Card */}
+        <View style={styles.heroCard}>
+          <View style={styles.heroTopRow}>
+            <View style={styles.borrowerTag}>
+              <User size={13} color={Palette.muted} style={{ marginRight: 5 }} />
+              <Text style={styles.borrowerTagText} numberOfLines={1}>
+                {borrower}
               </Text>
             </View>
-            <View style={[styles.overviewCol, { alignItems: 'center' }]}>
-              <Text style={styles.overviewLabel}>Repaid</Text>
-              <Text style={[styles.overviewValue, { color: Palette.success }]}>
-                {formatCurrency(repaidAmount, currency, privacyMode)}
+            <View
+              style={[
+                styles.statusBadge,
+                remainingDue <= 0.01
+                  ? styles.statusBadgeSettled
+                  : repaidAmount > 0
+                  ? styles.statusBadgePartial
+                  : styles.statusBadgeUnsettled,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusBadgeText,
+                  remainingDue <= 0.01
+                    ? styles.statusBadgeTextSettled
+                    : repaidAmount > 0
+                    ? styles.statusBadgeTextPartial
+                    : styles.statusBadgeTextUnsettled,
+                ]}
+              >
+                {remainingDue <= 0.01
+                  ? 'Settled'
+                  : repaidAmount > 0
+                  ? 'Partially Paid'
+                  : 'Unsettled'}
               </Text>
             </View>
-            <View style={[styles.overviewCol, { alignItems: 'flex-end' }]}>
-              <Text style={styles.overviewLabel}>Remaining</Text>
-              <Text style={[styles.overviewValue, { color: Palette.accentAmber }]}>
-                {formatCurrency(remainingDue, currency, privacyMode)}
-              </Text>
-            </View>
+          </View>
+
+          <Text style={styles.heroMetricLabel}>Remaining Balance to Collect</Text>
+          <Text style={styles.heroMetricValue}>
+            {formatCurrency(remainingDue, currency, privacyMode)}
+          </Text>
+
+          <View style={styles.heroStatsRow}>
+            <Text style={styles.heroStatItem}>
+              Total Loan: <Text style={styles.heroStatValue}>{formatCurrency(totalAmount, currency, privacyMode)}</Text>
+            </Text>
+            <Text style={styles.heroStatDivider}>•</Text>
+            <Text style={styles.heroStatItem}>
+              Repaid: <Text style={[styles.heroStatValue, { color: Palette.success }]}>{formatCurrency(repaidAmount, currency, privacyMode)}</Text>
+              {` (${progressPercent}%)`}
+            </Text>
           </View>
 
           {/* Progress Bar */}
@@ -193,9 +228,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
             <View
               style={[
                 styles.progressFill,
-                {
-                  width: `${totalAmount > 0 ? Math.min(100, Math.round((repaidAmount / totalAmount) * 100)) : 0}%`,
-                },
+                { width: `${progressPercent}%` },
               ]}
             />
           </View>
@@ -210,6 +243,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
                 onPress={() => {
                   AppHaptics.selection();
                   setAmountStr(formatCurrencyInput(String(remainingDue), currency));
+                  if (errorMsg) setErrorMsg('');
                 }}
                 activeOpacity={0.7}
                 style={styles.quickFillPill}
@@ -220,7 +254,9 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
           </View>
 
           <View style={[styles.inputBox, isOverRemaining && styles.inputBoxError]}>
-            <Text style={styles.currencyPrefix}>{currency === 'IDR' ? 'Rp' : '$'}</Text>
+            <View style={styles.currencyBadge}>
+              <Text style={styles.currencyBadgeText}>{currency === 'IDR' ? 'Rp' : '$'}</Text>
+            </View>
             <TextInput
               style={styles.amountInput}
               keyboardType="numeric"
@@ -236,128 +272,145 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
             />
           </View>
 
-            {/* Helper status text */}
-            {isOverRemaining ? (
-              <View style={styles.hintRow}>
-                <AlertCircle size={13} color={Palette.error} />
-                <Text style={[styles.hintText, { color: Palette.error }]}>
-                  Amount exceeds remaining due of {formatCurrency(remainingDue, currency, false)}
-                </Text>
-              </View>
-            ) : isFullSettlement ? (
-              <View style={styles.hintRow}>
-                <Check size={13} color={Palette.success} strokeWidth={3} />
-                <Text style={[styles.hintText, { color: Palette.success }]}>
-                  Full settlement • Loan status will change to Settled
-                </Text>
-              </View>
-            ) : isAmountValid ? (
-              <View style={styles.hintRow}>
-                <Text style={styles.hintText}>
-                  Partial repayment • Remaining: {formatCurrency(remainingDue - parsedAmount, currency, false)}
-                </Text>
-              </View>
-            ) : null}
-          </View>
+          {/* Contextual Feedback Hint */}
+          {isOverRemaining ? (
+            <View style={styles.hintRow}>
+              <AlertCircle size={13} color={Palette.error} />
+              <Text style={[styles.hintText, { color: Palette.error }]}>
+                Amount exceeds remaining balance of {formatCurrency(remainingDue, currency, false)}
+              </Text>
+            </View>
+          ) : isFullSettlement ? (
+            <View style={styles.hintRow}>
+              <Check size={13} color={Palette.success} strokeWidth={3} />
+              <Text style={[styles.hintText, { color: Palette.success }]}>
+                Full settlement • Loan status will become Settled
+              </Text>
+            </View>
+          ) : isAmountValid ? (
+            <View style={styles.hintRow}>
+              <Text style={styles.hintText}>
+                Remaining after repayment: {formatCurrency(remainingDue - parsedAmount, currency, false)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
 
-          {/* 3. Destination Account Selector */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Receiving Account</Text>
-            <Text style={styles.sectionSubtitle}>Select which account will receive the funds</Text>
+        {/* 3. Receiving Account Selection (Sleek Account Chips) */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Receiving Account</Text>
+          <Text style={styles.sectionSubtitle}>Select account to receive the funds</Text>
 
-            <View style={styles.walletGrid}>
-              {compatibleWallets.map((w) => {
-                const isSelected = selectedWalletId === w.id;
-                return (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={[
-                      styles.walletCard,
-                      isSelected && styles.walletCardSelected,
-                    ]}
-                    onPress={() => {
-                      AppHaptics.selection();
-                      setSelectedWalletId(w.id);
-                      if (errorMsg) setErrorMsg('');
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View
-                      style={[
-                        styles.walletIconBox,
-                        { backgroundColor: isSelected ? Palette.primary : Palette.surfaceSoft },
-                      ]}
-                    >
+          <View style={styles.accountChipsRow}>
+            {compatibleWallets.map((w) => {
+              const isSelected = selectedWalletId === w.id;
+              return (
+                <TouchableOpacity
+                  key={w.id}
+                  style={[
+                    styles.accountChip,
+                    isSelected && styles.accountChipSelected,
+                  ]}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    setSelectedWalletId(w.id);
+                    if (errorMsg) setErrorMsg('');
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <View style={styles.chipTopRow}>
+                    <View style={styles.chipNameRow}>
                       <WalletIcon
                         type={w.type}
-                        size={16}
-                        color={isSelected ? Palette.white : Palette.ink}
+                        size={14}
+                        color={isSelected ? Palette.primary : Palette.ink}
                       />
-                    </View>
-                    <View style={styles.walletInfo}>
                       <Text
                         style={[
-                          styles.walletName,
-                          isSelected && styles.walletNameSelected,
+                          styles.chipWalletName,
+                          isSelected && styles.chipWalletNameSelected,
                         ]}
                         numberOfLines={1}
                       >
                         {w.name}
                       </Text>
-                      <Text style={styles.walletBalance} numberOfLines={1}>
-                        {formatCurrency(w.balance, w.currency, privacyMode)}
-                      </Text>
                     </View>
                     {isSelected ? (
-                      <View style={styles.selectedCheck}>
-                        <Check size={12} color={Palette.white} strokeWidth={3} />
+                      <View style={styles.selectedDot}>
+                        <Check size={10} color={Palette.white} strokeWidth={3} />
                       </View>
-                    ) : null}
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
+                    ) : (
+                      <View style={styles.currencyPill}>
+                        <Text style={styles.currencyPillText}>{w.currency}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text
+                    style={[
+                      styles.chipBalance,
+                      isSelected && styles.chipBalanceSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {formatCurrency(w.balance, w.currency, privacyMode)}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
           </View>
+        </View>
 
-          {/* 4. Notes (Optional) */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Notes (Optional)</Text>
-            <TextInput
-              style={styles.notesInput}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder={`e.g. Paid in cash, transfer ref...`}
-              placeholderTextColor={Palette.mutedSoft}
-            />
+        {/* 4. Notes (Optional) */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Notes (Optional)</Text>
+          <TextInput
+            style={styles.notesInput}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="e.g. Paid in cash, bank transfer ref..."
+            placeholderTextColor={Palette.mutedSoft}
+          />
+        </View>
+
+        {/* Error Message */}
+        {errorMsg ? (
+          <View style={styles.errorBox}>
+            <AlertCircle size={15} color={Palette.error} />
+            <Text style={styles.errorText}>{errorMsg}</Text>
           </View>
+        ) : null}
+      </KeyboardSafeContainer>
 
-          {/* Error Message */}
-          {errorMsg ? (
-            <View style={styles.errorBox}>
-              <AlertCircle size={15} color={Palette.error} />
-              <Text style={styles.errorText}>{errorMsg}</Text>
-            </View>
-          ) : null}
-
-          {/* 5. Submit Button */}
-          <TouchableOpacity
-            style={[
-              styles.submitBtn,
-              (!isAmountValid || isSubmitting) && styles.submitBtnDisabled,
-            ]}
-            onPress={handleConfirm}
-            disabled={!isAmountValid || isSubmitting}
-            activeOpacity={0.8}
-          >
-            {isSubmitting ? (
-              <ActivityIndicator color={Palette.white} size="small" />
-            ) : (
+      {/* 5. Sticky Action Footer */}
+      <View
+        style={[
+          styles.stickyFooter,
+          {
+            paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
+          },
+        ]}
+      >
+        <TouchableOpacity
+          style={[
+            styles.submitBtn,
+            (!isAmountValid || isSubmitting) && styles.submitBtnDisabled,
+          ]}
+          onPress={handleConfirm}
+          disabled={!isAmountValid || isSubmitting}
+          activeOpacity={0.85}
+        >
+          {isSubmitting ? (
+            <ActivityIndicator color={Palette.white} size="small" />
+          ) : (
+            <View style={styles.submitBtnInner}>
+              <HandCoins size={17} color={Palette.white} style={{ marginRight: 8 }} />
               <Text style={styles.submitBtnText}>
                 {isFullSettlement ? 'Confirm Full Settlement' : 'Confirm Repayment'}
               </Text>
-            )}
-          </TouchableOpacity>
-      </KeyboardSafeContainer>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
     </BottomSheetModal>
   );
 };
@@ -367,36 +420,104 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 20,
   },
-  overviewCard: {
+  heroCard: {
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 20,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
-  overviewRow: {
+  heroTopRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  overviewCol: {
-    flex: 1,
+  borrowerTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.white,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    maxWidth: '65%',
   },
-  overviewLabel: {
+  borrowerTagText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  statusBadgeUnsettled: {
+    backgroundColor: Palette.tintExpense,
+  },
+  statusBadgePartial: {
+    backgroundColor: Palette.tintIncome,
+  },
+  statusBadgeSettled: {
+    backgroundColor: '#E8F5E9',
+  },
+  statusBadgeText: {
     ...Typography.caption,
     fontSize: 11,
-    color: Palette.muted,
-    marginBottom: 3,
-  },
-  overviewValue: {
-    ...Typography.body,
     fontWeight: '700',
-    fontSize: 14,
+  },
+  statusBadgeTextUnsettled: {
+    color: Palette.accentAmber,
+  },
+  statusBadgeTextPartial: {
+    color: Palette.primary,
+  },
+  statusBadgeTextSettled: {
+    color: Palette.success,
+  },
+  heroMetricLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  heroMetricValue: {
+    ...Typography.heading,
+    fontSize: 26,
+    fontWeight: '800',
     color: Palette.ink,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 12,
+  },
+  heroStatItem: {
+    ...Typography.caption,
+    fontSize: 12,
+    color: Palette.muted,
+  },
+  heroStatValue: {
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  heroStatDivider: {
+    color: Palette.mutedSoft,
+    fontSize: 10,
   },
   progressTrack: {
     height: 6,
@@ -410,7 +531,7 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   section: {
-    marginBottom: 16,
+    marginBottom: 20,
   },
   sectionHeaderRow: {
     flexDirection: 'row',
@@ -420,57 +541,63 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...Typography.caption,
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 12,
     color: Palette.muted,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.6,
   },
   sectionSubtitle: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.mutedSoft,
     marginTop: 2,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   quickFillPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 8,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
   quickFillPillText: {
     ...Typography.caption,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Palette.primary,
   },
   inputBox: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: Palette.white,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 14,
+    borderWidth: 1.5,
     borderColor: Palette.hairline,
-    paddingHorizontal: 14,
-    height: 48,
+    paddingHorizontal: 12,
+    height: 54,
   },
   inputBoxError: {
     borderColor: Palette.error,
   },
-  currencyPrefix: {
+  currencyBadge: {
+    backgroundColor: Palette.surfaceSoft,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginRight: 10,
+  },
+  currencyBadgeText: {
     ...Typography.body,
     fontWeight: '700',
-    fontSize: 16,
-    color: Palette.muted,
-    marginRight: 8,
+    fontSize: 14,
+    color: Palette.primary,
   },
   amountInput: {
     flex: 1,
     ...Typography.body,
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     color: Palette.ink,
     padding: 0,
@@ -478,75 +605,96 @@ const styles = StyleSheet.create({
   hintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    marginTop: 6,
+    gap: 6,
+    marginTop: 8,
+    paddingHorizontal: 2,
   },
   hintText: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
   },
-  walletGrid: {
-    gap: 8,
-  },
-  walletCard: {
+  accountChipsRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Palette.white,
-    borderRadius: 12,
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  accountChip: {
+    flex: 1,
+    minWidth: '47%',
     padding: 12,
-    borderWidth: 1,
+    borderRadius: 14,
+    backgroundColor: Palette.white,
+    borderWidth: 1.5,
     borderColor: Palette.hairline,
   },
-  walletCardSelected: {
+  accountChipSelected: {
     borderColor: Palette.primary,
     backgroundColor: Palette.surfaceSoft,
   },
-  walletIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+  chipTopRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
+    justifyContent: 'space-between',
+    marginBottom: 6,
   },
-  walletInfo: {
+  chipNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     flex: 1,
-    minWidth: 0,
+    marginRight: 6,
   },
-  walletName: {
+  chipWalletName: {
     ...Typography.body,
     fontWeight: '600',
-    fontSize: 14,
+    fontSize: 13,
     color: Palette.ink,
+    flexShrink: 1,
   },
-  walletNameSelected: {
+  chipWalletNameSelected: {
     color: Palette.primary,
   },
-  walletBalance: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
-    marginTop: 1,
+  currencyPill: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
   },
-  selectedCheck: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  currencyPillText: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '700',
+    color: Palette.muted,
+  },
+  selectedDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: Palette.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
+  chipBalance: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    fontWeight: '500',
+  },
+  chipBalanceSelected: {
+    color: Palette.primary,
+    fontWeight: '600',
+  },
   notesInput: {
     backgroundColor: Palette.white,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: Palette.hairline,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 12,
     fontSize: 14,
     color: Palette.ink,
-    minHeight: 44,
+    minHeight: 48,
   },
   errorBox: {
     flexDirection: 'row',
@@ -554,10 +702,10 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.tintExpense,
     borderColor: Palette.tintExpenseBorder,
     borderWidth: 1,
-    borderRadius: 10,
-    padding: 10,
+    borderRadius: 12,
+    padding: 12,
     gap: 8,
-    marginBottom: 14,
+    marginBottom: 16,
   },
   errorText: {
     ...Typography.caption,
@@ -565,16 +713,27 @@ const styles = StyleSheet.create({
     fontSize: 12,
     flex: 1,
   },
+  stickyFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Palette.hairline,
+    backgroundColor: Palette.white,
+  },
   submitBtn: {
     backgroundColor: Palette.primary,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 4,
   },
   submitBtnDisabled: {
     opacity: 0.5,
+  },
+  submitBtnInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   submitBtnText: {
     ...Typography.body,

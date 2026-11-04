@@ -1178,33 +1178,6 @@ export async function deleteTransaction(id: string): Promise<void> {
       await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
     };
 
-    // If this transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
-    if (tx.lent_parent_tx_id) {
-      const parent = await db.getFirstAsync<{
-        id: string;
-        amount: number;
-        lent_repaid_amount: number;
-      }>(
-        'SELECT id, amount, lent_repaid_amount FROM transactions WHERE id = ?',
-        tx.lent_parent_tx_id
-      );
-      if (parent) {
-        const updatedRepaid = Math.max(0, (parent.lent_repaid_amount || 0) - tx.amount);
-        const updatedStatus: LentStatus =
-          updatedRepaid <= 0
-            ? 'unsettled'
-            : updatedRepaid >= parent.amount - 0.005
-            ? 'settled'
-            : 'partial';
-        await db.runAsync(
-          'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
-          updatedRepaid,
-          updatedStatus,
-          parent.id
-        );
-      }
-    }
-
     // If target transaction is a lent transaction, delete and revert any child repayments linked to it
     if (tx.is_lent) {
       const childRepayments = await db.getAllAsync<{
@@ -1239,6 +1212,11 @@ export async function deleteTransaction(id: string): Promise<void> {
     if (pairedTx && pairedTx.id !== tx.id) {
       await revertTxBalance(pairedTx);
     }
+
+    // If this deleted transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
+    if (tx.lent_parent_tx_id) {
+      await syncLentParentLoan(db, tx.lent_parent_tx_id);
+    }
   });
 }
 
@@ -1247,6 +1225,7 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
     const processedIds = new Set<string>();
+    const parentsToSync = new Set<string>();
 
     for (const id of ids) {
       if (processedIds.has(id)) continue;
@@ -1266,6 +1245,10 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
       );
 
       if (!tx) continue;
+
+      if (tx.lent_parent_tx_id) {
+        parentsToSync.add(tx.lent_parent_tx_id);
+      }
 
       const revertTxBalance = async (targetTx: {
         id: string;
@@ -1291,33 +1274,6 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
         processedIds.add(targetTx.id);
       };
-
-      // If this transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
-      if (tx.lent_parent_tx_id) {
-        const parent = await db.getFirstAsync<{
-          id: string;
-          amount: number;
-          lent_repaid_amount: number;
-        }>(
-          'SELECT id, amount, lent_repaid_amount FROM transactions WHERE id = ?',
-          tx.lent_parent_tx_id
-        );
-        if (parent) {
-          const updatedRepaid = Math.max(0, (parent.lent_repaid_amount || 0) - tx.amount);
-          const updatedStatus: LentStatus =
-            updatedRepaid <= 0
-              ? 'unsettled'
-              : updatedRepaid >= parent.amount - 0.005
-              ? 'settled'
-              : 'partial';
-          await db.runAsync(
-            'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
-            updatedRepaid,
-            updatedStatus,
-            parent.id
-          );
-        }
-      }
 
       // If target transaction is a lent transaction, delete and revert any child repayments linked to it
       if (tx.is_lent) {
@@ -1352,6 +1308,11 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         await revertTxBalance(pairedTx);
       }
     }
+
+    // Recalculate parent loans affected by deleted repayments
+    for (const parentId of parentsToSync) {
+      await syncLentParentLoan(db, parentId);
+    }
   });
 }
 
@@ -1374,6 +1335,40 @@ export interface UpdateTransactionParams {
   lentStatus?: LentStatus;
 }
 
+/**
+ * Atomically recalculates and synchronizes the total repaid amount and lent status
+ * of a parent loan transaction directly from the SQL sum of its child repayments.
+ */
+export async function syncLentParentLoan(db: SQLite.SQLiteDatabase, parentTxId: string): Promise<void> {
+  if (!parentTxId) return;
+  const parent = await db.getFirstAsync<{
+    id: string;
+    amount: number;
+  }>('SELECT id, amount FROM transactions WHERE id = ?', parentTxId);
+
+  if (!parent) return;
+
+  const sumResult = await db.getFirstAsync<{ total: number }>(
+    'SELECT COALESCE(SUM(amount), 0) AS total FROM transactions WHERE lent_parent_tx_id = ?',
+    parent.id
+  );
+
+  const totalRepaid = Math.max(0, Number(sumResult?.total) || 0);
+  const newStatus: LentStatus =
+    totalRepaid <= 0
+      ? 'unsettled'
+      : totalRepaid >= parent.amount - 0.005
+      ? 'settled'
+      : 'partial';
+
+  await db.runAsync(
+    'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
+    totalRepaid,
+    newStatus,
+    parent.id
+  );
+}
+
 export async function updateTransaction(
   id: string,
   updates: UpdateTransactionParams
@@ -1388,7 +1383,8 @@ export async function updateTransaction(
       is_lent?: number;
       lent_repaid_amount?: number;
       lent_status?: string;
-    }>('SELECT wallet_id, pocket_id, type, amount, is_lent, lent_repaid_amount, lent_status FROM transactions WHERE id = ?', id);
+      lent_parent_tx_id?: string;
+    }>('SELECT wallet_id, pocket_id, type, amount, is_lent, lent_repaid_amount, lent_status, lent_parent_tx_id FROM transactions WHERE id = ?', id);
 
     if (!oldTx) {
       throw new Error('Transaction not found');
@@ -1484,6 +1480,16 @@ export async function updateTransaction(
       computedStatus,
       id
     );
+
+    // 5. If this transaction is a repayment for a parent loan, recalculate the parent loan's repaid amount & status
+    if (oldTx.lent_parent_tx_id) {
+      await syncLentParentLoan(db, oldTx.lent_parent_tx_id);
+    }
+
+    // 6. If this transaction itself is a lent loan, synchronize its repaid amount & status based on all child repayments
+    if (isLent || oldTx.is_lent) {
+      await syncLentParentLoan(db, id);
+    }
   });
 }
 
@@ -1527,18 +1533,7 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       throw new Error('Repayment amount cannot exceed remaining balance.');
     }
 
-    const newRepaid = Math.min(parent.amount, currentRepaid + params.amount);
-    const newStatus: LentStatus = newRepaid >= parent.amount - 0.005 ? 'settled' : 'partial';
-
-    // 1. Update parent transaction status and repaid amount
-    await db.runAsync(
-      'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
-      newRepaid,
-      newStatus,
-      parent.id
-    );
-
-    // 2. Validate destination wallet exists
+    // 1. Validate destination wallet exists
     const destWallet = await db.getFirstAsync<{ id: string }>(
       'SELECT id FROM wallets WHERE id = ?',
       params.walletId
@@ -1547,7 +1542,7 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       throw new Error('Destination account not found.');
     }
 
-    // 3. Insert repayment income transaction (child transaction)
+    // 2. Insert repayment income transaction (child transaction)
     const borrower = (parent.lent_to || '').trim() || parent.merchant_name;
     const txTimestamp = params.timestamp || new Date().toISOString();
     const txNotes = params.notes?.trim() || `Repayment for lent to ${borrower}`;
@@ -1577,12 +1572,15 @@ export async function recordLentRepayment(params: RecordLentRepaymentParams): Pr
       parent.id
     );
 
-    // 4. Credit destination wallet balance
+    // 3. Credit destination wallet balance
     await db.runAsync(
       'UPDATE wallets SET balance = balance + ? WHERE id = ?',
       params.amount,
       params.walletId
     );
+
+    // 4. Atomically recalculate and sync parent loan status and repaid sum
+    await syncLentParentLoan(db, parent.id);
   });
 
   return repaymentTxId;
