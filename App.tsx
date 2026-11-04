@@ -55,6 +55,7 @@ import { ManualTxModal } from './src/components/modals/ManualTxModal';
 import { NewAccountModal } from './src/components/modals/NewAccountModal';
 import { CategoryManagerModal } from './src/components/modals/CategoryManagerModal';
 import { TxDetailModal } from './src/components/modals/TxDetailModal';
+import { RecordLentRepaymentModal } from './src/components/modals/RecordLentRepaymentModal';
 import { NewPocketModal } from './src/components/modals/NewPocketModal';
 import { AdjustPocketModal } from './src/components/modals/AdjustPocketModal';
 import { AccountDetailModal } from './src/components/modals/AccountDetailModal';
@@ -225,6 +226,14 @@ function MainApp() {
   const [historyFilter, setHistoryFilter] = useState<FilterType>('all');
   const [historyCategory, setHistoryCategory] = useState<string>('all');
   const [historyMonth, setHistoryMonth] = useState<string>('all');
+  const [historyLentFilter, setHistoryLentFilter] = useState<'all' | 'outstanding' | 'settled'>('all');
+
+  const handleChangeLentFilter = useCallback((newFilter: 'all' | 'outstanding' | 'settled') => {
+    setHistoryLentFilter(newFilter);
+    if (newFilter === 'outstanding') {
+      setHistoryMonth('all');
+    }
+  }, []);
 
   // Sync selected account when currently selected wallet no longer exists or on initial load
   useEffect(() => {
@@ -355,7 +364,14 @@ function MainApp() {
         }
       }
 
-      return matchesSearch && matchesType && matchesCategory && matchesMonth;
+      let matchesLent = true;
+      if (historyLentFilter === 'outstanding') {
+        matchesLent = Boolean(tx.isLent && tx.lentStatus !== 'settled');
+      } else if (historyLentFilter === 'settled') {
+        matchesLent = Boolean(tx.isLent && tx.lentStatus === 'settled');
+      }
+
+      return matchesSearch && matchesType && matchesCategory && matchesMonth && matchesLent;
     });
   }, [
     finance,
@@ -363,6 +379,7 @@ function MainApp() {
     historyFilter,
     historyCategory,
     historyMonth,
+    historyLentFilter,
   ]);
 
   // Aggregate stats for filtered history view (keeping IDR and USD native totals separate)
@@ -969,6 +986,7 @@ function MainApp() {
     setHistoryFilter('all');
     setHistoryCategory('all');
     setHistoryMonth('all');
+    setHistoryLentFilter('all');
   }, []);
 
   useEffect(() => {
@@ -1006,6 +1024,9 @@ function MainApp() {
           historyFilter={historyFilter}
           historyCategory={historyCategory}
           historyMonth={historyMonth}
+          historyLentFilter={historyLentFilter}
+          outstandingLentCount={finance.outstandingLentSummary.count}
+          outstandingLentTotal={finance.outstandingLentSummary.totalOutstanding}
           availableCategories={finance.availableCategories}
           availableExpenseCategories={finance.availableExpenseCategories}
           availableIncomeCategories={finance.availableIncomeCategories}
@@ -1016,6 +1037,7 @@ function MainApp() {
           onChangeFilter={handleHistoryFilterChange}
           onChangeCategory={setHistoryCategory}
           onChangeMonth={setHistoryMonth}
+          onChangeLentFilter={handleChangeLentFilter}
           onOpenMonthPicker={handleOpenHistoryMonthPicker}
           onResetAllFilters={handleResetAllHistoryFilters}
           onOpenManualModal={handleOpenManualTransaction}
@@ -1293,7 +1315,20 @@ function MainApp() {
         onEdit={modals.handleStartEditTransaction}
         onDuplicate={modals.handleDuplicateTransaction}
         onDelete={(tx) => finance.handleDeleteTransaction(tx, () => modals.setSelectedTx(null))}
+        onRecordRepayment={modals.openRecordRepayment}
         onClose={() => modals.setSelectedTx(null)}
+      />
+
+      {/* Modal 5b: Record Lent Repayment */}
+      <RecordLentRepaymentModal
+        visible={modals.repaymentModalVisible}
+        parentTransaction={modals.repaymentParentTx}
+        wallets={finance.wallets}
+        privacyMode={privacyMode}
+        onClose={modals.closeRecordRepayment}
+        onSubmit={async (params) => {
+          await finance.handleRecordLentRepayment(params);
+        }}
       />
 
       {/* Modal 6: Create Pocket */}

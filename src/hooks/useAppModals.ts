@@ -387,6 +387,23 @@ export function useAppModals() {
     setReviewStatementModalVisible(false);
   }, []);
 
+  // Record Lent Repayment Modal
+  const [repaymentModalVisible, setRepaymentModalVisible] = useState<boolean>(false);
+  const [repaymentParentTx, setRepaymentParentTx] = useState<Transaction | null>(null);
+
+  const openRecordRepayment = useCallback((parentTx: Transaction) => {
+    AppHaptics.light();
+    setSelectedTx(null);
+    setRepaymentParentTx(parentTx);
+    setTimeout(() => {
+      setRepaymentModalVisible(true);
+    }, 200);
+  }, []);
+
+  const closeRecordRepayment = useCallback(() => {
+    setRepaymentModalVisible(false);
+  }, []);
+
   return {
     alertConfig,
     showAlert,
@@ -518,5 +535,9 @@ export function useAppModals() {
     statementWalletAutoMatched,
     openReviewStatement,
     closeReviewStatement,
+    repaymentModalVisible,
+    repaymentParentTx,
+    openRecordRepayment,
+    closeRecordRepayment,
   };
 }

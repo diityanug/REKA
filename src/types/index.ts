@@ -10,6 +10,7 @@ import {
   AllocationItem,
   AllocationPlan,
   AppExportData,
+  LentStatus,
 } from '../services/database';
 import { ExtractedReceiptData } from '../services/receiptScanner';
 
@@ -30,4 +31,5 @@ export {
   AllocationPlan,
   ExtractedReceiptData,
   AppExportData,
+  LentStatus,
 };

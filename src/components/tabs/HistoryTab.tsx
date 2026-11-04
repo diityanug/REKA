@@ -19,6 +19,7 @@ import {
   Plus,
   Trash2,
   CheckSquare,
+  HandCoins,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, CurrencyType, FilterType } from '../../types';
@@ -35,6 +36,9 @@ interface HistoryTabProps {
   historyFilter: FilterType;
   historyCategory: string;
   historyMonth: string;
+  historyLentFilter?: 'all' | 'outstanding' | 'settled';
+  outstandingLentCount?: number;
+  outstandingLentTotal?: number;
   availableCategories: string[];
   availableExpenseCategories?: string[];
   availableIncomeCategories?: string[];
@@ -52,6 +56,7 @@ interface HistoryTabProps {
   onChangeFilter: (filter: FilterType) => void;
   onChangeCategory: (category: string) => void;
   onChangeMonth: (month: string) => void;
+  onChangeLentFilter?: (filter: 'all' | 'outstanding' | 'settled') => void;
   onOpenMonthPicker: () => void;
   onResetAllFilters: () => void;
   onOpenManualModal?: () => void;
@@ -69,6 +74,9 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   historyFilter,
   historyCategory,
   historyMonth,
+  historyLentFilter = 'all',
+  outstandingLentCount = 0,
+  outstandingLentTotal = 0,
   availableCategories,
   availableExpenseCategories = [],
   availableIncomeCategories = [],
@@ -79,6 +87,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   onChangeFilter,
   onChangeCategory,
   onChangeMonth,
+  onChangeLentFilter,
   onOpenMonthPicker,
   onResetAllFilters,
   onOpenManualModal,
@@ -182,7 +191,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const activeFilterCount =
     (historyFilter !== 'all' ? 1 : 0) +
     (historyCategory !== 'all' ? 1 : 0) +
-    (historyMonth !== 'all' ? 1 : 0);
+    (historyMonth !== 'all' ? 1 : 0) +
+    (historyLentFilter !== 'all' ? 1 : 0);
 
   const isFilterActive = activeFilterCount > 0 || searchQuery.trim().length > 0;
 
@@ -303,6 +313,33 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           />
         </View>
       </View>
+
+      {/* Outstanding Lent Banner (if uncollected loans exist) */}
+      {outstandingLentTotal > 0 && historyLentFilter !== 'outstanding' ? (
+        <TouchableOpacity
+          style={styles.lentBanner}
+          onPress={() => {
+            AppHaptics.light();
+            onChangeLentFilter?.('outstanding');
+          }}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel={`Outstanding Lent: ${outstandingLentCount} unsettled loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`}
+        >
+          <View style={styles.lentBannerIconBox}>
+            <HandCoins size={16} color={Palette.accentAmber} />
+          </View>
+          <View style={styles.lentBannerInfo}>
+            <Text style={styles.lentBannerTitle}>Outstanding Lent</Text>
+            <Text style={styles.lentBannerSubtitle}>
+              {outstandingLentCount} unsettled • Tap to filter
+            </Text>
+          </View>
+          <Text style={styles.lentBannerAmount}>
+            {formatCurrency(outstandingLentTotal, activeCurrency, privacyMode)}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
 
       {/* Search Bar & Filter Toggle Button */}
       <View style={styles.searchAndFilterRow}>
@@ -457,6 +494,22 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             </TouchableOpacity>
           ) : null}
 
+          {historyLentFilter !== 'all' ? (
+            <TouchableOpacity
+              style={styles.activeTag}
+              onPress={() => {
+                AppHaptics.selection();
+                onChangeLentFilter?.('all');
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.activeTagText}>
+                {historyLentFilter === 'outstanding' ? 'Outstanding Lent' : 'Settled Lent'}
+              </Text>
+              <X size={11} color={Palette.primary} />
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
             style={styles.clearAllBtn}
             onPress={() => {
@@ -476,6 +529,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     historyFlowStats,
     hasUsdHistoryFlow,
     privacyMode,
+    outstandingLentTotal,
+    outstandingLentCount,
+    historyLentFilter,
+    onChangeLentFilter,
+    activeCurrency,
     localSearch,
     handleClearSearch,
     activeFilterCount,
@@ -623,6 +681,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         filter={historyFilter}
         category={historyCategory}
         month={historyMonth}
+        lentFilter={historyLentFilter}
         availableCategories={availableCategories}
         availableExpenseCategories={availableExpenseCategories}
         availableIncomeCategories={availableIncomeCategories}
@@ -630,6 +689,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         onChangeFilter={onChangeFilter}
         onChangeCategory={onChangeCategory}
         onChangeMonth={onChangeMonth}
+        onChangeLentFilter={onChangeLentFilter}
         onReset={onResetAllFilters}
         onClose={() => setFilterModalVisible(false)}
       />
@@ -670,6 +730,46 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     borderWidth: 1,
     borderColor: Palette.hairline,
+  },
+  lentBanner: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  lentBannerIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: Palette.tintWarning,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  lentBannerInfo: {
+    flex: 1,
+  },
+  lentBannerTitle: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  lentBannerSubtitle: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  lentBannerAmount: {
+    ...Typography.mono,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.accentAmber,
   },
   flowMetaRow: {
     flexDirection: 'row',

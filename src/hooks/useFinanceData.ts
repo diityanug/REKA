@@ -29,6 +29,9 @@ import {
   deleteCategory,
   deleteTransaction,
   deleteTransactionsBatch,
+  recordLentRepayment,
+  getLentRepayments,
+  RecordLentRepaymentParams,
   transferFunds,
   getMonthlyBudget,
   setMonthlyBudget,
@@ -367,6 +370,22 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const totalBalance = useMemo(() => {
     return currencyWallets.reduce((acc, w) => acc + w.balance, 0);
   }, [currencyWallets]);
+
+  // Outstanding lent money summary (unsettled or partial loans across all dates)
+  const outstandingLentSummary = useMemo(() => {
+    const lentTxs = transactions.filter(
+      (tx) => tx.isLent && tx.currency === activeCurrency && tx.lentStatus !== 'settled'
+    );
+    const totalOutstanding = lentTxs.reduce((acc, tx) => {
+      const repaid = tx.lentRepaidAmount || 0;
+      return acc + Math.max(0, tx.amount - repaid);
+    }, 0);
+    return {
+      count: lentTxs.length,
+      totalOutstanding,
+      transactions: lentTxs,
+    };
+  }, [transactions, activeCurrency]);
 
   // Funds in an account that have not been assigned to a pocket yet
   const getUnallocated = useCallback(
@@ -924,6 +943,22 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   };
 
+  const handleRecordLentRepayment = async (params: RecordLentRepaymentParams): Promise<string> => {
+    try {
+      const repaymentTxId = await recordLentRepayment(params);
+      await loadData();
+      AppHaptics.success();
+      return repaymentTxId;
+    } catch (err: any) {
+      showAlert('Repayment Notice', toUserFriendlyErrorMessage(err, 'general'), undefined, 'error');
+      throw err;
+    }
+  };
+
+  const getLentAuditTrail = useCallback(async (parentTxId: string): Promise<Transaction[]> => {
+    return await getLentRepayments(parentTxId);
+  }, []);
+
   const handleSaveBudget = async (amount: number) => {
     try {
       AppHaptics.heavy();
@@ -1154,6 +1189,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     lockSettings,
     biometricCaps,
     totalBalance,
+    outstandingLentSummary,
     getUnallocated,
     availableMonths,
     availableExpenseCategories,
@@ -1177,6 +1213,8 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleExecuteTransfer,
     handleDeleteTransaction,
     handleDeleteTransactionsBatch,
+    handleRecordLentRepayment,
+    getLentAuditTrail,
     handleSaveBudget,
     handleRemoveBudget,
     handleSaveExchangeRate,

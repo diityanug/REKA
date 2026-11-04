@@ -54,6 +54,8 @@ export interface TransactionItem {
   category: string;
 }
 
+export type LentStatus = 'unsettled' | 'partial' | 'settled';
+
 export interface Transaction {
   id: string;
   walletId: string;
@@ -73,6 +75,9 @@ export interface Transaction {
   exchangeRate?: number;
   isLent?: boolean;
   lentTo?: string;
+  lentRepaidAmount?: number;
+  lentStatus?: LentStatus;
+  lentParentTxId?: string;
   items?: TransactionItem[];
 }
 
@@ -332,6 +337,9 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'transactions', 'exchange_rate', 'REAL DEFAULT 0');
       await ensureColumn(db, 'transactions', 'is_lent', 'INTEGER DEFAULT 0');
       await ensureColumn(db, 'transactions', 'lent_to', "TEXT DEFAULT ''");
+      await ensureColumn(db, 'transactions', 'lent_repaid_amount', 'REAL DEFAULT 0');
+      await ensureColumn(db, 'transactions', 'lent_status', "TEXT DEFAULT 'unsettled'");
+      await ensureColumn(db, 'transactions', 'lent_parent_tx_id', 'TEXT DEFAULT NULL');
 
       await ensureColumn(db, 'pockets', 'target_amount', 'REAL NOT NULL DEFAULT 0');
       await ensureColumn(db, 'pockets', 'icon', "TEXT NOT NULL DEFAULT 'Briefcase'");
@@ -344,6 +352,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
         CREATE INDEX IF NOT EXISTS idx_tx_currency ON transactions (currency);
         CREATE INDEX IF NOT EXISTS idx_tx_pocket ON transactions (pocket_id);
         CREATE INDEX IF NOT EXISTS idx_tx_pair ON transactions (transfer_pair_id);
+        CREATE INDEX IF NOT EXISTS idx_tx_lent_parent ON transactions (lent_parent_tx_id);
         CREATE INDEX IF NOT EXISTS idx_items_tx ON transaction_items (transaction_id);
         CREATE INDEX IF NOT EXISTS idx_pockets_wallet ON pockets (wallet_id);
       `);
@@ -937,6 +946,9 @@ export async function getTransactions(): Promise<Transaction[]> {
       exchangeRate: r.exchange_rate ? Number(r.exchange_rate) : undefined,
       isLent: Boolean(r.is_lent),
       lentTo: r.lent_to || '',
+      lentRepaidAmount: Number(r.lent_repaid_amount) || 0,
+      lentStatus: (r.lent_status || (r.is_lent ? 'unsettled' : 'settled')) as LentStatus,
+      lentParentTxId: r.lent_parent_tx_id || undefined,
     };
   });
 }
@@ -976,8 +988,8 @@ export async function insertTransactionWithItems(
 
     await db.runAsync(
       `INSERT INTO transactions 
-       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, is_lent, lent_to)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, is_lent, lent_to, lent_repaid_amount, lent_status, lent_parent_tx_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       txId,
       tx.walletId,
       tx.pocketId || '',
@@ -993,7 +1005,10 @@ export async function insertTransactionWithItems(
       tx.notes || '',
       tx.imageUri || '',
       tx.isLent ? 1 : 0,
-      tx.lentTo || ''
+      tx.lentTo || '',
+      tx.lentRepaidAmount || 0,
+      tx.lentStatus || (tx.isLent ? 'unsettled' : 'settled'),
+      tx.lentParentTxId || null
     );
 
     for (let i = 0; i < items.length; i++) {
@@ -1130,24 +1145,22 @@ export async function deleteTransaction(id: string): Promise<void> {
       payment_method: string;
       merchant_name: string;
       transfer_pair_id?: string;
+      is_lent?: number;
+      lent_parent_tx_id?: string;
     }>(
-      'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id FROM transactions WHERE id = ?',
+      'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
       id
     );
 
     if (!tx) return;
 
-    // Only an explicit pair id is trusted. Historical legs are paired during DB init,
-    // so we never guess (and delete) an unrelated transfer.
-    let pairedTx: typeof tx | null = null;
-    if (tx.transfer_pair_id) {
-      pairedTx = await db.getFirstAsync<typeof tx>(
-        'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id FROM transactions WHERE id = ?',
-        tx.transfer_pair_id
-      );
-    }
-
-    const revertTxBalance = async (targetTx: typeof tx) => {
+    const revertTxBalance = async (targetTx: {
+      id: string;
+      wallet_id: string;
+      pocket_id: string;
+      type: TransactionType;
+      amount: number;
+    }) => {
       const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
       await db.runAsync(
         'UPDATE wallets SET balance = balance + ? WHERE id = ?',
@@ -1164,6 +1177,60 @@ export async function deleteTransaction(id: string): Promise<void> {
       await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
       await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
     };
+
+    // If this transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
+    if (tx.lent_parent_tx_id) {
+      const parent = await db.getFirstAsync<{
+        id: string;
+        amount: number;
+        lent_repaid_amount: number;
+      }>(
+        'SELECT id, amount, lent_repaid_amount FROM transactions WHERE id = ?',
+        tx.lent_parent_tx_id
+      );
+      if (parent) {
+        const updatedRepaid = Math.max(0, (parent.lent_repaid_amount || 0) - tx.amount);
+        const updatedStatus: LentStatus =
+          updatedRepaid <= 0
+            ? 'unsettled'
+            : updatedRepaid >= parent.amount - 0.005
+            ? 'settled'
+            : 'partial';
+        await db.runAsync(
+          'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
+          updatedRepaid,
+          updatedStatus,
+          parent.id
+        );
+      }
+    }
+
+    // If target transaction is a lent transaction, delete and revert any child repayments linked to it
+    if (tx.is_lent) {
+      const childRepayments = await db.getAllAsync<{
+        id: string;
+        wallet_id: string;
+        pocket_id: string;
+        type: TransactionType;
+        amount: number;
+      }>(
+        'SELECT id, wallet_id, pocket_id, type, amount FROM transactions WHERE lent_parent_tx_id = ?',
+        tx.id
+      );
+      for (const child of childRepayments) {
+        await revertTxBalance(child);
+      }
+    }
+
+    // Only an explicit pair id is trusted. Historical legs are paired during DB init,
+    // so we never guess (and delete) an unrelated transfer.
+    let pairedTx: typeof tx | null = null;
+    if (tx.transfer_pair_id) {
+      pairedTx = await db.getFirstAsync<typeof tx>(
+        'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
+        tx.transfer_pair_id
+      );
+    }
 
     // Revert target transaction
     await revertTxBalance(tx);
@@ -1191,14 +1258,22 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         type: TransactionType;
         amount: number;
         transfer_pair_id?: string;
+        is_lent?: number;
+        lent_parent_tx_id?: string;
       }>(
-        'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id FROM transactions WHERE id = ?',
+        'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
         id
       );
 
       if (!tx) continue;
 
-      const revertTxBalance = async (targetTx: typeof tx) => {
+      const revertTxBalance = async (targetTx: {
+        id: string;
+        wallet_id: string;
+        pocket_id: string;
+        type: TransactionType;
+        amount: number;
+      }) => {
         const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
         await db.runAsync(
           'UPDATE wallets SET balance = balance + ? WHERE id = ?',
@@ -1217,10 +1292,56 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         processedIds.add(targetTx.id);
       };
 
+      // If this transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
+      if (tx.lent_parent_tx_id) {
+        const parent = await db.getFirstAsync<{
+          id: string;
+          amount: number;
+          lent_repaid_amount: number;
+        }>(
+          'SELECT id, amount, lent_repaid_amount FROM transactions WHERE id = ?',
+          tx.lent_parent_tx_id
+        );
+        if (parent) {
+          const updatedRepaid = Math.max(0, (parent.lent_repaid_amount || 0) - tx.amount);
+          const updatedStatus: LentStatus =
+            updatedRepaid <= 0
+              ? 'unsettled'
+              : updatedRepaid >= parent.amount - 0.005
+              ? 'settled'
+              : 'partial';
+          await db.runAsync(
+            'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
+            updatedRepaid,
+            updatedStatus,
+            parent.id
+          );
+        }
+      }
+
+      // If target transaction is a lent transaction, delete and revert any child repayments linked to it
+      if (tx.is_lent) {
+        const childRepayments = await db.getAllAsync<{
+          id: string;
+          wallet_id: string;
+          pocket_id: string;
+          type: TransactionType;
+          amount: number;
+        }>(
+          'SELECT id, wallet_id, pocket_id, type, amount FROM transactions WHERE lent_parent_tx_id = ?',
+          tx.id
+        );
+        for (const child of childRepayments) {
+          if (!processedIds.has(child.id)) {
+            await revertTxBalance(child);
+          }
+        }
+      }
+
       let pairedTx: typeof tx | null = null;
       if (tx.transfer_pair_id) {
         pairedTx = await db.getFirstAsync<typeof tx>(
-          'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id FROM transactions WHERE id = ?',
+          'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
           tx.transfer_pair_id
         );
       }
@@ -1249,6 +1370,8 @@ export interface UpdateTransactionParams {
   notes?: string;
   isLent?: boolean;
   lentTo?: string;
+  lentRepaidAmount?: number;
+  lentStatus?: LentStatus;
 }
 
 export async function updateTransaction(
@@ -1262,7 +1385,10 @@ export async function updateTransaction(
       pocket_id: string;
       type: TransactionType;
       amount: number;
-    }>('SELECT wallet_id, pocket_id, type, amount FROM transactions WHERE id = ?', id);
+      is_lent?: number;
+      lent_repaid_amount?: number;
+      lent_status?: string;
+    }>('SELECT wallet_id, pocket_id, type, amount, is_lent, lent_repaid_amount, lent_status FROM transactions WHERE id = ?', id);
 
     if (!oldTx) {
       throw new Error('Transaction not found');
@@ -1312,7 +1438,15 @@ export async function updateTransaction(
       );
     }
 
-    // 3. Update the transaction row
+    // 3. Compute lent status & repaid amount
+    const oldRepaid = Number(oldTx.lent_repaid_amount) || 0;
+    const repaidAmount = updates.lentRepaidAmount !== undefined ? updates.lentRepaidAmount : oldRepaid;
+    const isLent = updates.isLent ?? Boolean(oldTx.is_lent);
+    const computedStatus: LentStatus = isLent
+      ? (repaidAmount >= updates.amount - 0.005 ? 'settled' : (repaidAmount > 0 ? 'partial' : 'unsettled'))
+      : 'settled';
+
+    // 4. Update the transaction row
     await db.runAsync(
       `UPDATE transactions SET
          wallet_id = ?,
@@ -1328,7 +1462,9 @@ export async function updateTransaction(
          payment_method = ?,
          notes = ?,
          is_lent = ?,
-         lent_to = ?
+         lent_to = ?,
+         lent_repaid_amount = ?,
+         lent_status = ?
        WHERE id = ?`,
       updates.walletId,
       updates.pocketId || '',
@@ -1342,11 +1478,147 @@ export async function updateTransaction(
       updates.timestamp,
       updates.paymentMethod,
       updates.notes || '',
-      updates.isLent ? 1 : 0,
+      isLent ? 1 : 0,
       updates.lentTo || '',
+      repaidAmount,
+      computedStatus,
       id
     );
   });
+}
+
+export interface RecordLentRepaymentParams {
+  parentTxId: string;
+  walletId: string;
+  amount: number;
+  timestamp?: string;
+  paymentMethod?: string;
+  notes?: string;
+}
+
+export async function recordLentRepayment(params: RecordLentRepaymentParams): Promise<string> {
+  const db = await getDatabase();
+  const repaymentTxId = 'tx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
+
+  await db.withTransactionAsync(async () => {
+    const parent = await db.getFirstAsync<{
+      id: string;
+      amount: number;
+      currency: CurrencyType;
+      merchant_name: string;
+      lent_to: string;
+      lent_repaid_amount: number;
+      lent_status: string;
+    }>(
+      'SELECT id, amount, currency, merchant_name, lent_to, lent_repaid_amount, lent_status FROM transactions WHERE id = ?',
+      params.parentTxId
+    );
+
+    if (!parent) {
+      throw new Error('Original lent transaction was not found.');
+    }
+
+    const currentRepaid = Number(parent.lent_repaid_amount) || 0;
+    const remainingDue = parent.amount - currentRepaid;
+    if (params.amount <= 0) {
+      throw new Error('Repayment amount must be greater than zero.');
+    }
+    if (params.amount > remainingDue + 0.01) {
+      throw new Error('Repayment amount cannot exceed remaining balance.');
+    }
+
+    const newRepaid = Math.min(parent.amount, currentRepaid + params.amount);
+    const newStatus: LentStatus = newRepaid >= parent.amount - 0.005 ? 'settled' : 'partial';
+
+    // 1. Update parent transaction status and repaid amount
+    await db.runAsync(
+      'UPDATE transactions SET lent_repaid_amount = ?, lent_status = ? WHERE id = ?',
+      newRepaid,
+      newStatus,
+      parent.id
+    );
+
+    // 2. Validate destination wallet exists
+    const destWallet = await db.getFirstAsync<{ id: string }>(
+      'SELECT id FROM wallets WHERE id = ?',
+      params.walletId
+    );
+    if (!destWallet) {
+      throw new Error('Destination account not found.');
+    }
+
+    // 3. Insert repayment income transaction (child transaction)
+    const borrower = (parent.lent_to || '').trim() || parent.merchant_name;
+    const txTimestamp = params.timestamp || new Date().toISOString();
+    const txNotes = params.notes?.trim() || `Repayment for lent to ${borrower}`;
+
+    await db.runAsync(
+      `INSERT INTO transactions
+       (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, is_lent, lent_to, lent_repaid_amount, lent_status, lent_parent_tx_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      repaymentTxId,
+      params.walletId,
+      '',
+      `Repayment: ${borrower}`,
+      'Allowance',
+      'income',
+      params.amount,
+      parent.currency || 'IDR',
+      0,
+      0,
+      txTimestamp,
+      params.paymentMethod || 'Bank Transfer',
+      txNotes,
+      '',
+      0,
+      '',
+      0,
+      'settled',
+      parent.id
+    );
+
+    // 4. Credit destination wallet balance
+    await db.runAsync(
+      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
+      params.amount,
+      params.walletId
+    );
+  });
+
+  return repaymentTxId;
+}
+
+export async function getLentRepayments(parentTxId: string): Promise<Transaction[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM transactions WHERE lent_parent_tx_id = ? ORDER BY timestamp DESC',
+    parentTxId
+  );
+  if (rows.length === 0) return [];
+
+  return rows.map((r) => ({
+    id: r.id,
+    walletId: r.wallet_id,
+    pocketId: r.pocket_id || '',
+    merchantName: r.merchant_name,
+    category: r.category,
+    type: r.type as TransactionType,
+    amount: r.amount,
+    currency: (r.currency as CurrencyType) || 'IDR',
+    taxAmount: r.tax_amount,
+    discountAmount: r.discount_amount,
+    timestamp: r.timestamp,
+    paymentMethod: r.payment_method,
+    notes: r.notes,
+    imageUri: r.image_uri,
+    transferPairId: r.transfer_pair_id || undefined,
+    exchangeRate: r.exchange_rate ? Number(r.exchange_rate) : undefined,
+    isLent: Boolean(r.is_lent),
+    lentTo: r.lent_to || '',
+    lentRepaidAmount: Number(r.lent_repaid_amount) || 0,
+    lentStatus: (r.lent_status || 'settled') as LentStatus,
+    lentParentTxId: r.lent_parent_tx_id || undefined,
+  }));
 }
 
 export interface TransferFundsParams {

@@ -20,6 +20,7 @@ export interface HistoryFilterModalProps {
   filter: FilterType;
   category: string;
   month: string;
+  lentFilter?: 'all' | 'outstanding' | 'settled';
   availableCategories: string[];
   availableExpenseCategories?: string[];
   availableIncomeCategories?: string[];
@@ -27,6 +28,7 @@ export interface HistoryFilterModalProps {
   onChangeFilter: (filter: FilterType) => void;
   onChangeCategory: (category: string) => void;
   onChangeMonth: (month: string) => void;
+  onChangeLentFilter?: (filter: 'all' | 'outstanding' | 'settled') => void;
   onReset: () => void;
   onClose: () => void;
 }
@@ -36,6 +38,7 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
   filter,
   category,
   month,
+  lentFilter = 'all',
   availableCategories,
   availableExpenseCategories = [],
   availableIncomeCategories = [],
@@ -43,11 +46,13 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
   onChangeFilter,
   onChangeCategory,
   onChangeMonth,
+  onChangeLentFilter,
   onReset,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const isAnyFilterActive = filter !== 'all' || category !== 'all' || month !== 'all';
+  const isAnyFilterActive =
+    filter !== 'all' || category !== 'all' || month !== 'all' || lentFilter !== 'all';
 
   // Determine which categories to show depending on transaction type
   const displayedCategories = useMemo(() => {
@@ -138,6 +143,40 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                         ]}
                       >
                         {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            {/* Section 1.5: Lent / Receivables */}
+            <View style={styles.filterSection}>
+              <Text style={styles.sectionTitle}>Lent / Receivables</Text>
+              <View style={styles.chipsRow}>
+                {[
+                  { id: 'all', label: 'All Transactions' },
+                  { id: 'outstanding', label: 'Outstanding Lent' },
+                  { id: 'settled', label: 'Settled Lent' },
+                ].map((item) => {
+                  const isActive = lentFilter === item.id;
+                  return (
+                    <TouchableOpacity
+                      key={item.id}
+                      style={[styles.typeChip, isActive && styles.typeChipActive]}
+                      onPress={() => {
+                        AppHaptics.selection();
+                        onChangeLentFilter?.(item.id as 'all' | 'outstanding' | 'settled');
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[
+                          styles.typeChipText,
+                          isActive && styles.typeChipTextActive,
+                        ]}
+                      >
+                        {item.label}
                       </Text>
                     </TouchableOpacity>
                   );

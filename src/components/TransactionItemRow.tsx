@@ -98,10 +98,28 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
               {tx.category}{pocketName ? ` • ${pocketName}` : ''}
             </Text>
             {tx.isLent ? (
-              <View style={styles.lentBadge}>
-                <Text style={styles.lentBadgeText}>
-                  {tx.lentTo ? `Lent to ${tx.lentTo}` : 'Lent'}
+              <View
+                style={[
+                  styles.lentBadge,
+                  tx.lentStatus === 'settled' && styles.lentBadgeSettled,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.lentBadgeText,
+                    tx.lentStatus === 'settled' && styles.lentBadgeSettledText,
+                  ]}
+                >
+                  {tx.lentStatus === 'settled'
+                    ? tx.lentTo ? `Lent to ${tx.lentTo} • Settled` : 'Lent • Settled'
+                    : tx.lentStatus === 'partial'
+                    ? tx.lentTo ? `Lent to ${tx.lentTo} • Partial` : 'Lent • Partial'
+                    : tx.lentTo ? `Lent to ${tx.lentTo}` : 'Lent'}
                 </Text>
+              </View>
+            ) : tx.lentParentTxId ? (
+              <View style={styles.repaymentBadge}>
+                <Text style={styles.repaymentBadgeText}>Repayment</Text>
               </View>
             ) : null}
           </View>
@@ -182,11 +200,32 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 6,
   },
+  lentBadgeSettled: {
+    backgroundColor: Palette.tintIncome,
+    borderColor: Palette.tintIncomeBorder,
+  },
   lentBadgeText: {
     ...Typography.caption,
     fontSize: 10,
     fontWeight: '600',
     color: Palette.accentAmber,
+  },
+  lentBadgeSettledText: {
+    color: Palette.success,
+  },
+  repaymentBadge: {
+    backgroundColor: Palette.tintIncome,
+    borderColor: Palette.tintIncomeBorder,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 6,
+  },
+  repaymentBadgeText: {
+    ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '600',
+    color: Palette.accentTeal,
   },
   txIconBox: {
     width: 38,

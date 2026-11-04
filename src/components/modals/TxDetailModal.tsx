@@ -18,11 +18,13 @@ import {
   Banknote,
   TrendingUp,
   CreditCard,
+  HandCoins,
+  CheckCircle2,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, TransactionItem, Wallet } from '../../types';
-import { getTransactionItems } from '../../services/database';
+import { getTransactionItems, getLentRepayments } from '../../services/database';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
@@ -39,6 +41,7 @@ interface TxDetailModalProps {
   onEdit: (tx: Transaction) => void;
   onDuplicate: (tx: Transaction) => void;
   onDelete: (tx: Transaction) => void;
+  onRecordRepayment?: (tx: Transaction) => void;
   onClose: () => void;
 }
 
@@ -66,6 +69,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   onEdit,
   onDuplicate,
   onDelete,
+  onRecordRepayment,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
@@ -79,7 +83,11 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   const [loadedItems, setLoadedItems] = useState<{ txId: string; items: TransactionItem[] } | null>(
     null
   );
+  const [loadedRepayments, setLoadedRepayments] = useState<{ txId: string; items: Transaction[] } | null>(
+    null
+  );
   const activeTxId = tx?.id;
+
   useEffect(() => {
     if (!activeTxId) return;
     let cancelled = false;
@@ -95,9 +103,28 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     };
   }, [activeTxId]);
 
+  useEffect(() => {
+    if (!activeTxId || !tx?.isLent) return;
+    let cancelled = false;
+    getLentRepayments(activeTxId)
+      .then((list) => {
+        if (!cancelled) setLoadedRepayments({ txId: activeTxId, items: list });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadedRepayments({ txId: activeTxId, items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTxId, tx?.isLent, tx?.lentRepaidAmount, tx?.lentStatus]);
+
   if (!currentTx) return null;
 
   const txItems = loadedItems && loadedItems.txId === currentTx.id ? loadedItems.items : [];
+  const repayments =
+    loadedRepayments && loadedRepayments.txId === currentTx.id && currentTx.isLent
+      ? loadedRepayments.items
+      : [];
 
   const isExpense = currentTx.type === 'expense';
   const isTransfer =
@@ -447,19 +474,113 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 </View>
               ) : null}
 
-              {currentTx.isLent ? (
+              {currentTx.lentParentTxId ? (
                 <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Lent Money</Text>
-                  <View style={styles.lentBadgeDetail}>
-                    <Text style={styles.lentBadgeDetailText}>
-                      {currentTx.lentTo ? `Lent to ${currentTx.lentTo}` : 'Lent (Talangan)'}
-                    </Text>
+                  <Text style={styles.metaLabel}>Repayment For</Text>
+                  <View style={styles.repaymentInlineBadge}>
+                    <Text style={styles.repaymentInlineBadgeText}>Original Loan Repayment</Text>
                   </View>
                 </View>
               ) : null}
             </>
           )}
         </View>
+
+        {/* 3.5 Dedicated Lent / Talangan Status & Repayments Card */}
+        {currentTx.isLent ? (
+          <View style={styles.lentCard}>
+            <View style={styles.lentCardHeader}>
+              <View style={styles.lentCardTitleRow}>
+                <HandCoins size={16} color={Palette.accentAmber} style={{ marginRight: 6 }} />
+                <Text style={styles.lentCardTitle}>Lent Money (Talangan)</Text>
+              </View>
+              <View
+                style={[
+                  styles.lentStatusBadge,
+                  currentTx.lentStatus === 'settled' && styles.lentStatusBadgeSettled,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.lentStatusText,
+                    currentTx.lentStatus === 'settled' && styles.lentStatusTextSettled,
+                  ]}
+                >
+                  {currentTx.lentStatus === 'settled'
+                    ? 'Settled'
+                    : currentTx.lentStatus === 'partial'
+                    ? 'Partially Paid'
+                    : 'Unsettled'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.lentMetricsRow}>
+              <View style={styles.lentMetricCol}>
+                <Text style={styles.lentMetricLabel}>Borrower</Text>
+                <Text style={styles.lentMetricValue} numberOfLines={1}>
+                  {currentTx.lentTo?.trim() || currentTx.merchantName}
+                </Text>
+              </View>
+              <View style={styles.lentMetricCol}>
+                <Text style={styles.lentMetricLabel}>Repaid</Text>
+                <Text style={[styles.lentMetricValue, { color: Palette.success }]}>
+                  {formatCurrency(currentTx.lentRepaidAmount || 0, currentTx.currency, privacyMode)}
+                </Text>
+              </View>
+              <View style={[styles.lentMetricCol, { alignItems: 'flex-end' }]}>
+                <Text style={styles.lentMetricLabel}>Remaining</Text>
+                <Text style={[styles.lentMetricValue, { color: Palette.accentAmber }]}>
+                  {formatCurrency(
+                    Math.max(0, currentTx.amount - (currentTx.lentRepaidAmount || 0)),
+                    currentTx.currency,
+                    privacyMode
+                  )}
+                </Text>
+              </View>
+            </View>
+
+            {currentTx.lentStatus !== 'settled' && onRecordRepayment ? (
+              <TouchableOpacity
+                style={styles.recordRepaymentBtn}
+                onPress={() => onRecordRepayment(currentTx)}
+                activeOpacity={0.8}
+              >
+                <HandCoins size={15} color={Palette.white} style={{ marginRight: 6 }} />
+                <Text style={styles.recordRepaymentBtnText}>Record Repayment</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Repayment History Audit Trail */}
+        {currentTx.isLent && repayments.length > 0 && (
+          <View style={styles.repaymentHistoryContainer}>
+            <Text style={styles.sectionTitle}>
+              Repayment History ({repayments.length})
+            </Text>
+            {repayments.map((rp) => (
+              <View key={rp.id} style={styles.repaymentRow}>
+                <View style={styles.repaymentIconBox}>
+                  <CheckCircle2 size={15} color={Palette.success} />
+                </View>
+                <View style={styles.repaymentInfo}>
+                  <Text style={styles.repaymentDate}>
+                    {formatDateTime(rp.timestamp)}
+                  </Text>
+                  {rp.notes ? (
+                    <Text style={styles.repaymentNotes} numberOfLines={1}>
+                      {rp.notes}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={styles.repaymentAmount}>
+                  +{formatCurrency(rp.amount, rp.currency, privacyMode)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
 
         {/* 4. Optional Purchased Items List */}
         {txItems.length > 0 && (
@@ -788,6 +909,143 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.accentAmber,
+  },
+  repaymentInlineBadge: {
+    backgroundColor: Palette.tintIncome,
+    borderColor: Palette.tintIncomeBorder,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  repaymentInlineBadgeText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.accentTeal,
+  },
+  lentCard: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  lentCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  lentCardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  lentCardTitle: {
+    ...Typography.body,
+    fontWeight: '700',
+    fontSize: 14,
+    color: Palette.ink,
+  },
+  lentStatusBadge: {
+    backgroundColor: Palette.tintWarning,
+    borderColor: Palette.tintWarningBorder,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  lentStatusBadgeSettled: {
+    backgroundColor: Palette.tintIncome,
+    borderColor: Palette.tintIncomeBorder,
+  },
+  lentStatusText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+    color: Palette.accentAmber,
+  },
+  lentStatusTextSettled: {
+    color: Palette.success,
+  },
+  lentMetricsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  lentMetricCol: {
+    flex: 1,
+  },
+  lentMetricLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginBottom: 2,
+  },
+  lentMetricValue: {
+    ...Typography.body,
+    fontWeight: '700',
+    fontSize: 13,
+    color: Palette.ink,
+  },
+  recordRepaymentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    marginTop: 4,
+  },
+  recordRepaymentBtnText: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.white,
+  },
+  repaymentHistoryContainer: {
+    marginBottom: 16,
+  },
+  repaymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.white,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  repaymentIconBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Palette.tintIncome,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  repaymentInfo: {
+    flex: 1,
+  },
+  repaymentDate: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  repaymentNotes: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  repaymentAmount: {
+    ...Typography.mono,
+    fontSize: 13,
+    fontWeight: '700',
+    color: Palette.success,
   },
   sectionTitle: {
     ...Typography.subheading,
