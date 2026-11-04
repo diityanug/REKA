@@ -24,7 +24,6 @@ import {
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
-import { CalculatorKeypad } from '../CalculatorKeypad';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
 import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
@@ -78,7 +77,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
   const [fromWalletId, setFromWalletId] = useState<string>('');
   const [toWalletId, setToWalletId] = useState<string>('');
   const [amountStr, setAmountStr] = useState<string>('');
-  const [keypadOpen, setKeypadOpen] = useState<boolean>(false);
+  const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [exchangeRateStr, setExchangeRateStr] = useState<string>(() =>
     formatCurrencyInput(String(initialExchangeRate), 'IDR')
   );
@@ -177,7 +176,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
       setNotes('');
       setQuickPercentHint('');
       setSubmitting(false);
-      setKeypadOpen(false);
+      setAmountModalVisible(false);
       const activeRate =
         exchangeRateInfo?.rate && exchangeRateInfo.rate > 0
           ? exchangeRateInfo.rate
@@ -256,7 +255,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     const val = fromCurrency === 'IDR'
       ? Math.floor(selectedFromWallet.balance * pct)
       : Math.round(selectedFromWallet.balance * pct * 100) / 100;
-    setAmountStr(val > 0 ? val.toString() : '');
+    setAmountStr(val > 0 ? formatCurrencyInput(val.toString(), fromCurrency) : '');
   };
 
   const handleSwap = () => {
@@ -606,11 +605,38 @@ export const TransferModal = React.memo<TransferModalProps>(({
                   </View>
                 )}
 
-                {/* Transfer Amount Input with Custom Calculator Keypad */}
+                {/* Transfer Amount Input with Calculator Modal */}
                 <View style={styles.fieldSection}>
                   <Text style={styles.inputLabel}>
                     Transfer Amount ({fromCurrency}) <Text style={styles.requiredStar}>*</Text>
                   </Text>
+
+                  <TouchableOpacity
+                    style={styles.amountInputContainer}
+                    onPress={() => {
+                      AppHaptics.light();
+                      Keyboard.dismiss();
+                      setAmountModalVisible(true);
+                    }}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Transfer amount, ${amountStr || '0'} ${fromCurrency}`}
+                  >
+                    <View style={styles.currencyPrefixBadge}>
+                      <Text style={styles.currencyPrefixText}>
+                        {fromCurrency === 'IDR' ? 'Rp' : '$'}
+                      </Text>
+                    </View>
+                    <Text
+                      style={[
+                        styles.amountDisplayText,
+                        !amountStr && styles.amountPlaceholderText,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {amountStr || '0'}
+                    </Text>
+                  </TouchableOpacity>
 
                   {/* Quick percentage chips */}
                   <View style={styles.quickPercentRow}>
@@ -659,16 +685,6 @@ export const TransferModal = React.memo<TransferModalProps>(({
                       </Text>
                     ) : null}
                   </View>
-
-                  <CalculatorKeypad
-                    value={amountStr}
-                    currency={fromCurrency}
-                    onChangeValue={setAmountStr}
-                    showDisplay={true}
-                    showKeypad={keypadOpen}
-                    onPressDisplay={() => setKeypadOpen(true)}
-                    onCloseKeypad={() => setKeypadOpen(false)}
-                  />
                 </View>
 
                 {/* Optional Notes */}
@@ -680,7 +696,6 @@ export const TransferModal = React.memo<TransferModalProps>(({
                     placeholderTextColor={Palette.mutedSoft}
                     value={notes}
                     onChangeText={setNotes}
-                    onFocus={() => setKeypadOpen(false)}
                     maxLength={100}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
@@ -719,6 +734,19 @@ export const TransferModal = React.memo<TransferModalProps>(({
               </TouchableOpacity>
             </View>
           )}
+
+      <AmountInputModal
+        visible={amountModalVisible}
+        title="Transfer Amount"
+        subtitle={selectedFromWallet ? `From ${selectedFromWallet.name} (${fromCurrency})` : `Transfer Amount (${fromCurrency})`}
+        initialAmount={amountStr}
+        currency={fromCurrency}
+        onConfirm={(formatted) => {
+          setAmountStr(formatted);
+          setAmountModalVisible(false);
+        }}
+        onClose={() => setAmountModalVisible(false)}
+      />
 
       <AmountInputModal
         visible={rateModalVisible}
@@ -987,6 +1015,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Palette.success,
+  },
+  amountInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    overflow: 'hidden',
+    height: 48,
+  },
+  currencyPrefixBadge: {
+    paddingHorizontal: 14,
+    height: '100%',
+    backgroundColor: '#EBE5DF',
+    borderRightWidth: 1,
+    borderRightColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  currencyPrefixText: {
+    ...Typography.body,
+    fontSize: 15,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  amountDisplayText: {
+    flex: 1,
+    ...Typography.heading,
+    fontSize: 18,
+    fontWeight: '700',
+    color: Palette.ink,
+    paddingHorizontal: 14,
+  },
+  amountPlaceholderText: {
+    color: Palette.muted,
+    fontWeight: '400',
   },
   quickPercentRow: {
     flexDirection: 'row',

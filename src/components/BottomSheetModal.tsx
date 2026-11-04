@@ -16,7 +16,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Palette } from '../theme/tokens';
 import { useLastDefined } from '../hooks/useLastDefined';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: WINDOW_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT_RAW } = Dimensions.get('screen');
+const SCREEN_HEIGHT = Math.max(WINDOW_HEIGHT, SCREEN_HEIGHT_RAW || 0);
 
 interface BottomSheetModalProps {
   visible: boolean;
@@ -122,21 +124,19 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
         ]}
       >
         {/* Soft Stationary Fading Scrim - Warm Editorial Overlay */}
-        {!fullPage && (
-          <Animated.View
-            style={[
-              StyleSheet.absoluteFill,
-              styles.backdrop,
-              { opacity: backdropOpacity },
-            ]}
-          >
-            <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={1}
-              onPress={handleBackdropPress}
-            />
-          </Animated.View>
-        )}
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFill,
+            styles.backdrop,
+            { opacity: backdropOpacity },
+          ]}
+        >
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={handleBackdropPress}
+          />
+        </Animated.View>
 
         {/* Sliding Sheet / Page Container with Curved Header */}
         <Animated.View
@@ -160,10 +160,11 @@ const styles = StyleSheet.create({
   rootContainer: {
     flex: 1,
     justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
   },
   rootContainerFullPage: {
-    justifyContent: 'flex-start',
-    backgroundColor: Palette.white,
+    justifyContent: 'flex-end',
+    backgroundColor: 'transparent',
     paddingTop: 0,
   },
   backdrop: {
@@ -179,8 +180,9 @@ const styles = StyleSheet.create({
     flex: 1,
     height: '100%',
     maxHeight: '100%',
-    borderTopLeftRadius: 0,
-    borderTopRightRadius: 0,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     backgroundColor: Palette.white,
+    overflow: 'hidden',
   },
 });
