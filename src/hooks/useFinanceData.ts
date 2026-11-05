@@ -33,6 +33,8 @@ import {
   getLentRepayments,
   RecordLentRepaymentParams,
   transferFunds,
+  updateTransferFunds,
+  UpdateTransferFundsParams,
   getMonthlyBudget,
   setMonthlyBudget,
   getAllocationPlans,
@@ -599,17 +601,48 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       return;
     }
 
+    if (Math.abs(wallet.balance) > 0.005) {
+      showAlert(
+        'Cannot Delete Account',
+        `"${wallet.name}" still has a balance of ${formatCurrency(wallet.balance, wallet.currency)}. Please transfer or clear all funds until the balance is 0 before deleting this account.`,
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    const activePocketsWithBalance = pockets.filter(
+      (p) => p.walletId === wallet.id && Math.abs(p.balance) > 0.005
+    );
+    if (activePocketsWithBalance.length > 0) {
+      showAlert(
+        'Cannot Delete Account',
+        `"${wallet.name}" still has pockets holding allocated funds. Please release all pocket funds first.`,
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    const unsettledLoans = transactions.filter(
+      (t) => t.walletId === wallet.id && t.isLent && t.lentStatus !== 'settled'
+    );
+    if (unsettledLoans.length > 0) {
+      showAlert(
+        'Cannot Delete Account',
+        `"${wallet.name}" still has ${unsettledLoans.length} unsettled loan or debt record${unsettledLoans.length === 1 ? '' : 's'}. Please settle them completely before deleting this account.`,
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
     const txCount = transactions.filter((t) => t.walletId === wallet.id).length;
-    const pocketCount = pockets.filter((p) => p.walletId === wallet.id).length;
-    const detailParts = [
-      txCount > 0 ? `${txCount} transaction${txCount === 1 ? '' : 's'}` : '',
-      pocketCount > 0 ? `${pocketCount} pocket${pocketCount === 1 ? '' : 's'}` : '',
-    ].filter(Boolean);
 
     showAlert(
       'Delete Account',
-      detailParts.length > 0
-        ? `Removing "${wallet.name}" will also permanently delete ${detailParts.join(' and ')}. This cannot be undone.`
+      txCount > 0
+        ? `Remove "${wallet.name}"? Its ${txCount} historical transaction${txCount === 1 ? '' : 's'} will be preserved in History as "${wallet.name} (Deleted Acc)" and locked as read-only.`
         : `Remove "${wallet.name}" from this device? This cannot be undone.`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -634,10 +667,14 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
 
   const handleUpdateWalletsOrder = async (orderedIds: string[]) => {
     try {
+      setWallets((prev) => {
+        const idMap = new Map(prev.map((w) => [w.id, w]));
+        return orderedIds.map((id) => idMap.get(id)).filter((w): w is Wallet => !!w);
+      });
       await updateWalletsOrder(orderedIds);
-      await loadData();
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to update account order.', undefined, 'error');
+      await loadData();
     }
   };
 
@@ -782,9 +819,39 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   };
 
   const handleDeletePocket = (pocket: Pocket) => {
+    const parentWallet = wallets.find((w) => w.id === pocket.walletId);
+    const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
+
+    if (Math.abs(pocket.balance) > 0.005) {
+      showAlert(
+        'Cannot Delete Pocket',
+        `"${pocket.name}" still has a balance of ${formatCurrency(pocket.balance, pCurrency)}. Please release or move all funds to the main account until the pocket balance is 0 before deleting it.`,
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    const unsettledPocketLoans = transactions.filter(
+      (t) => t.pocketId === pocket.id && t.isLent && t.lentStatus !== 'settled'
+    );
+    if (unsettledPocketLoans.length > 0) {
+      showAlert(
+        'Cannot Delete Pocket',
+        `"${pocket.name}" still has ${unsettledPocketLoans.length} unsettled loan or debt record${unsettledPocketLoans.length === 1 ? '' : 's'}. Please settle them completely before deleting this pocket.`,
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    const txCount = transactions.filter((t) => t.pocketId === pocket.id).length;
+
     showAlert(
       'Delete Pocket',
-      `Remove "${pocket.name}"? Its balance will return to the main account.`,
+      txCount > 0
+        ? `Remove "${pocket.name}"? Its ${txCount} historical transaction${txCount === 1 ? '' : 's'} will be preserved in History as "${pocket.name} (Deleted Pocket)" and locked as read-only.`
+        : `Remove "${pocket.name}" from this account?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -878,12 +945,16 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     amount: number,
     notes: string,
     targetAmount?: number,
-    exchangeRate?: number
+    exchangeRate?: number,
+    fromPocketId?: string,
+    toPocketId?: string
   ) => {
     try {
       await transferFunds({
         fromWalletId,
         toWalletId,
+        fromPocketId,
+        toPocketId,
         amount,
         targetAmount,
         exchangeRate,
@@ -892,6 +963,19 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       });
       if (exchangeRate && exchangeRate > 0) {
         await handleSaveExchangeRate(exchangeRate);
+      }
+      await loadData();
+      AppHaptics.success();
+    } catch (err: any) {
+      throw err;
+    }
+  };
+
+  const handleUpdateTransfer = async (params: UpdateTransferFundsParams) => {
+    try {
+      await updateTransferFunds(params);
+      if (params.exchangeRate && params.exchangeRate > 0) {
+        await handleSaveExchangeRate(params.exchangeRate);
       }
       await loadData();
       AppHaptics.success();
@@ -935,16 +1019,30 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     );
   };
 
-  const handleDeleteTransactionsBatch = async (ids: string[]): Promise<void> => {
+  const handleDeleteTransactionsBatch = (ids: string[], onDeleted?: () => void) => {
     if (!ids || ids.length === 0) return;
-    try {
-      await deleteTransactionsBatch(ids);
-      await loadData();
-      AppHaptics.success();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete selected transactions.', undefined, 'error');
-      throw err;
-    }
+    showAlert(
+      `Delete ${ids.length} Transaction${ids.length > 1 ? 's' : ''}?`,
+      'This will restore all corresponding account balances and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              if (onDeleted) onDeleted();
+              await deleteTransactionsBatch(ids);
+              await loadData();
+              AppHaptics.success();
+            } catch (err: any) {
+              showAlert('Error', err.message || 'Failed to delete selected transactions.', undefined, 'error');
+            }
+          },
+        },
+      ],
+      'confirm'
+    );
   };
 
   const handleRecordLentRepayment = async (params: RecordLentRepaymentParams): Promise<string> => {
@@ -1215,6 +1313,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleCreateCategory,
     handleDeleteCategory,
     handleExecuteTransfer,
+    handleUpdateTransfer,
     handleDeleteTransaction,
     handleDeleteTransactionsBatch,
     handleRecordLentRepayment,

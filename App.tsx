@@ -332,8 +332,16 @@ function MainApp() {
     });
 
     return deduplicated.filter((tx) => {
-      const wName = (finance.wallets.find((w) => w.id === tx.walletId)?.name || '').toLowerCase();
-      const pName = finance.getPocketName(tx.pocketId).toLowerCase();
+      const wName = (
+        tx.deletedWalletName
+          ? `${tx.deletedWalletName} (Deleted Acc)`
+          : finance.wallets.find((w) => w.id === tx.walletId)?.name || ''
+      ).toLowerCase();
+      const pName = (
+        tx.deletedPocketName
+          ? `${tx.deletedPocketName} (Deleted Pocket)`
+          : finance.getPocketName(tx.pocketId)
+      ).toLowerCase();
       const amtStr = String(Math.round(tx.amount));
       const formattedAmt = formatCurrency(Math.abs(tx.amount), tx.currency, false).toLowerCase();
 
@@ -353,7 +361,11 @@ function MainApp() {
         if (counterpart) {
           const counterpartAmtStr = String(Math.round(counterpart.amount));
           const counterpartFormatted = formatCurrency(Math.abs(counterpart.amount), counterpart.currency, false).toLowerCase();
-          const counterpartWalletName = (finance.wallets.find((w) => w.id === counterpart.walletId)?.name || '').toLowerCase();
+          const counterpartWalletName = (
+            counterpart.deletedWalletName
+              ? `${counterpart.deletedWalletName} (Deleted Acc)`
+              : finance.wallets.find((w) => w.id === counterpart.walletId)?.name || ''
+          ).toLowerCase();
           matchesSearch =
             counterpart.merchantName.toLowerCase().includes(q) ||
             counterpartWalletName.includes(q) ||
@@ -912,7 +924,11 @@ function MainApp() {
           );
         }
 
+        const wasCreatingOrDuplicating = !modals.editingTransaction;
         modals.handleCloseManualModal();
+        if (wasCreatingOrDuplicating) {
+          modals.setSelectedTx(null);
+        }
         finance.setActiveCurrency(txCurrency);
         await finance.loadData();
         AppHaptics.success();
@@ -961,12 +977,69 @@ function MainApp() {
   }, [modals]);
 
   const handleOpenTransferModal = useCallback(() => {
+    modals.setEditingTransfer(null);
     modals.setTransferModalVisible(true);
   }, [modals]);
 
   const handleCloseTransferModal = useCallback(() => {
-    modals.setTransferModalVisible(false);
+    modals.closeTransferModal();
   }, [modals]);
+
+  const handleEditFromTxDetail = useCallback(
+    (tx: Transaction) => {
+      const isTransfer =
+        tx.category === 'Transfer' ||
+        tx.paymentMethod === 'Transfer' ||
+        !!tx.transferPairId ||
+        /^Transfer (to|from)\s+/i.test(tx.merchantName);
+
+      if (isTransfer) {
+        const pairedTx = tx.transferPairId
+          ? finance.transactions.find((t) => t.id === tx.transferPairId)
+          : undefined;
+        const outTx = tx.type === 'expense' ? tx : pairedTx;
+        const inTx = tx.type === 'income' ? tx : pairedTx;
+
+        if (!outTx || !inTx) {
+          modals.showAlert(
+            'Cannot Edit Transfer',
+            'Only paired account transfers with both source and destination legs can be edited.',
+            undefined,
+            'warning'
+          );
+          return;
+        }
+
+        const cleanNotes = (outTx.notes || '')
+          .split(/\s*•\s*/)
+          .map((part) => part.trim())
+          .filter(
+            (part) =>
+              part.length > 0 &&
+              !/^Converted\s+(to|from)\s+(USD|IDR)$/i.test(part) &&
+              !/^Rate:\s*1\s*USD\s*=/i.test(part) &&
+              !/^Transfer\s+(to|from)\s+/i.test(part)
+          )
+          .join(' • ');
+
+        modals.openEditTransfer({
+          txId: tx.id,
+          fromWalletId: outTx.walletId,
+          toWalletId: inTx.walletId,
+          fromPocketId: outTx.pocketId || '',
+          toPocketId: inTx.pocketId || '',
+          amount: Math.abs(outTx.amount),
+          targetAmount: Math.abs(inTx.amount),
+          exchangeRate: outTx.exchangeRate || inTx.exchangeRate,
+          notes: cleanNotes,
+        });
+        return;
+      }
+
+      modals.handleStartEditTransaction(tx);
+    },
+    [finance.transactions, modals]
+  );
 
   const handleCloseSettingsModal = useCallback(() => {
     modals.setSettingsModalVisible(false);
@@ -1219,33 +1292,37 @@ function MainApp() {
         onClose={modals.closeAccountDetail}
       />
 
-      {/* Modal 9: Transfer Funds */}
-      <TransferModal
-        visible={modals.transferModalVisible}
-        wallets={finance.wallets}
-        activeCurrency={finance.activeCurrency}
-        privacyMode={privacyMode}
-        initialExchangeRate={finance.exchangeRate}
-        exchangeRateInfo={finance.exchangeRateInfo}
-        onRefreshExchangeRate={finance.handleRefreshExchangeRate}
-        onOpenAddAccount={handleOpenAddAccount}
-        onExecuteTransfer={finance.handleExecuteTransfer}
-        onClose={handleCloseTransferModal}
-      />
-
       {/* Modal 5: Transaction Detail */}
       <TxDetailModal
         transaction={modals.selectedTx}
         categoryIcon={modals.selectedTx ? finance.getCategoryIconName(modals.selectedTx.category, modals.selectedTx.type) : ''}
         pocketName={modals.selectedTx ? finance.getPocketName(modals.selectedTx.pocketId) : undefined}
         wallets={finance.wallets}
+        pockets={finance.pockets}
         transactions={finance.transactions}
         privacyMode={privacyMode}
-        onEdit={modals.handleStartEditTransaction}
+        onEdit={handleEditFromTxDetail}
         onDuplicate={modals.handleDuplicateTransaction}
         onDelete={(tx) => finance.handleDeleteTransaction(tx, () => modals.setSelectedTx(null))}
         onRecordRepayment={modals.openRecordRepayment}
         onClose={() => modals.setSelectedTx(null)}
+      />
+
+      {/* Modal 9: Transfer Funds (stacks on top of TxDetailModal when editing a transfer) */}
+      <TransferModal
+        visible={modals.transferModalVisible}
+        wallets={finance.wallets}
+        pockets={finance.pockets}
+        activeCurrency={finance.activeCurrency}
+        privacyMode={privacyMode}
+        initialExchangeRate={finance.exchangeRate}
+        exchangeRateInfo={finance.exchangeRateInfo}
+        onRefreshExchangeRate={finance.handleRefreshExchangeRate}
+        onOpenAddAccount={handleOpenAddAccount}
+        editingTransfer={modals.editingTransfer}
+        onExecuteTransfer={finance.handleExecuteTransfer}
+        onUpdateTransfer={finance.handleUpdateTransfer}
+        onClose={handleCloseTransferModal}
       />
 
       {/* Modal 5b: Record Lent Repayment */}

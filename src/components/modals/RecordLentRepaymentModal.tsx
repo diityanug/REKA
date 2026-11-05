@@ -117,6 +117,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   const isAmountValid = !isNaN(parsedAmount) && parsedAmount > 0 && parsedAmount <= remainingDue + 0.01;
   const isFullSettlement = isAmountValid && Math.abs(parsedAmount - remainingDue) < 0.01;
   const isOverRemaining = !isNaN(parsedAmount) && parsedAmount > remainingDue + 0.01;
+  const canSubmit = isAmountValid && !!selectedWalletId && !isSubmitting;
 
   const handleConfirm = async () => {
     if (!currentTx) return;
@@ -427,11 +428,12 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
         <TouchableOpacity
           style={[
             styles.submitBtn,
-            (!isAmountValid || isSubmitting) && styles.submitBtnDisabled,
+            !canSubmit && styles.submitBtnDisabled,
           ]}
           onPress={handleConfirm}
-          disabled={!isAmountValid || isSubmitting}
+          disabled={!canSubmit}
           activeOpacity={0.85}
+          accessibilityState={{ disabled: !canSubmit, busy: isSubmitting }}
         >
           {isSubmitting ? (
             <ActivityIndicator color={Palette.white} size="small" />

@@ -78,6 +78,11 @@ export interface Transaction {
   lentRepaidAmount?: number;
   lentStatus?: LentStatus;
   lentParentTxId?: string;
+  deletedWalletName?: string;
+  deletedPocketName?: string;
+  pairedDeletedWalletName?: string;
+  pairedPocketId?: string;
+  pairedDeletedPocketName?: string;
   items?: TransactionItem[];
 }
 
@@ -320,6 +325,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'wallets', 'color', "TEXT NOT NULL DEFAULT '#CC785C'");
       await ensureColumn(db, 'wallets', 'account_number', "TEXT DEFAULT ''");
       await ensureColumn(db, 'wallets', 'sort_order', 'INTEGER DEFAULT 0');
+      await ensureColumn(db, 'wallets', 'is_deleted', 'INTEGER DEFAULT 0');
 
       await ensureColumn(db, 'categories', 'type', "TEXT NOT NULL DEFAULT 'expense'");
       await ensureColumn(db, 'categories', 'icon', "TEXT NOT NULL DEFAULT 'HelpCircle'");
@@ -340,6 +346,8 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureColumn(db, 'transactions', 'lent_repaid_amount', 'REAL DEFAULT 0');
       await ensureColumn(db, 'transactions', 'lent_status', "TEXT DEFAULT 'unsettled'");
       await ensureColumn(db, 'transactions', 'lent_parent_tx_id', 'TEXT DEFAULT NULL');
+      await ensureColumn(db, 'transactions', 'deleted_wallet_name', "TEXT DEFAULT ''");
+      await ensureColumn(db, 'transactions', 'deleted_pocket_name', "TEXT DEFAULT ''");
 
       await ensureColumn(db, 'pockets', 'target_amount', 'REAL NOT NULL DEFAULT 0');
       await ensureColumn(db, 'pockets', 'icon', "TEXT NOT NULL DEFAULT 'Briefcase'");
@@ -363,9 +371,25 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await ensureTransferCategory(db);
       await migrateCategoryIcons(db);
 
+      // Auto-repair any wallets with null, empty, or whitespace-only names
+      await db.runAsync(`
+        UPDATE wallets 
+        SET name = CASE 
+          WHEN LOWER(TRIM(COALESCE(type, ''))) = 'cash' THEN 'Cash Wallet'
+          WHEN LOWER(TRIM(COALESCE(type, ''))) = 'bank' THEN 'Bank Account'
+          WHEN LOWER(TRIM(COALESCE(type, ''))) IN ('e-wallet', 'ewallet') THEN 'E-Wallet'
+          WHEN LOWER(TRIM(COALESCE(type, ''))) = 'credit card' THEN 'Credit Card'
+          WHEN LOWER(TRIM(COALESCE(type, ''))) = 'investment' THEN 'Investment Account'
+          WHEN LOWER(TRIM(COALESCE(type, ''))) IN ('e-money', 'emoney') THEN 'E-Money'
+          ELSE 'Main Account'
+        END
+        WHERE name IS NULL OR TRIM(name) = ''
+      `);
+      await db.runAsync(`UPDATE wallets SET name = TRIM(name) WHERE name != TRIM(name)`);
+
       // Ensure at least one wallet exists for fresh installation
       const walletCount = await db.getFirstAsync<{ count: number }>(
-        'SELECT COUNT(*) as count FROM wallets'
+        'SELECT COUNT(*) as count FROM wallets WHERE COALESCE(is_deleted, 0) = 0'
       );
       if (!walletCount || walletCount.count === 0) {
         await db.runAsync(
@@ -553,18 +577,22 @@ export async function deleteCategory(id: string): Promise<boolean> {
 export async function getWallets(): Promise<Wallet[]> {
   const db = await getDatabase();
   const rows = await db.getAllAsync<any>(
-    'SELECT * FROM wallets ORDER BY sort_order ASC, balance DESC'
+    'SELECT * FROM wallets WHERE COALESCE(is_deleted, 0) = 0 ORDER BY sort_order ASC, balance DESC'
   );
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    type: r.type,
-    balance: r.balance,
-    currency: (r.currency as CurrencyType) || 'IDR',
-    color: r.color,
-    accountNumber: r.account_number || '',
-    sortOrder: r.sort_order ?? 0,
-  }));
+  return rows.map((r) => {
+    const rawName = typeof r.name === 'string' ? r.name.trim() : '';
+    const safeName = rawName || (r.type ? `${r.type} Account` : 'Account');
+    return {
+      id: r.id,
+      name: safeName,
+      type: r.type,
+      balance: r.balance,
+      currency: (r.currency as CurrencyType) || 'IDR',
+      color: r.color,
+      accountNumber: r.account_number || '',
+      sortOrder: r.sort_order ?? 0,
+    };
+  });
 }
 
 export async function createWallet(wallet: Omit<Wallet, 'id'>): Promise<string> {
@@ -653,26 +681,73 @@ export async function deleteWallet(id: string): Promise<void> {
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
     const remaining = await db.getFirstAsync<{ count: number }>(
-      'SELECT COUNT(*) as count FROM wallets'
+      'SELECT COUNT(*) as count FROM wallets WHERE COALESCE(is_deleted, 0) = 0'
     );
     if (!remaining || remaining.count <= 1) {
       throw new Error(
         'At least one account must remain. Create another account before deleting this one.'
       );
     }
-    // 1. Clear transfer pair references pointing to transactions in this wallet
-    await db.runAsync(
-      'UPDATE transactions SET transfer_pair_id = NULL WHERE transfer_pair_id IN (SELECT id FROM transactions WHERE wallet_id = ?)',
+
+    const wallet = await db.getFirstAsync<{
+      id: string;
+      name: string;
+      balance: number;
+    }>(
+      'SELECT id, name, balance FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
       id
     );
-    // 2. Delete child items, transactions, pockets, and the wallet
-    await db.runAsync(
-      'DELETE FROM transaction_items WHERE transaction_id IN (SELECT id FROM transactions WHERE wallet_id = ?)',
+    if (!wallet) return;
+
+    if (Math.abs(wallet.balance) > 0.005) {
+      throw new Error(
+        'Cannot delete an account with remaining balance. Please transfer or clear all funds until the balance is 0.'
+      );
+    }
+
+    const pocketsWithBalance = await db.getFirstAsync<{ count: number }>(
+      'SELECT COUNT(*) as count FROM pockets WHERE wallet_id = ? AND ABS(balance) > 0.005',
       id
     );
-    await db.runAsync('DELETE FROM transactions WHERE wallet_id = ?', id);
+    if (pocketsWithBalance && pocketsWithBalance.count > 0) {
+      throw new Error(
+        'Cannot delete an account while its pockets still hold funds. Please release all pocket funds first.'
+      );
+    }
+
+    const activeLoans = await db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM transactions WHERE wallet_id = ? AND is_lent = 1 AND COALESCE(lent_status, 'unsettled') != 'settled'",
+      id
+    );
+    if (activeLoans && activeLoans.count > 0) {
+      throw new Error(
+        'Cannot delete an account with unsettled loans or debts. Please settle them completely first.'
+      );
+    }
+
+    // 1. Stamp any remaining pocket names onto transactions before deleting pockets
+    const walletPockets = await db.getAllAsync<{ id: string; name: string }>(
+      'SELECT id, name FROM pockets WHERE wallet_id = ?',
+      id
+    );
+    for (const p of walletPockets) {
+      await db.runAsync(
+        "UPDATE transactions SET deleted_pocket_name = ?, pocket_id = '' WHERE pocket_id = ? AND (deleted_pocket_name IS NULL OR deleted_pocket_name = '')",
+        p.name,
+        p.id
+      );
+    }
+
+    // 2. Stamp the deleted account name onto all historical transactions in this account
+    await db.runAsync(
+      'UPDATE transactions SET deleted_wallet_name = ? WHERE wallet_id = ?',
+      wallet.name,
+      id
+    );
+
+    // 3. Delete empty pockets in this account and soft-delete the wallet so transactions stay archived
     await db.runAsync('DELETE FROM pockets WHERE wallet_id = ?', id);
-    await db.runAsync('DELETE FROM wallets WHERE id = ?', id);
+    await db.runAsync('UPDATE wallets SET is_deleted = 1, balance = 0 WHERE id = ?', id);
   });
 }
 
@@ -896,7 +971,34 @@ export async function updatePocketName(
 export async function deletePocket(id: string): Promise<void> {
   const db = await getDatabase();
   await db.withTransactionAsync(async () => {
-    await db.runAsync("UPDATE transactions SET pocket_id = '' WHERE pocket_id = ?", id);
+    const pocket = await db.getFirstAsync<{
+      id: string;
+      name: string;
+      balance: number;
+    }>('SELECT id, name, balance FROM pockets WHERE id = ?', id);
+    if (!pocket) return;
+
+    if (Math.abs(pocket.balance) > 0.005) {
+      throw new Error(
+        'Cannot delete a pocket with remaining balance. Please release or move all funds to the main account first.'
+      );
+    }
+
+    const activeLoans = await db.getFirstAsync<{ count: number }>(
+      "SELECT COUNT(*) as count FROM transactions WHERE pocket_id = ? AND is_lent = 1 AND COALESCE(lent_status, 'unsettled') != 'settled'",
+      id
+    );
+    if (activeLoans && activeLoans.count > 0) {
+      throw new Error(
+        'Cannot delete a pocket with unsettled loans or debts. Please settle them completely first.'
+      );
+    }
+
+    await db.runAsync(
+      "UPDATE transactions SET deleted_pocket_name = ?, pocket_id = '' WHERE pocket_id = ?",
+      pocket.name,
+      id
+    );
     await db.runAsync('DELETE FROM pockets WHERE id = ?', id);
   });
 }
@@ -912,6 +1014,7 @@ export async function getTransactions(): Promise<Transaction[]> {
 
   const walletRows = await db.getAllAsync<{ id: string; name: string }>('SELECT id, name FROM wallets');
   const walletMap = new Map(walletRows.map((w) => [w.id, w.name]));
+  const rowById = new Map(txRows.map((r) => [r.id, r]));
 
   return txRows.map((r) => {
     let merchantName = r.merchant_name;
@@ -926,6 +1029,8 @@ export async function getTransactions(): Promise<Transaction[]> {
         merchantName = `${fromAcc} to ${toAcc}`;
       }
     }
+
+    const pairedRow = r.transfer_pair_id ? rowById.get(r.transfer_pair_id) : undefined;
 
     return {
       id: r.id,
@@ -949,6 +1054,11 @@ export async function getTransactions(): Promise<Transaction[]> {
       lentRepaidAmount: Number(r.lent_repaid_amount) || 0,
       lentStatus: (r.lent_status || (r.is_lent ? 'unsettled' : 'settled')) as LentStatus,
       lentParentTxId: r.lent_parent_tx_id || undefined,
+      deletedWalletName: r.deleted_wallet_name || undefined,
+      deletedPocketName: r.deleted_pocket_name || undefined,
+      pairedDeletedWalletName: pairedRow?.deleted_wallet_name || undefined,
+      pairedPocketId: pairedRow?.pocket_id || undefined,
+      pairedDeletedPocketName: pairedRow?.deleted_pocket_name || undefined,
     };
   });
 }
@@ -1147,12 +1257,17 @@ export async function deleteTransaction(id: string): Promise<void> {
       transfer_pair_id?: string;
       is_lent?: number;
       lent_parent_tx_id?: string;
+      deleted_wallet_name?: string;
+      deleted_pocket_name?: string;
     }>(
-      'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
+      'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
       id
     );
 
     if (!tx) return;
+    if (tx.deleted_wallet_name || tx.deleted_pocket_name) {
+      throw new Error('This archived transaction belongs to a deleted account or pocket and cannot be deleted.');
+    }
 
     const revertTxBalance = async (targetTx: {
       id: string;
@@ -1200,9 +1315,12 @@ export async function deleteTransaction(id: string): Promise<void> {
     let pairedTx: typeof tx | null = null;
     if (tx.transfer_pair_id) {
       pairedTx = await db.getFirstAsync<typeof tx>(
-        'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
+        'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
         tx.transfer_pair_id
       );
+      if (pairedTx && (pairedTx.deleted_wallet_name || pairedTx.deleted_pocket_name)) {
+        throw new Error('This transfer involves a deleted account and cannot be deleted.');
+      }
     }
 
     // Revert target transaction
@@ -1239,12 +1357,25 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         transfer_pair_id?: string;
         is_lent?: number;
         lent_parent_tx_id?: string;
+        deleted_wallet_name?: string;
+        deleted_pocket_name?: string;
       }>(
-        'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
+        'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
         id
       );
 
-      if (!tx) continue;
+      if (!tx || tx.deleted_wallet_name || tx.deleted_pocket_name) continue;
+
+      let pairedTx: typeof tx | null = null;
+      if (tx.transfer_pair_id) {
+        pairedTx = await db.getFirstAsync<typeof tx>(
+          'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
+          tx.transfer_pair_id
+        );
+        if (pairedTx && (pairedTx.deleted_wallet_name || pairedTx.deleted_pocket_name)) {
+          continue;
+        }
+      }
 
       if (tx.lent_parent_tx_id) {
         parentsToSync.add(tx.lent_parent_tx_id);
@@ -1292,14 +1423,6 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
             await revertTxBalance(child);
           }
         }
-      }
-
-      let pairedTx: typeof tx | null = null;
-      if (tx.transfer_pair_id) {
-        pairedTx = await db.getFirstAsync<typeof tx>(
-          'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id FROM transactions WHERE id = ?',
-          tx.transfer_pair_id
-        );
       }
 
       await revertTxBalance(tx);
@@ -1384,10 +1507,15 @@ export async function updateTransaction(
       lent_repaid_amount?: number;
       lent_status?: string;
       lent_parent_tx_id?: string;
-    }>('SELECT wallet_id, pocket_id, type, amount, is_lent, lent_repaid_amount, lent_status, lent_parent_tx_id FROM transactions WHERE id = ?', id);
+      deleted_wallet_name?: string;
+      deleted_pocket_name?: string;
+    }>('SELECT wallet_id, pocket_id, type, amount, is_lent, lent_repaid_amount, lent_status, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?', id);
 
     if (!oldTx) {
       throw new Error('Transaction not found');
+    }
+    if (oldTx.deleted_wallet_name || oldTx.deleted_pocket_name) {
+      throw new Error('This archived transaction belongs to a deleted account or pocket and cannot be modified.');
     }
 
     // 1. Revert previous wallet & pocket balance effect
@@ -1635,12 +1763,16 @@ export async function getLentRepayments(parentTxId: string): Promise<Transaction
     lentRepaidAmount: Number(r.lent_repaid_amount) || 0,
     lentStatus: (r.lent_status || 'settled') as LentStatus,
     lentParentTxId: r.lent_parent_tx_id || undefined,
+    deletedWalletName: r.deleted_wallet_name || undefined,
+    deletedPocketName: r.deleted_pocket_name || undefined,
   }));
 }
 
 export interface TransferFundsParams {
   fromWalletId: string;
   toWalletId: string;
+  fromPocketId?: string;
+  toPocketId?: string;
   amount: number;
   currency: CurrencyType;
   targetAmount?: number;
@@ -1649,12 +1781,12 @@ export interface TransferFundsParams {
   notes?: string;
 }
 
-// Atomically transfer funds between two accounts (supports multi-currency with FX conversion)
+// Atomically transfer funds between two accounts (supports multi-currency with FX conversion and optional pockets)
 export async function transferFunds(
   params: TransferFundsParams
 ): Promise<{ outTxId: string; inTxId: string }> {
   const db = await getDatabase();
-  const { fromWalletId, toWalletId, amount, notes } = params;
+  const { fromWalletId, toWalletId, fromPocketId, toPocketId, amount, notes } = params;
 
   if (!fromWalletId || !toWalletId) {
     throw new Error('Both source and destination accounts are required.');
@@ -1667,21 +1799,58 @@ export async function transferFunds(
   }
 
   const fromWallet = await db.getFirstAsync<any>(
-    'SELECT * FROM wallets WHERE id = ?',
+    'SELECT * FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
     fromWalletId
   );
   const toWallet = await db.getFirstAsync<any>(
-    'SELECT * FROM wallets WHERE id = ?',
+    'SELECT * FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
     toWalletId
   );
 
   if (!fromWallet) throw new Error('Source account not found.');
   if (!toWallet) throw new Error('Destination account not found.');
 
-  if (fromWallet.balance < amount) {
+  let sourcePocket: any = null;
+  if (fromPocketId) {
+    sourcePocket = await db.getFirstAsync<any>(
+      'SELECT * FROM pockets WHERE id = ? AND wallet_id = ?',
+      fromPocketId,
+      fromWalletId
+    );
+    if (!sourcePocket) throw new Error('Selected source pocket not found.');
+    if (sourcePocket.balance + 0.005 < amount) {
+      throw new Error(
+        `Insufficient balance in pocket "${sourcePocket.name}". Available: ${sourcePocket.balance}`
+      );
+    }
+  } else {
+    const allocatedRow = await db.getFirstAsync<{ total: number }>(
+      'SELECT COALESCE(SUM(balance), 0) as total FROM pockets WHERE wallet_id = ?',
+      fromWalletId
+    );
+    const allocated = allocatedRow ? Number(allocatedRow.total) || 0 : 0;
+    const unallocated = Math.max(fromWallet.balance - allocated, 0);
+    if (allocated > 0 && unallocated + 0.005 < amount) {
+      throw new Error(
+        `Insufficient unallocated balance in ${fromWallet.name}. Available unallocated: ${unallocated}`
+      );
+    }
+  }
+
+  if (fromWallet.balance + 0.005 < amount) {
     throw new Error(
       `Insufficient balance in ${fromWallet.name}. Available: ${fromWallet.balance}`
     );
+  }
+
+  let targetPocket: any = null;
+  if (toPocketId) {
+    targetPocket = await db.getFirstAsync<any>(
+      'SELECT * FROM pockets WHERE id = ? AND wallet_id = ?',
+      toPocketId,
+      toWalletId
+    );
+    if (!targetPocket) throw new Error('Selected destination pocket not found.');
   }
 
   const isCrossCurrency = fromWallet.currency !== toWallet.currency;
@@ -1713,18 +1882,33 @@ export async function transferFunds(
   const txTimestamp = params.timestamp || new Date().toISOString();
 
   await db.withTransactionAsync(async () => {
-    // Debit source wallet in source currency
+    // Debit source wallet (and optional source pocket) in source currency
     await db.runAsync(
       'UPDATE wallets SET balance = balance - ? WHERE id = ?',
       amount,
       fromWalletId
     );
-    // Credit target wallet in target currency
+    if (sourcePocket) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
+        amount,
+        sourcePocket.id
+      );
+    }
+
+    // Credit target wallet (and optional target pocket) in target currency
     await db.runAsync(
       'UPDATE wallets SET balance = balance + ? WHERE id = ?',
       finalTargetAmount,
       toWalletId
     );
+    if (targetPocket) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
+        finalTargetAmount,
+        targetPocket.id
+      );
+    }
 
     const cleanUserNote = notes ? notes.trim() : '';
     const transferTitle = `${fromWallet.name} to ${toWallet.name}`;
@@ -1733,9 +1917,10 @@ export async function transferFunds(
     await db.runAsync(
       `INSERT INTO transactions
        (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate)
-       VALUES (?, ?, '', ?, 'Transfer', 'expense', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?, ?)`,
+       VALUES (?, ?, ?, ?, 'Transfer', 'expense', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?, ?)`,
       outTxId,
       fromWalletId,
+      sourcePocket ? sourcePocket.id : '',
       transferTitle,
       amount,
       fromWallet.currency,
@@ -1749,9 +1934,10 @@ export async function transferFunds(
     await db.runAsync(
       `INSERT INTO transactions
        (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate)
-       VALUES (?, ?, '', ?, 'Transfer', 'income', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?, ?)`,
+       VALUES (?, ?, ?, ?, 'Transfer', 'income', ?, ?, 0, 0, ?, 'Transfer', ?, '', ?, ?)`,
       inTxId,
       toWalletId,
+      targetPocket ? targetPocket.id : '',
       transferTitle,
       finalTargetAmount,
       toWallet.currency,
@@ -1763,6 +1949,232 @@ export async function transferFunds(
   });
 
   return { outTxId, inTxId };
+}
+
+export interface UpdateTransferFundsParams {
+  txId: string;
+  fromWalletId: string;
+  toWalletId: string;
+  fromPocketId?: string;
+  toPocketId?: string;
+  amount: number;
+  targetAmount?: number;
+  exchangeRate?: number;
+  notes?: string;
+}
+
+export async function updateTransferFunds(params: UpdateTransferFundsParams): Promise<void> {
+  const db = await getDatabase();
+  const { txId, fromWalletId, toWalletId, fromPocketId, toPocketId, amount, notes } = params;
+
+  if (!fromWalletId || !toWalletId) {
+    throw new Error('Both source and destination accounts are required.');
+  }
+  if (fromWalletId === toWalletId) {
+    throw new Error('Source and destination accounts must be different.');
+  }
+  if (!amount || isNaN(amount) || amount <= 0) {
+    throw new Error('Transfer amount must be greater than zero.');
+  }
+
+  await db.withTransactionAsync(async () => {
+    const clickedRow = await db.getFirstAsync<any>(
+      'SELECT * FROM transactions WHERE id = ?',
+      txId
+    );
+    if (!clickedRow) throw new Error('Transfer transaction not found.');
+    if (clickedRow.deleted_wallet_name || clickedRow.deleted_pocket_name) {
+      throw new Error('Archived transfer records cannot be modified.');
+    }
+
+    const pairedRow = clickedRow.transfer_pair_id
+      ? await db.getFirstAsync<any>(
+          'SELECT * FROM transactions WHERE id = ?',
+          clickedRow.transfer_pair_id
+        )
+      : null;
+
+    if (!pairedRow) {
+      throw new Error('Paired transfer record not found.');
+    }
+    if (pairedRow.deleted_wallet_name || pairedRow.deleted_pocket_name) {
+      throw new Error('This transfer involves a deleted account or pocket and cannot be modified.');
+    }
+
+    const oldOutTx = clickedRow.type === 'expense' ? clickedRow : pairedRow;
+    const oldInTx = clickedRow.type === 'income' ? clickedRow : pairedRow;
+
+    // 1. Revert previous transfer balances on old source and old destination
+    await db.runAsync(
+      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
+      oldOutTx.amount,
+      oldOutTx.wallet_id
+    );
+    if (oldOutTx.pocket_id) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
+        oldOutTx.amount,
+        oldOutTx.pocket_id
+      );
+    }
+
+    await db.runAsync(
+      'UPDATE wallets SET balance = balance - ? WHERE id = ?',
+      oldInTx.amount,
+      oldInTx.wallet_id
+    );
+    if (oldInTx.pocket_id) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
+        oldInTx.amount,
+        oldInTx.pocket_id
+      );
+    }
+
+    // 2. Validate new source and destination against the reverted state
+    const fromWallet = await db.getFirstAsync<any>(
+      'SELECT * FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
+      fromWalletId
+    );
+    const toWallet = await db.getFirstAsync<any>(
+      'SELECT * FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
+      toWalletId
+    );
+    if (!fromWallet) throw new Error('Source account not found.');
+    if (!toWallet) throw new Error('Destination account not found.');
+
+    let sourcePocket: any = null;
+    if (fromPocketId) {
+      sourcePocket = await db.getFirstAsync<any>(
+        'SELECT * FROM pockets WHERE id = ? AND wallet_id = ?',
+        fromPocketId,
+        fromWalletId
+      );
+      if (!sourcePocket) throw new Error('Selected source pocket not found.');
+      if (sourcePocket.balance + 0.005 < amount) {
+        throw new Error(
+          `Insufficient balance in pocket "${sourcePocket.name}". Available: ${sourcePocket.balance}`
+        );
+      }
+    } else {
+      const allocatedRow = await db.getFirstAsync<{ total: number }>(
+        'SELECT COALESCE(SUM(balance), 0) as total FROM pockets WHERE wallet_id = ?',
+        fromWalletId
+      );
+      const allocated = allocatedRow ? Number(allocatedRow.total) || 0 : 0;
+      const unallocated = Math.max(fromWallet.balance - allocated, 0);
+      if (allocated > 0 && unallocated + 0.005 < amount) {
+        throw new Error(
+          `Insufficient unallocated balance in ${fromWallet.name}. Available unallocated: ${unallocated}`
+        );
+      }
+    }
+
+    if (fromWallet.balance + 0.005 < amount) {
+      throw new Error(
+        `Insufficient balance in ${fromWallet.name}. Available: ${fromWallet.balance}`
+      );
+    }
+
+    let targetPocket: any = null;
+    if (toPocketId) {
+      targetPocket = await db.getFirstAsync<any>(
+        'SELECT * FROM pockets WHERE id = ? AND wallet_id = ?',
+        toPocketId,
+        toWalletId
+      );
+      if (!targetPocket) throw new Error('Selected destination pocket not found.');
+    }
+
+    const isCrossCurrency = fromWallet.currency !== toWallet.currency;
+    let finalTargetAmount = amount;
+    let appliedExchangeRate = 0;
+
+    if (isCrossCurrency) {
+      const rate = params.exchangeRate && params.exchangeRate > 0 ? params.exchangeRate : 16000;
+      appliedExchangeRate = rate;
+      if (params.targetAmount && params.targetAmount > 0) {
+        finalTargetAmount = params.targetAmount;
+      } else {
+        if (fromWallet.currency === 'USD' && toWallet.currency === 'IDR') {
+          finalTargetAmount = Math.round(amount * rate);
+        } else if (fromWallet.currency === 'IDR' && toWallet.currency === 'USD') {
+          finalTargetAmount = Math.round((amount / rate) * 100) / 100;
+        }
+      }
+    }
+
+    // 3. Apply new transfer balances
+    await db.runAsync(
+      'UPDATE wallets SET balance = balance - ? WHERE id = ?',
+      amount,
+      fromWalletId
+    );
+    if (sourcePocket) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
+        amount,
+        sourcePocket.id
+      );
+    }
+
+    await db.runAsync(
+      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
+      finalTargetAmount,
+      toWalletId
+    );
+    if (targetPocket) {
+      await db.runAsync(
+        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
+        finalTargetAmount,
+        targetPocket.id
+      );
+    }
+
+    const cleanUserNote = notes ? notes.trim() : '';
+    const transferTitle = `${fromWallet.name} to ${toWallet.name}`;
+
+    // 4. Update both transaction legs
+    await db.runAsync(
+      `UPDATE transactions SET
+         wallet_id = ?,
+         pocket_id = ?,
+         merchant_name = ?,
+         amount = ?,
+         currency = ?,
+         notes = ?,
+         exchange_rate = ?
+       WHERE id = ?`,
+      fromWalletId,
+      sourcePocket ? sourcePocket.id : '',
+      transferTitle,
+      amount,
+      fromWallet.currency,
+      cleanUserNote,
+      appliedExchangeRate,
+      oldOutTx.id
+    );
+
+    await db.runAsync(
+      `UPDATE transactions SET
+         wallet_id = ?,
+         pocket_id = ?,
+         merchant_name = ?,
+         amount = ?,
+         currency = ?,
+         notes = ?,
+         exchange_rate = ?
+       WHERE id = ?`,
+      toWalletId,
+      targetPocket ? targetPocket.id : '',
+      transferTitle,
+      finalTargetAmount,
+      toWallet.currency,
+      cleanUserNote,
+      appliedExchangeRate,
+      oldInTx.id
+    );
+  });
 }
 
 // App Settings Management
@@ -1959,8 +2371,16 @@ export async function exportTransactionsCSV(): Promise<string> {
     escapeCSV(tx.id),
     escapeCSV(tx.timestamp),
     escapeCSV(tx.type),
-    escapeCSV(walletMap.get(tx.walletId) || 'Main Account'),
-    escapeCSV(tx.pocketId ? (pocketMap.get(tx.pocketId) || '') : ''),
+    escapeCSV(
+      tx.deletedWalletName
+        ? `${tx.deletedWalletName} (Deleted Acc)`
+        : (walletMap.get(tx.walletId) || 'Main Account')
+    ),
+    escapeCSV(
+      tx.deletedPocketName
+        ? `${tx.deletedPocketName} (Deleted Pocket)`
+        : (tx.pocketId ? (pocketMap.get(tx.pocketId) || '') : '')
+    ),
     escapeCSV(tx.merchantName),
     escapeCSV(tx.category),
     escapeCSV(tx.currency),
@@ -2024,9 +2444,18 @@ export async function importAllData(
 
   const transactions = Array.isArray(data.transactions) ? data.transactions : [];
   const txIds = new Set<string>();
+  const deletedWalletStubs = new Map<string, { id: string; name: string; currency: string }>();
   for (const tx of transactions) {
-    if (!tx || !tx.id || !walletIds.has(tx.walletId)) {
+    const delWalletName = tx?.deletedWalletName || tx?.deleted_wallet_name || '';
+    if (!tx || !tx.id || (!walletIds.has(tx.walletId) && !delWalletName)) {
       throw new Error('The backup contains a transaction linked to a missing account.');
+    }
+    if (!walletIds.has(tx.walletId) && delWalletName && !deletedWalletStubs.has(tx.walletId)) {
+      deletedWalletStubs.set(tx.walletId, {
+        id: tx.walletId,
+        name: delWalletName,
+        currency: tx.currency || 'IDR',
+      });
     }
     if (txIds.has(tx.id)) {
       throw new Error('The backup contains duplicate transaction ids.');
@@ -2075,8 +2504,8 @@ export async function importAllData(
       // Restore wallets (keep the user's custom ordering)
       for (const w of data.wallets) {
         await db.runAsync(
-          `INSERT INTO wallets (id, name, type, balance, currency, color, account_number, sort_order)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO wallets (id, name, type, balance, currency, color, account_number, sort_order, is_deleted)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)`,
           w.id,
           w.name,
           w.type || 'bank',
@@ -2085,6 +2514,17 @@ export async function importAllData(
           w.color || '#CC785C',
           w.accountNumber || '',
           Number.isFinite(Number(w.sortOrder)) ? Number(w.sortOrder) : 0
+        );
+      }
+
+      // Restore soft-deleted wallet stubs for archived transactions so FK constraints are satisfied
+      for (const stub of deletedWalletStubs.values()) {
+        await db.runAsync(
+          `INSERT OR IGNORE INTO wallets (id, name, type, balance, currency, color, account_number, sort_order, is_deleted)
+           VALUES (?, ?, 'bank', 0, ?, '#CC785C', '', 999, 1)`,
+          stub.id,
+          stub.name,
+          stub.currency
         );
       }
 
@@ -2130,10 +2570,11 @@ export async function importAllData(
       // Restore transactions
       for (const tx of transactions) {
         const pairId = tx.transferPairId || tx.transfer_pair_id || null;
+        const parentLentId = tx.lentParentTxId || tx.lent_parent_tx_id || null;
         await db.runAsync(
           `INSERT INTO transactions 
-           (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, wallet_id, pocket_id, merchant_name, category, type, amount, currency, tax_amount, discount_amount, timestamp, payment_method, notes, image_uri, transfer_pair_id, exchange_rate, is_lent, lent_to, lent_repaid_amount, lent_status, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           tx.id,
           tx.walletId,
           tx.pocketId || '',
@@ -2149,7 +2590,14 @@ export async function importAllData(
           tx.notes || '',
           tx.imageUri || '',
           pairId && txIds.has(pairId) ? pairId : null,
-          Number(tx.exchangeRate || tx.exchange_rate) || 0
+          Number(tx.exchangeRate || tx.exchange_rate) || 0,
+          tx.isLent || tx.is_lent ? 1 : 0,
+          tx.lentTo || tx.lent_to || '',
+          Number(tx.lentRepaidAmount || tx.lent_repaid_amount) || 0,
+          tx.lentStatus || tx.lent_status || (tx.isLent || tx.is_lent ? 'unsettled' : 'settled'),
+          parentLentId && txIds.has(parentLentId) ? parentLentId : null,
+          tx.deletedWalletName || tx.deleted_wallet_name || '',
+          tx.deletedPocketName || tx.deleted_pocket_name || ''
         );
       }
 

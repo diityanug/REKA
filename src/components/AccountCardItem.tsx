@@ -26,6 +26,8 @@ export const AccountCardItem = React.memo<AccountCardItemProps>(({
   onPress,
   variant = 'full',
 }) => {
+  const displayName = w.name?.trim() || (w.type ? `${w.type} Account` : 'Account');
+
   if (variant === 'horizontal') {
     return (
       <TouchableOpacity
@@ -42,7 +44,7 @@ export const AccountCardItem = React.memo<AccountCardItemProps>(({
 
         <View style={styles.nameBlock}>
           <Text style={styles.cardName} numberOfLines={1}>
-            {w.name}
+            {displayName}
           </Text>
           <Text style={styles.cardNumber} numberOfLines={1}>
             {w.accountNumber || 'Local Vault'}
@@ -77,7 +79,7 @@ export const AccountCardItem = React.memo<AccountCardItemProps>(({
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.fullTitle} numberOfLines={1} ellipsizeMode="tail">
-              {w.name}
+              {displayName}
             </Text>
             <Text style={styles.fullMeta} numberOfLines={1}>
               {w.currency} • {w.type.toUpperCase()}

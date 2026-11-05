@@ -186,7 +186,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       recommendations = [
         `Cash burn exceeds income. Trim discretionary spending in ${topExpenseCategory || 'high-expense categories'}.`,
         runwayMonths !== null && runwayMonths < 3
-          ? `Emergency buffer stands at ${runwayMonths.toFixed(1)} months, below the recommended 3–6 month safety baseline.`
+          ? `Emergency buffer stands at ${runwayMonths.toFixed(1)} months, below the recommended 3â€“6 month safety baseline.`
           : 'Preserve existing liquid balances until positive monthly cash flow is restored.',
       ];
     } else if (savingsRate >= 0 && savingsRate < 10) {
@@ -206,7 +206,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       statusBgColor = '#EBF7F4';
       diagnosisSummary = `Solid positive surplus of +${formatCurrency(net, activeCurrency, privacyMode)} (${savingsRate.toFixed(1)}% savings rate). Spending is contained at ${burnRate.toFixed(0)}% of income.`;
       recommendations = [
-        'Good financial control. Aim to increase savings by 5–10% to reach the recommended 20% 50/30/20 target.',
+        'Good financial control. Aim to increase savings by 5â€“10% to reach the recommended 20% 50/30/20 target.',
         runwayMonths !== null && runwayMonths >= 3
           ? `Adequate emergency runway (${runwayMonths.toFixed(1)} months). Continue building toward 6 months.`
           : 'Direct current monthly surplus into an emergency pocket.',
@@ -493,7 +493,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           </View>
           <Text style={styles.periodSubtitleText}>
             {selectedMonth === 'all'
-              ? 'Showing all-time flow • Tap to change'
+              ? 'Showing all-time flow â€¢ Tap to change'
               : 'Tap to pick month'}
           </Text>
         </TouchableOpacity>
@@ -621,86 +621,38 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           )}
         </View>
 
-        {/* Month-over-Month Journey Progress Badges */}
+        {/* Month-over-Month comparison: two equal columns */}
         {momStats && (momStats.expenseDeltaPct !== null || momStats.incomeDeltaPct !== null) && (
           <View style={styles.momContainer}>
-            <Text style={styles.momTitle}>Month-over-Month Progress</Text>
-            <View style={styles.momChipsRow}>
-              {momStats.expenseDeltaPct !== null && (
-                <View
-                  style={[
-                    styles.momChip,
-                    {
-                      backgroundColor:
-                        momStats.expenseDeltaPct < 0
-                          ? '#EAF8ED'
-                          : momStats.expenseDeltaPct === 0
-                          ? Palette.surfaceSoft
-                          : '#FFFBEB',
-                    },
-                  ]}
-                >
-                  {momStats.expenseDeltaPct < 0 ? (
-                    <TrendingDown size={13} color={Palette.success} style={{ marginRight: 4 }} />
-                  ) : momStats.expenseDeltaPct > 0 ? (
-                    <TrendingUp size={13} color="#F59E0B" style={{ marginRight: 4 }} />
-                  ) : null}
-                  <Text
-                    style={[
-                      styles.momChipText,
-                      {
-                        color:
-                          momStats.expenseDeltaPct < 0
-                            ? Palette.success
-                            : momStats.expenseDeltaPct === 0
-                            ? Palette.muted
-                            : '#B45309',
-                      },
-                    ]}
-                  >
-                    Spending {momStats.expenseDeltaPct > 0 ? '+' : ''}
-                    {momStats.expenseDeltaPct}% vs prev mo
-                  </Text>
-                </View>
-              )}
-
-              {momStats.incomeDeltaPct !== null && (
-                <View
-                  style={[
-                    styles.momChip,
-                    {
-                      backgroundColor:
-                        momStats.incomeDeltaPct > 0
-                          ? '#EAF8ED'
-                          : momStats.incomeDeltaPct === 0
-                          ? Palette.surfaceSoft
-                          : '#FDF0ED',
-                    },
-                  ]}
-                >
-                  {momStats.incomeDeltaPct > 0 ? (
-                    <TrendingUp size={13} color={Palette.success} style={{ marginRight: 4 }} />
-                  ) : momStats.incomeDeltaPct < 0 ? (
-                    <TrendingDown size={13} color={Palette.error} style={{ marginRight: 4 }} />
-                  ) : null}
-                  <Text
-                    style={[
-                      styles.momChipText,
-                      {
-                        color:
-                          momStats.incomeDeltaPct > 0
-                            ? Palette.success
-                            : momStats.incomeDeltaPct === 0
-                            ? Palette.muted
-                            : Palette.error,
-                      },
-                    ]}
-                  >
-                    Income {momStats.incomeDeltaPct > 0 ? '+' : ''}
-                    {momStats.incomeDeltaPct}% vs prev mo
-                  </Text>
-                </View>
-              )}
+            <Text style={styles.momTitle}>VS PREVIOUS MONTH</Text>
+            <View style={styles.momGrid}>
+              {[
+                { key: 'income', label: 'Income', pct: momStats.incomeDeltaPct, prev: momStats.prevIncome, goodWhenUp: true },
+                { key: 'expense', label: 'Spending', pct: momStats.expenseDeltaPct, prev: momStats.prevExpense, goodWhenUp: false },
+              ].map((item, idx) => {
+                const pct = item.pct;
+                const isGood = pct !== null && pct !== 0 && (pct > 0) === item.goodWhenUp;
+                const isFlat = pct === null || pct === 0;
+                const tone = isFlat ? Palette.muted : isGood ? Palette.success : Palette.error;
+                const Icon = pct !== null && pct < 0 ? TrendingDown : TrendingUp;
+                return (
+                  <React.Fragment key={item.key}>
+                    {idx > 0 && <View style={styles.momDivider} />}
+                    <View style={styles.momCell}>
+                      <Text style={styles.momCellLabel}>{item.label}</Text>
+                      <View style={styles.momValueRow}>
+                        {!isFlat && <Icon size={14} color={tone} style={{ marginRight: 4 }} />}
+                        <Text style={[styles.momValue, { color: tone }]}>
+                          {pct === null ? '—' : `${pct > 0 ? '+' : ''}${pct}%`}
+                        </Text>
+                      </View>
+                      <Text style={styles.momPrev} numberOfLines={1}>
+                        Prev {formatCurrency(item.prev, activeCurrency, privacyMode)}
+                      </Text>
+                    </View>
+                  </React.Fragment>
+                );
+              })}
             </View>
           </View>
         )}
@@ -842,11 +794,11 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             adjustsFontSizeToFit
           >
             {privacyMode
-              ? '••••'
+              ? 'â€¢â€¢â€¢â€¢'
               : `${financialHealth.savingsRate >= 0 ? '+' : ''}${financialHealth.savingsRate.toFixed(1)}%`}
           </Text>
           <Text style={styles.pillarBenchmark}>
-            {financialHealth.savingsRate >= 20 ? 'Target: ≥ 20% (Passed)' : 'Target: ≥ 20% standard'}
+            {financialHealth.savingsRate >= 20 ? 'Target: â‰¥ 20% (Passed)' : 'Target: â‰¥ 20% standard'}
           </Text>
         </View>
 
@@ -874,7 +826,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             {financialHealth.burnRate.toFixed(0)}%
           </Text>
           <Text style={styles.pillarBenchmark}>
-            {financialHealth.burnRate <= 80 ? 'Target: ≤ 80% (Within)' : 'Target: ≤ 80% budget'}
+            {financialHealth.burnRate <= 80 ? 'Target: â‰¤ 80% (Within)' : 'Target: â‰¤ 80% budget'}
           </Text>
         </View>
 
@@ -898,7 +850,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             adjustsFontSizeToFit
           >
             {privacyMode
-              ? '••••'
+              ? 'â€¢â€¢â€¢â€¢'
               : financialHealth.runwayMonths === null
               ? 'N/A'
               : financialHealth.runwayMonths > 12
@@ -907,8 +859,8 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           </Text>
           <Text style={styles.pillarBenchmark}>
             {financialHealth.runwayMonths !== null && financialHealth.runwayMonths >= 3
-              ? 'Standard: 3–6 Mo (Safe)'
-              : 'Standard: 3–6 Mo buffer'}
+              ? 'Standard: 3â€“6 Mo (Safe)'
+              : 'Standard: 3â€“6 Mo buffer'}
           </Text>
         </View>
 
@@ -964,7 +916,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
               <View style={[styles.budgetStatusPill, { backgroundColor: budgetBadgeBg }]}>
                 <View style={[styles.budgetStatusDot, { backgroundColor: budgetColor }]} />
                 <Text style={[styles.budgetStatusPillText, { color: budgetColor }]}>
-                  {budgetPercentage.toFixed(0)}% • {budgetStatusLabel}
+                  {budgetPercentage.toFixed(0)}% â€¢ {budgetStatusLabel}
                 </Text>
               </View>
             </View>
@@ -1087,7 +1039,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       {/* Budget is monthly; explain the mismatch when the viewed period is not that month */}
       {selectedMonth !== budgetMonthKey ? (
         <Text style={styles.budgetMonthNote}>
-          Budget is set per month — showing {formatMonthYear(budgetMonthKey)}
+          Budget is set per month â€” showing {formatMonthYear(budgetMonthKey)}
         </Text>
       ) : null}
 
@@ -1376,27 +1328,48 @@ const styles = StyleSheet.create({
   },
   momTitle: {
     ...Typography.caption,
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.6,
+    color: Palette.muted,
+    marginBottom: 8,
+  },
+  momGrid: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+  momDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: Palette.hairline,
+  },
+  momCell: {
+    flex: 1,
+    paddingHorizontal: 12,
+  },
+  momCellLabel: {
+    ...Typography.caption,
     fontSize: 11,
     fontWeight: '600',
     color: Palette.muted,
-    marginBottom: 6,
   },
-  momChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  momChip: {
+  momValueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    marginTop: 2,
   },
-  momChipText: {
-    ...Typography.caption,
-    fontSize: 11,
+  momValue: {
+    ...Typography.body,
+    fontSize: 17,
     fontWeight: '700',
+  },
+  momPrev: {
+    ...Typography.caption,
+    fontSize: 10,
+    color: Palette.muted,
+    marginTop: 2,
   },
   currencyBadge: {
     paddingHorizontal: 10,

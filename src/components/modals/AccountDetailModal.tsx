@@ -172,12 +172,19 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   if (!wallet) return null;
 
+  const walletDisplayName =
+    wallet.name?.trim() ||
+    (wallet.type ? `${wallet.type} Account` : 'Account');
+
   const allocatedSum = currentPockets.reduce((sum, p) => sum + p.balance, 0);
   const unallocatedBal = Math.max(wallet.balance - allocatedSum, 0);
 
+  const canSaveAccount = !!editName.trim() && !!editType.trim();
+  const canSavePocket = !!pocketEditName.trim() && !!pocketEditIcon.trim();
+
   const handleSaveRename = async () => {
     const trimmed = editName.trim();
-    if (!trimmed) {
+    if (!trimmed || !canSaveAccount) {
       showAlert('Invalid Name', 'Account name cannot be empty.', undefined, 'warning');
       return;
     }
@@ -187,7 +194,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
   const handleSavePocketRename = async (pocketId: string) => {
     const trimmed = pocketEditName.trim();
-    if (!trimmed) {
+    if (!trimmed || !canSavePocket) {
       showAlert('Invalid Name', 'Pocket name cannot be empty.', undefined, 'warning');
       return;
     }
@@ -205,7 +212,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       maxHeight="94%"
     >
       <ModalHeader
-        title={wallet.name}
+        title={walletDisplayName}
         subtitle={`${wallet.currency} • ${wallet.type.toUpperCase()}${wallet.accountNumber ? ` • ${wallet.accountNumber}` : ''}`}
         onClose={onClose}
       />
@@ -242,8 +249,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     <Text style={[styles.splitValue, { color: Palette.accentTeal }]}>
                       {formatCurrency(allocatedSum, wallet.currency, privacyMode)}
                     </Text>
-                    <Text style={styles.splitSub}>
-                      {currentPockets.length} Pocket{currentPockets.length === 1 ? '' : 's'}
+                    <Text style={styles.splitSub} numberOfLines={1} textBreakStrategy="simple">
+                      {`${currentPockets.length}\u00A0Pocket${currentPockets.length === 1 ? '' : 's'}`}
                     </Text>
                   </View>
                 </View>
@@ -320,7 +327,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     <Text style={styles.editCardTitle}>Edit Account</Text>
                   </View>
 
-                  <Text style={styles.editFieldLabel}>Account Name</Text>
+                  <Text style={styles.editFieldLabel}>Account Name <Text style={styles.requiredStar}>*</Text></Text>
                   <TextInput
                     style={styles.editInput}
                     value={editName}
@@ -342,7 +349,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     maxLength={30}
                   />
 
-                  <Text style={styles.editFieldLabel}>Account Category</Text>
+                  <Text style={styles.editFieldLabel}>Account Category <Text style={styles.requiredStar}>*</Text></Text>
                   <View style={styles.typeGrid2Col}>
                     {(
                       [
@@ -406,9 +413,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       <Text style={styles.cancelEditBtnText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.saveEditBtn}
+                      style={[styles.saveEditBtn, !canSaveAccount && { opacity: 0.5 }]}
                       onPress={handleSaveRename}
+                      disabled={!canSaveAccount}
                       activeOpacity={0.8}
+                      accessibilityState={{ disabled: !canSaveAccount }}
                     >
                       <Check size={14} color={Palette.white} />
                       <Text style={styles.saveEditBtnText}>Save Changes</Text>
@@ -419,8 +428,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
               {/* Sub-Accounts / Pockets Header & Action */}
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>
-                  Pockets ({currentPockets.length})
+                <Text style={styles.sectionTitle} numberOfLines={1} textBreakStrategy="simple">
+                  {`Pockets (${currentPockets.length})`}
                 </Text>
               </View>
 
@@ -430,8 +439,13 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 activeOpacity={0.85}
               >
                 <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                <Text style={styles.addPocketBtnText}>
-                  Add Pocket in {wallet.name}
+                <Text
+                  style={styles.addPocketBtnText}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                  textBreakStrategy="simple"
+                >
+                  {`Add\u00A0Pocket\u00A0in\u00A0${walletDisplayName.replace(/\s+/g, '\u00A0')}\u00A0`}
                 </Text>
               </TouchableOpacity>
 
@@ -440,8 +454,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <View style={styles.emptyCard}>
                   <Layers size={28} color={Palette.mutedSoft} />
                   <Text style={styles.emptyTitle}>No Pocket Yet</Text>
-                  <Text style={styles.emptyDesc}>
-                    Allocate funds from {wallet.name} for budgets etc.
+                  <Text style={styles.emptyDesc} textBreakStrategy="simple">
+                    {`Allocate funds from ${walletDisplayName} for budgets etc.`}
                   </Text>
                 </View>
               ) : (
@@ -498,7 +512,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
                       {isEditingThisPocket && (
                         <View style={styles.pocketEditPanel}>
-                          <Text style={styles.editFieldLabel}>Pocket Name</Text>
+                          <Text style={styles.editFieldLabel}>Pocket Name <Text style={styles.requiredStar}>*</Text></Text>
                           <TextInput
                             style={styles.editInput}
                             value={pocketEditName}
@@ -509,7 +523,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                             maxLength={30}
                           />
 
-                          <Text style={styles.editFieldLabel}>Pocket Icon</Text>
+                          <Text style={styles.editFieldLabel}>Pocket Icon <Text style={styles.requiredStar}>*</Text></Text>
                           <ScrollView
                             horizontal
                             showsHorizontalScrollIndicator={false}
@@ -618,9 +632,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                               <Text style={styles.cancelEditBtnText}>Cancel</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
-                              style={styles.saveEditBtn}
+                              style={[styles.saveEditBtn, !canSavePocket && { opacity: 0.5 }]}
                               onPress={() => handleSavePocketRename(p.id)}
+                              disabled={!canSavePocket}
                               activeOpacity={0.8}
+                              accessibilityState={{ disabled: !canSavePocket }}
                             >
                               <Check size={14} color={Palette.white} />
                               <Text style={styles.saveEditBtnText}>Save Pocket</Text>
@@ -705,8 +721,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
               {/* Account Activity / Transactions */}
               <View style={[styles.sectionHeader, { marginTop: 20 }]}>
-                <Text style={styles.sectionTitle}>
-                  Activity ({currentTransactions.length})
+                <Text style={styles.sectionTitle} numberOfLines={1} textBreakStrategy="simple">
+                  {`Activity (${currentTransactions.length})`}
                 </Text>
               </View>
 
@@ -714,8 +730,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <View style={styles.emptyCard}>
                   <CreditCard size={28} color={Palette.mutedSoft} />
                   <Text style={styles.emptyTitle}>No Transactions Yet</Text>
-                  <Text style={styles.emptyDesc}>
-                    Transactions linked to {wallet.name} will appear here.
+                  <Text style={styles.emptyDesc} textBreakStrategy="simple">
+                    {`Transactions linked to ${walletDisplayName} will appear here.`}
                   </Text>
                 </View>
               ) : (
@@ -745,7 +761,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       <AmountInputModal
         visible={showAdjustAmountModal}
         title="Adjust Account Balance"
-        subtitle={`Reconcile actual balance for ${wallet.name}`}
+        subtitle={`Reconcile actual balance for ${walletDisplayName}`}
         initialAmount={String(wallet.balance)}
         currency={wallet.currency}
         allowZero
@@ -754,7 +770,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           // Overwriting a balance is destructive: always confirm the new value
           showAlert(
             'Update Balance',
-            `Set "${wallet.name}" balance to ${formatCurrency(num, wallet.currency)}? This replaces the current balance.`,
+            `Set "${walletDisplayName}" balance to ${formatCurrency(num, wallet.currency)}? This replaces the current balance.`,
             [
               { text: 'Cancel', style: 'cancel' },
               {
@@ -793,7 +809,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
             showAlert(
               'Adjust Pocket Balance',
-              `Set "${targetPocket.name}" balance to ${formatCurrency(num, wallet.currency)}? (${deltaStr})\n\nTotal ${wallet.name} balance will automatically adjust by ${deltaStr} while keeping unallocated free balance intact.`,
+              `Set "${targetPocket.name}" balance to ${formatCurrency(num, wallet.currency)}? (${deltaStr})\n\nTotal ${walletDisplayName} balance will automatically adjust by ${deltaStr} while keeping unallocated free balance intact.`,
               [
                 { text: 'Cancel', style: 'cancel' },
                 {
@@ -897,14 +913,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: Palette.primary,
     paddingVertical: 12,
+    paddingHorizontal: 16,
     borderRadius: 14,
     marginBottom: 14,
   },
   addPocketBtnText: {
-    ...Typography.body,
     fontSize: 14,
     fontWeight: '600',
     color: Palette.white,
+    includeFontPadding: false,
+    flexShrink: 1,
   },
   emptyCard: {
     backgroundColor: Palette.surfaceSoft,
@@ -1130,6 +1148,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Palette.white,
+  },
+  requiredStar: {
+    color: Palette.primary,
+    fontWeight: '700',
   },
   editFieldLabel: {
     ...Typography.caption,

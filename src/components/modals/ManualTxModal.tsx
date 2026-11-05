@@ -159,8 +159,21 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
     onChangeTime(lastValidTimeRef.current);
   };
 
+  const canSubmit =
+    !saving &&
+    !!manMerchant.trim() &&
+    !!manCurrency &&
+    !isNaN(parsedAmount) &&
+    parsedAmount > 0 &&
+    !!manDate.trim() &&
+    !!selectedWalletId &&
+    !!selectedWallet &&
+    !!manCategory.trim() &&
+    !categoryMissing &&
+    !!manMethod.trim();
+
   const handleSubmit = async () => {
-    if (saving) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onSave();
@@ -489,7 +502,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                       onSelectWallet(w.id);
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`${w.name}, balance ${formatCurrency(
+                    accessibilityLabel={`${w.name?.trim() || 'Account'}, balance ${formatCurrency(
                       w.balance,
                       w.currency,
                       privacyMode
@@ -503,7 +516,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                       ]}
                       numberOfLines={1}
                     >
-                      {w.name}
+                      {w.name?.trim() || (w.type ? `${w.type} Account` : 'Account')}
                     </Text>
                     <Text
                       style={[
@@ -772,13 +785,13 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               ]}
             >
               <TouchableOpacity
-                style={[styles.confirmBtn, saving && styles.confirmBtnDisabled]}
+                style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
                 onPress={handleSubmit}
-                disabled={saving}
+                disabled={!canSubmit}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel={isEditing ? 'Save changes' : 'Save transaction'}
-                accessibilityState={{ disabled: saving, busy: saving }}
+                accessibilityState={{ disabled: !canSubmit, busy: saving }}
               >
                 {saving ? (
                   <>

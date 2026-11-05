@@ -243,9 +243,13 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const filledRows = rows.filter(
     (r) => r.label.trim().length > 0 || r.amountStr.trim().length > 0
   );
+  const hasValidRow = rows.some(
+    (r) => r.label.trim().length > 0 && parseAmount(r.amountStr, planCurrency) > 0
+  );
+  const canSave = !saving && !duplicating && !!title.trim() && !!planCurrency && hasValidRow;
 
   const handleSave = async () => {
-    if (saving) return;
+    if (!canSave) return;
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
       showAlert('Missing Title', 'Please enter a name for this income allocation (e.g. Primary Salary, Freelance).', undefined, 'warning');
@@ -439,9 +443,11 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
 
             {/* Column Headers */}
             <View style={styles.tableHeaderRow}>
-              <Text style={[styles.colHeader, { flex: 1.1 }]}>DESCRIPTION</Text>
+              <Text style={[styles.colHeader, { flex: 1.1 }]}>
+                DESCRIPTION <Text style={styles.requiredStar}>*</Text>
+              </Text>
               <Text style={[styles.colHeader, { flex: 1.1, textAlign: 'right', paddingRight: 60 }]}>
-                AMOUNT
+                AMOUNT <Text style={styles.requiredStar}>*</Text>
               </Text>
             </View>
 
@@ -536,12 +542,13 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
           {/* Sticky Action Footer */}
           <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             <TouchableOpacity
-              style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+              style={[styles.saveBtn, !canSave && { opacity: 0.5 }]}
               onPress={handleSave}
-              disabled={saving || duplicating}
+              disabled={!canSave}
               activeOpacity={0.85}
               accessibilityRole="button"
               accessibilityLabel="Save plan"
+              accessibilityState={{ disabled: !canSave, busy: saving }}
             >
               {saving ? (
                 <>

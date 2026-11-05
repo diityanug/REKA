@@ -15,7 +15,8 @@ import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
-import { Wallet, CurrencyType } from '../../types';
+import { Wallet, Pocket, CurrencyType } from '../../types';
+import { UpdateTransferFundsParams } from '../../services/database';
 import {
   formatCurrency,
   formatCurrencyInput,
@@ -33,9 +34,22 @@ const DEFAULT_EXCHANGE_RATE = 16000;
 const MIN_EXCHANGE_RATE = 1;
 const MAX_EXCHANGE_RATE = 1e9;
 
+export interface EditingTransferData {
+  txId: string;
+  fromWalletId: string;
+  toWalletId: string;
+  fromPocketId: string;
+  toPocketId: string;
+  amount: number;
+  targetAmount?: number;
+  exchangeRate?: number;
+  notes: string;
+}
+
 interface TransferModalProps {
   visible: boolean;
   wallets: Wallet[];
+  pockets?: Pocket[];
   activeCurrency: CurrencyType;
   privacyMode: boolean;
   /** Persisted USD -> IDR rate, seeds the exchange rate input */
@@ -48,27 +62,34 @@ interface TransferModalProps {
   onRefreshExchangeRate?: () => Promise<any>;
   /** Opens the create-account flow when a transfer needs another account */
   onOpenAddAccount?: () => void;
+  editingTransfer?: EditingTransferData | null;
   onExecuteTransfer: (
     fromWalletId: string,
     toWalletId: string,
     amount: number,
     notes: string,
     targetAmount?: number,
-    exchangeRate?: number
+    exchangeRate?: number,
+    fromPocketId?: string,
+    toPocketId?: string
   ) => Promise<void>;
+  onUpdateTransfer?: (params: UpdateTransferFundsParams) => Promise<void>;
   onClose: () => void;
 }
 
 export const TransferModal = React.memo<TransferModalProps>(({
   visible,
   wallets,
+  pockets = [],
   activeCurrency,
   privacyMode,
   initialExchangeRate,
   exchangeRateInfo,
   onRefreshExchangeRate,
   onOpenAddAccount,
+  editingTransfer,
   onExecuteTransfer,
+  onUpdateTransfer,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
@@ -76,6 +97,8 @@ export const TransferModal = React.memo<TransferModalProps>(({
 
   const [fromWalletId, setFromWalletId] = useState<string>('');
   const [toWalletId, setToWalletId] = useState<string>('');
+  const [fromPocketId, setFromPocketId] = useState<string>('');
+  const [toPocketId, setToPocketId] = useState<string>('');
   const [amountStr, setAmountStr] = useState<string>('');
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [exchangeRateStr, setExchangeRateStr] = useState<string>(() =>
@@ -131,9 +154,11 @@ export const TransferModal = React.memo<TransferModalProps>(({
     }
   };
 
-  // Freeze wallet balances while submitting or closing so chips and warnings never jump on save/close
+  // Freeze wallet and pocket balances while submitting or closing so chips and warnings never jump on save/close
   const eligibleWallets =
     useLastDefined(!submitting && visible ? wallets : null) ?? wallets;
+  const eligiblePockets =
+    useLastDefined(!submitting && visible ? pockets : null) ?? pockets;
   const [alertConfig, setAlertConfig] = useState<{
     visible: boolean;
     title: string;
@@ -169,41 +194,97 @@ export const TransferModal = React.memo<TransferModalProps>(({
     onClose();
   };
 
-  // Re-seed the rate and reset inputs only when the modal opens (never on close/save)
-  useSyncOnChange([visible], () => {
+  // Re-seed the rate and reset/populate inputs only when the modal opens
+  useSyncOnChange([visible, editingTransfer], () => {
     if (visible) {
-      setAmountStr('');
-      setNotes('');
       setQuickPercentHint('');
       setSubmitting(false);
       setAmountModalVisible(false);
-      const activeRate =
-        exchangeRateInfo?.rate && exchangeRateInfo.rate > 0
-          ? exchangeRateInfo.rate
-          : initialExchangeRate;
-      setExchangeRateStr(formatCurrencyInput(String(activeRate), 'IDR'));
+
+      if (editingTransfer) {
+        setFromWalletId(editingTransfer.fromWalletId);
+        setToWalletId(editingTransfer.toWalletId);
+        setFromPocketId(editingTransfer.fromPocketId || '');
+        setToPocketId(editingTransfer.toPocketId || '');
+        const fromW = eligibleWallets.find((w) => w.id === editingTransfer.fromWalletId);
+        const fromCurr = fromW ? fromW.currency : activeCurrency;
+        setAmountStr(formatCurrencyInput(String(editingTransfer.amount), fromCurr));
+        setNotes(editingTransfer.notes || '');
+        const rateToUse =
+          editingTransfer.exchangeRate && editingTransfer.exchangeRate > 0
+            ? editingTransfer.exchangeRate
+            : exchangeRateInfo?.rate && exchangeRateInfo.rate > 0
+              ? exchangeRateInfo.rate
+              : initialExchangeRate;
+        setExchangeRateStr(formatCurrencyInput(String(rateToUse), 'IDR'));
+      } else {
+        setFromPocketId('');
+        setToPocketId('');
+        setAmountStr('');
+        setNotes('');
+        const activeRate =
+          exchangeRateInfo?.rate && exchangeRateInfo.rate > 0
+            ? exchangeRateInfo.rate
+            : initialExchangeRate;
+        setExchangeRateStr(formatCurrencyInput(String(activeRate), 'IDR'));
+      }
     }
   });
 
-  // Initialize selected accounts whenever modal is visible
-  useSyncOnChange([visible, eligibleWallets], () => {
-    if (visible) {
+  // Initialize selected accounts whenever modal is visible in create mode
+  useSyncOnChange([visible, eligibleWallets, editingTransfer], () => {
+    if (visible && !editingTransfer) {
       if (eligibleWallets.length >= 2) {
         if (!fromWalletId || !eligibleWallets.some((w) => w.id === fromWalletId)) {
           setFromWalletId(eligibleWallets[0].id);
+          setFromPocketId('');
         }
         if (!toWalletId || !eligibleWallets.some((w) => w.id === toWalletId) || toWalletId === eligibleWallets[0].id) {
           setToWalletId(eligibleWallets[1].id);
+          setToPocketId('');
         }
       } else if (eligibleWallets.length === 1) {
         setFromWalletId(eligibleWallets[0].id);
+        setFromPocketId('');
         setToWalletId('');
+        setToPocketId('');
       }
     }
   });
 
   const selectedFromWallet = eligibleWallets.find((w) => w.id === fromWalletId);
   const selectedToWallet = eligibleWallets.find((w) => w.id === toWalletId);
+  const fromWalletPockets = eligiblePockets.filter((p) => p.walletId === fromWalletId);
+  const toWalletPockets = eligiblePockets.filter((p) => p.walletId === toWalletId);
+  const selectedFromPocket = fromWalletPockets.find((p) => p.id === fromPocketId);
+  const toAllocatedSum = toWalletPockets.reduce((sum, p) => sum + p.balance, 0);
+  const toUnallocatedDisplay = selectedToWallet
+    ? Math.max(0, selectedToWallet.balance - toAllocatedSum)
+    : 0;
+
+  const fromAllocatedSum = fromWalletPockets.reduce((sum, p) => sum + p.balance, 0);
+  const rawFromUnallocated = selectedFromWallet
+    ? selectedFromWallet.balance - fromAllocatedSum
+    : 0;
+  const fromUnallocatedDisplay = Math.max(0, rawFromUnallocated);
+
+  // When editing an existing transfer, add back the old amount if the same source is still selected
+  const isSameSourceAsEditing =
+    !!editingTransfer &&
+    editingTransfer.fromWalletId === fromWalletId &&
+    (editingTransfer.fromPocketId || '') === (fromPocketId || '');
+  const editingRefund = isSameSourceAsEditing ? editingTransfer!.amount : 0;
+
+  const effectiveSourceBalance = selectedFromPocket
+    ? Math.max(0, selectedFromPocket.balance + editingRefund)
+    : selectedFromWallet
+      ? Math.max(
+          0,
+          (fromWalletPockets.length > 0 ? rawFromUnallocated : selectedFromWallet.balance) +
+            editingRefund
+        )
+      : 0;
+
   const fromCurrency = selectedFromWallet ? selectedFromWallet.currency : activeCurrency;
   const toCurrency = selectedToWallet ? selectedToWallet.currency : activeCurrency;
   const isCrossCurrency = selectedFromWallet && selectedToWallet && selectedFromWallet.currency !== selectedToWallet.currency;
@@ -235,7 +316,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     targetAmount > 0 &&
     (targetAmount > numericAmount * 100 || numericAmount > targetAmount * 100);
 
-  const quickPercentUnavailable = !selectedFromWallet || selectedFromWallet.balance <= 0;
+  const quickPercentUnavailable = !selectedFromWallet || effectiveSourceBalance <= 0;
   const submitDisabled =
     submitting ||
     !fromWalletId ||
@@ -245,25 +326,34 @@ export const TransferModal = React.memo<TransferModalProps>(({
     (isCrossCurrency && rateInvalid);
 
   const handleQuickPercent = (pct: number) => {
-    if (!selectedFromWallet || selectedFromWallet.balance <= 0) {
+    if (!selectedFromWallet || effectiveSourceBalance <= 0) {
       AppHaptics.error();
-      setQuickPercentHint('No balance available — add funds to this account first.');
+      setQuickPercentHint(
+        selectedFromPocket
+          ? `No balance available in "${selectedFromPocket.name}".`
+          : fromWalletPockets.length > 0
+            ? 'No unallocated balance in Main Account — select a pocket or release funds.'
+            : 'No balance available — add funds to this account first.'
+      );
       return;
     }
     AppHaptics.selection();
     setQuickPercentHint('');
     const val = fromCurrency === 'IDR'
-      ? Math.floor(selectedFromWallet.balance * pct)
-      : Math.round(selectedFromWallet.balance * pct * 100) / 100;
+      ? Math.floor(effectiveSourceBalance * pct)
+      : Math.round(effectiveSourceBalance * pct * 100) / 100;
     setAmountStr(val > 0 ? formatCurrencyInput(val.toString(), fromCurrency) : '');
   };
 
   const handleSwap = () => {
     if (!fromWalletId || !toWalletId) return;
     AppHaptics.selection();
-    const temp = fromWalletId;
+    const tempWallet = fromWalletId;
+    const tempPocket = fromPocketId;
     setFromWalletId(toWalletId);
-    setToWalletId(temp);
+    setToWalletId(tempWallet);
+    setFromPocketId(toPocketId);
+    setToPocketId(tempPocket);
   };
 
   const handleSubmit = async () => {
@@ -294,27 +384,64 @@ export const TransferModal = React.memo<TransferModalProps>(({
       return;
     }
 
-    if (selectedFromWallet && selectedFromWallet.balance < numericAmount) {
-      showAlert(
-        'Insufficient Balance',
-        `The source account only has ${formatCurrency(selectedFromWallet.balance, fromCurrency, privacyMode)}.`,
-        undefined,
-        'warning'
-      );
-      return;
+    if (selectedFromPocket) {
+      if (effectiveSourceBalance + 0.005 < numericAmount) {
+        showAlert(
+          'Insufficient Pocket Balance',
+          `"${selectedFromPocket.name}" only has ${formatCurrency(effectiveSourceBalance, fromCurrency, privacyMode)} available.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+    } else if (selectedFromWallet) {
+      if (fromWalletPockets.length > 0 && effectiveSourceBalance + 0.005 < numericAmount) {
+        showAlert(
+          'Insufficient Main Account Balance',
+          `${selectedFromWallet.name} only has ${formatCurrency(effectiveSourceBalance, fromCurrency, privacyMode)} unallocated in Main Account. Select a source pocket or release funds first.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+      if (effectiveSourceBalance + 0.005 < numericAmount) {
+        showAlert(
+          'Insufficient Balance',
+          `The source account only has ${formatCurrency(effectiveSourceBalance, fromCurrency, privacyMode)}.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
     }
 
     try {
       setSubmitting(true);
       AppHaptics.heavy();
-      await onExecuteTransfer(
-        fromWalletId,
-        toWalletId,
-        numericAmount,
-        notes,
-        isCrossCurrency ? targetAmount : undefined,
-        isCrossCurrency ? appliedRate : undefined
-      );
+      if (editingTransfer && onUpdateTransfer) {
+        await onUpdateTransfer({
+          txId: editingTransfer.txId,
+          fromWalletId,
+          toWalletId,
+          amount: numericAmount,
+          notes,
+          targetAmount: isCrossCurrency ? targetAmount : undefined,
+          exchangeRate: isCrossCurrency ? appliedRate : undefined,
+          fromPocketId: fromPocketId || undefined,
+          toPocketId: toPocketId || undefined,
+        });
+      } else {
+        await onExecuteTransfer(
+          fromWalletId,
+          toWalletId,
+          numericAmount,
+          notes,
+          isCrossCurrency ? targetAmount : undefined,
+          isCrossCurrency ? appliedRate : undefined,
+          fromPocketId || undefined,
+          toPocketId || undefined
+        );
+      }
       onClose();
     } catch (err: any) {
       showAlert('Transfer Error', err.message || 'Failed to complete fund transfer.', undefined, 'error');
@@ -331,7 +458,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
       maxHeight="94%"
     >
       <ModalHeader
-        title="Transfer Funds"
+        title={editingTransfer ? 'Edit Transfer' : 'Transfer Funds'}
         subtitle={
           isCrossCurrency
             ? `Cross - Currency Transfer (${fromCurrency} → ${toCurrency})`
@@ -382,10 +509,16 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           ]}
                           onPress={() => {
                             AppHaptics.selection();
-                            setFromWalletId(w.id);
+                            if (fromWalletId !== w.id) {
+                              setFromWalletId(w.id);
+                              setFromPocketId('');
+                            }
                             if (toWalletId === w.id) {
                               const other = eligibleWallets.find((ow) => ow.id !== w.id);
-                              if (other) setToWalletId(other.id);
+                              if (other) {
+                                setToWalletId(other.id);
+                                setToPocketId('');
+                              }
                             }
                           }}
                           activeOpacity={0.8}
@@ -431,6 +564,88 @@ export const TransferModal = React.memo<TransferModalProps>(({
                       );
                     })}
                   </View>
+
+                  {/* Source Pocket Selector (shown when From Account has pockets) */}
+                  {fromWalletPockets.length > 0 && selectedFromWallet && (
+                    <View style={styles.pocketSubSection}>
+                      <Text style={styles.pocketSubLabel}>Source Balance / Pocket</Text>
+                      <View style={styles.pocketChipsRow}>
+                        <TouchableOpacity
+                          style={[
+                            styles.pocketChip,
+                            !fromPocketId && styles.pocketChipActiveFrom,
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            setFromPocketId('');
+                          }}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`From Main Account, unallocated balance ${formatCurrency(fromUnallocatedDisplay, selectedFromWallet.currency, privacyMode)}`}
+                          accessibilityState={{ selected: !fromPocketId }}
+                        >
+                          <Text
+                            style={[
+                              styles.pocketChipName,
+                              !fromPocketId && styles.pocketChipTextActive,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            Main Account
+                          </Text>
+                          <Text
+                            style={[
+                              styles.pocketChipBalance,
+                              !fromPocketId && styles.pocketChipTextActive,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {formatCurrency(fromUnallocatedDisplay, selectedFromWallet.currency, privacyMode)}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {fromWalletPockets.map((p) => {
+                          const isSelected = p.id === fromPocketId;
+                          return (
+                            <TouchableOpacity
+                              key={`from_pocket_${p.id}`}
+                              style={[
+                                styles.pocketChip,
+                                isSelected && styles.pocketChipActiveFrom,
+                              ]}
+                              onPress={() => {
+                                AppHaptics.selection();
+                                setFromPocketId(p.id);
+                              }}
+                              activeOpacity={0.8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`From pocket ${p.name}, balance ${formatCurrency(p.balance, selectedFromWallet.currency, privacyMode)}`}
+                              accessibilityState={{ selected: isSelected }}
+                            >
+                              <Text
+                                style={[
+                                  styles.pocketChipName,
+                                  isSelected && styles.pocketChipTextActive,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {p.name}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.pocketChipBalance,
+                                  isSelected && styles.pocketChipTextActive,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {formatCurrency(p.balance, selectedFromWallet.currency, privacyMode)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
                 </View>
 
                 {/* Transfer Direction Indicator & Swap Button */}
@@ -466,7 +681,10 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           disabled={isSource}
                           onPress={() => {
                             AppHaptics.selection();
-                            setToWalletId(w.id);
+                            if (toWalletId !== w.id) {
+                              setToWalletId(w.id);
+                              setToPocketId('');
+                            }
                           }}
                           activeOpacity={0.8}
                           accessibilityRole="button"
@@ -513,6 +731,88 @@ export const TransferModal = React.memo<TransferModalProps>(({
                       );
                     })}
                   </View>
+
+                  {/* Destination Pocket Selector (shown when To Account has pockets) */}
+                  {toWalletPockets.length > 0 && selectedToWallet && (
+                    <View style={styles.pocketSubSection}>
+                      <Text style={styles.pocketSubLabel}>Destination Balance / Pocket</Text>
+                      <View style={styles.pocketChipsRow}>
+                        <TouchableOpacity
+                          style={[
+                            styles.pocketChip,
+                            !toPocketId && styles.pocketChipActiveTo,
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            setToPocketId('');
+                          }}
+                          activeOpacity={0.8}
+                          accessibilityRole="button"
+                          accessibilityLabel={`To Main Account, unallocated balance ${formatCurrency(toUnallocatedDisplay, selectedToWallet.currency, privacyMode)}`}
+                          accessibilityState={{ selected: !toPocketId }}
+                        >
+                          <Text
+                            style={[
+                              styles.pocketChipName,
+                              !toPocketId && styles.pocketChipTextActive,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            Main Account
+                          </Text>
+                          <Text
+                            style={[
+                              styles.pocketChipBalance,
+                              !toPocketId && styles.pocketChipTextActive,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {formatCurrency(toUnallocatedDisplay, selectedToWallet.currency, privacyMode)}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {toWalletPockets.map((p) => {
+                          const isSelected = p.id === toPocketId;
+                          return (
+                            <TouchableOpacity
+                              key={`to_pocket_${p.id}`}
+                              style={[
+                                styles.pocketChip,
+                                isSelected && styles.pocketChipActiveTo,
+                              ]}
+                              onPress={() => {
+                                AppHaptics.selection();
+                                setToPocketId(p.id);
+                              }}
+                              activeOpacity={0.8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`To pocket ${p.name}, balance ${formatCurrency(p.balance, selectedToWallet.currency, privacyMode)}`}
+                              accessibilityState={{ selected: isSelected }}
+                            >
+                              <Text
+                                style={[
+                                  styles.pocketChipName,
+                                  isSelected && styles.pocketChipTextActive,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {p.name}
+                              </Text>
+                              <Text
+                                style={[
+                                  styles.pocketChipBalance,
+                                  isSelected && styles.pocketChipTextActive,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {formatCurrency(p.balance, selectedToWallet.currency, privacyMode)}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
                 </View>
 
                 {/* Cross-Currency FX Exchange Card */}
@@ -724,12 +1024,16 @@ export const TransferModal = React.memo<TransferModalProps>(({
                 disabled={submitDisabled}
                 activeOpacity={0.85}
                 accessibilityRole="button"
-                accessibilityLabel="Transfer funds"
+                accessibilityLabel={editingTransfer ? 'Save transfer changes' : 'Transfer funds'}
                 accessibilityState={{ disabled: submitDisabled, busy: submitting }}
               >
                 <ArrowLeftRight size={18} color={Palette.white} style={{ marginRight: 8 }} />
                 <Text style={styles.confirmBtnText}>
-                  {submitting ? 'Processing...' : 'Transfer Funds'}
+                  {submitting
+                    ? 'Processing...'
+                    : editingTransfer
+                      ? 'Save Changes'
+                      : 'Transfer Funds'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -738,7 +1042,11 @@ export const TransferModal = React.memo<TransferModalProps>(({
       <AmountInputModal
         visible={amountModalVisible}
         title="Transfer Amount"
-        subtitle={selectedFromWallet ? `From ${selectedFromWallet.name} (${fromCurrency})` : `Transfer Amount (${fromCurrency})`}
+        subtitle={
+          selectedFromWallet
+            ? `From ${selectedFromWallet.name}${selectedFromPocket ? ` • ${selectedFromPocket.name}` : ''} (${fromCurrency})`
+            : `Transfer Amount (${fromCurrency})`
+        }
         initialAmount={amountStr}
         currency={fromCurrency}
         onConfirm={(formatted) => {
@@ -796,6 +1104,57 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  pocketSubSection: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Palette.hairline,
+  },
+  pocketSubLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '600',
+    color: Palette.muted,
+    marginBottom: 6,
+  },
+  pocketChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pocketChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 11,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    minWidth: '30%',
+    flexGrow: 1,
+  },
+  pocketChipActiveFrom: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  pocketChipActiveTo: {
+    backgroundColor: Palette.accentTeal,
+    borderColor: Palette.accentTeal,
+  },
+  pocketChipName: {
+    ...Typography.body,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  pocketChipBalance: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  pocketChipTextActive: {
+    color: Palette.white,
   },
   chipTopRow: {
     flexDirection: 'row',

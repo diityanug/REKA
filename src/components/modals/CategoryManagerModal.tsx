@@ -56,8 +56,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   const filteredCategories = categories.filter((c) => c.type === activeType);
   const activeTint = activeType === 'expense' ? Palette.primary : Palette.accentTeal;
 
+  const canSubmit = !saving && !!newCatName.trim() && !!newCatIcon.trim();
+
   const submit = async () => {
-    if (saving) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onCreateCategory();
@@ -216,7 +218,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   </ScrollView>
 
                   <Text style={[styles.inputLabel, { marginTop: 10 }]}>
-                    Choose Icon
+                    Choose Icon <Text style={styles.requiredStar}>*</Text>
                   </Text>
                   <View style={styles.iconScrollBox}>
                     <ScrollView
@@ -264,11 +266,12 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       <Text style={styles.cancelText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.saveBtn, { backgroundColor: activeTint }, saving && { opacity: 0.7 }]}
+                      style={[styles.saveBtn, { backgroundColor: activeTint }, !canSubmit && { opacity: 0.5 }]}
                       onPress={submit}
-                      disabled={saving}
+                      disabled={!canSubmit}
                       accessibilityRole="button"
                       accessibilityLabel="Save category"
+                      accessibilityState={{ disabled: !canSubmit, busy: saving }}
                     >
                       {saving ? (
                         <>

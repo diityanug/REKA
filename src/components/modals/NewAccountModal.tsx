@@ -75,8 +75,10 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
   const [amountModalVisible, setAmountModalVisible] = useState(false);
   const [saving, setSaving] = useState<boolean>(false);
 
+  const canSubmit = !saving && !!name.trim() && !!String(type).trim() && !!currency;
+
   const submit = async () => {
-    if (saving || !name.trim()) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onCreate();
@@ -250,7 +252,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 adjustsFontSizeToFit
                 minimumFontScale={0.85}
               >
-                IDR (Indonesian Rupiah)
+                IDR
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -276,7 +278,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                 adjustsFontSizeToFit
                 minimumFontScale={0.85}
               >
-                USD (US Dollar)
+                USD
               </Text>
             </TouchableOpacity>
           </View>
@@ -342,12 +344,13 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
         ]}
       >
         <TouchableOpacity
-          style={[styles.confirmBtn, (!name.trim() || saving) && styles.confirmBtnDisabled]}
+          style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
           onPress={submit}
-          disabled={!name.trim() || saving}
+          disabled={!canSubmit}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Save account"
+          accessibilityState={{ disabled: !canSubmit, busy: saving }}
         >
           {saving ? (
             <>

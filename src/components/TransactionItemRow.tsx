@@ -20,7 +20,6 @@ interface TransactionItemRowProps {
 export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
   transaction: tx,
   categoryIcon,
-  pocketName,
   privacyMode,
   selectionMode = false,
   isSelected = false,
@@ -107,6 +106,21 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
     extraBadgeTextStyle = styles.subBarBadgeTealText;
   }
 
+  const isArchived = Boolean(
+    tx.deletedWalletName ||
+      tx.deletedPocketName ||
+      tx.pairedDeletedWalletName ||
+      tx.pairedDeletedPocketName
+  );
+  const deletedWalletLabel = tx.deletedWalletName
+    ? `${tx.deletedWalletName} (Deleted Acc)`
+    : tx.pairedDeletedWalletName
+      ? `${tx.pairedDeletedWalletName} (Deleted Acc)`
+      : '';
+  const metaText = [tx.category, deletedWalletLabel]
+    .filter(Boolean)
+    .join(' • ');
+
   return (
     <TouchableOpacity
       style={[
@@ -117,13 +131,13 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
       onLongPress={() => onLongPress?.(tx)}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`${tx.merchantName}, ${tx.category}${pocketName ? `, ${pocketName}` : ''}, ${
+      accessibilityLabel={`${tx.merchantName}, ${metaText}, ${
         privacyMode ? 'amount hidden' : formattedAmount
       }. Open details.`}
     >
       <View style={styles.txRow}>
         {/* Selection Checkbox */}
-        {selectionMode ? (
+        {selectionMode && !isArchived ? (
           <View
             style={[
               styles.checkboxCircle,
@@ -167,7 +181,7 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
           </Text>
           <View style={styles.metaRow}>
             <Text style={styles.txMetaText}>
-              {tx.category}{pocketName ? ` • ${pocketName}` : ''}
+              {metaText}
             </Text>
           </View>
         </View>

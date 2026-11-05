@@ -260,8 +260,15 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
   const exceedsAvailable =
     !!balance && !isNaN(allocatedValue) && allocatedValue > effectiveAvailableAmount;
 
+  const canSubmit =
+    !saving &&
+    !!name.trim() &&
+    !!icon.trim() &&
+    !!selectedWalletId &&
+    !exceedsAvailable;
+
   const submit = async () => {
-    if (saving) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onCreate();
@@ -279,7 +286,11 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
     >
       <ModalHeader
         title="New Pocket"
-        subtitle={selectedWallet ? `Inside ${selectedWallet.name}` : 'Allocate funds for specific goals'}
+        subtitle={
+          selectedWallet
+            ? `Inside ${selectedWallet.name?.trim() || (selectedWallet.type ? `${selectedWallet.type} Account` : 'Account')}`
+            : 'Allocate funds for specific goals'
+        }
         onClose={onClose}
       />
 
@@ -296,7 +307,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                     ]}
                   />
                   <Text style={styles.targetAccountName} numberOfLines={1}>
-                    {selectedWallet?.name || 'Selected Account'}
+                    {selectedWallet?.name?.trim() || (selectedWallet?.type ? `${selectedWallet.type} Account` : 'Selected Account')}
                   </Text>
                 </View>
                 <View style={styles.targetAccountBadge}>
@@ -557,12 +568,13 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
 
             <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
               <TouchableOpacity
-                style={[styles.confirmBtn, saving && { opacity: 0.7 }]}
+                style={[styles.confirmBtn, !canSubmit && { opacity: 0.5 }]}
                 onPress={submit}
-                disabled={saving}
+                disabled={!canSubmit}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Save pocket"
+                accessibilityState={{ disabled: !canSubmit, busy: saving }}
               >
                 {saving ? (
                   <>
@@ -581,7 +593,11 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
       <AmountInputModal
         visible={!!amountModalType}
         title={activeModalType === 'balance' ? 'Set Allocated Balance' : 'Set Target Goal'}
-        subtitle={activeModalType === 'balance' ? `Allocated from ${selectedWallet?.name || 'Account'}` : 'Savings goal target'}
+        subtitle={
+          activeModalType === 'balance'
+            ? `Allocated from ${selectedWallet?.name?.trim() || (selectedWallet?.type ? `${selectedWallet.type} Account` : 'Account')}`
+            : 'Savings goal target'
+        }
         initialAmount={activeModalType === 'balance' ? balance : target}
         currency={currency}
         allowZero

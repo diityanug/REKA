@@ -12,6 +12,7 @@ import {
   ExtractedReceiptData,
 } from '../types';
 import { ExtractedStatementData } from '../services/statementScanner';
+import { EditingTransferData } from '../components/modals/TransferModal';
 import { AlertButton, AlertType } from '../components/CustomAlertModal';
 import { AppHaptics } from '../utils/haptics';
 import {
@@ -75,6 +76,19 @@ export function useAppModals() {
 
   // Transfer
   const [transferModalVisible, setTransferModalVisible] = useState<boolean>(false);
+  const [editingTransfer, setEditingTransfer] = useState<EditingTransferData | null>(null);
+
+  const openEditTransfer = useCallback((data: EditingTransferData) => {
+    AppHaptics.light();
+    setEditingTransfer(data);
+    setTransferModalVisible(true);
+  }, []);
+
+  const closeTransferModal = useCallback(() => {
+    Keyboard.dismiss();
+    setTransferModalVisible(false);
+    setEditingTransfer(null);
+  }, []);
 
   // Month Picker
   const [monthPickerVisible, setMonthPickerVisible] = useState<boolean>(false);
@@ -411,6 +425,10 @@ export function useAppModals() {
     setManageOrderModalVisible,
     transferModalVisible,
     setTransferModalVisible,
+    editingTransfer,
+    setEditingTransfer,
+    openEditTransfer,
+    closeTransferModal,
     monthPickerVisible,
     monthPickerTarget,
     openMonthPicker,

@@ -225,8 +225,8 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
             {isAutoMatched && selectedWallet ? (
               <View style={styles.autoMatchBadge}>
                 <Sparkles size={11} color={Palette.accentTeal} />
-                <Text style={styles.autoMatchText}>
-                  Auto-Matched: {selectedWallet.name}
+                <Text style={styles.autoMatchText} numberOfLines={1} textBreakStrategy="simple">
+                  {`Auto-Matched:\u00A0${selectedWallet.name}\u00A0`}
                 </Text>
               </View>
             ) : null}
@@ -234,8 +234,8 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
 
           {eligibleWallets.length === 0 ? (
             <View style={styles.noAccountBox}>
-              <Text style={styles.noAccountText}>
-                No {currency} account found to receive {statementData.bankName} statement.
+              <Text style={styles.noAccountText} textBreakStrategy="simple">
+                {`No ${currency} account found to receive ${statementData.bankName} statement.`}
               </Text>
               <TouchableOpacity
                 style={styles.createAccBtn}
@@ -250,8 +250,8 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
                 activeOpacity={0.85}
               >
                 <Plus size={15} color={Palette.white} />
-                <Text style={styles.createAccBtnText}>
-                  Create {statementData.bankName} Account
+                <Text style={styles.createAccBtnText} numberOfLines={1} textBreakStrategy="simple">
+                  {`Create\u00A0${(statementData.bankName || 'Bank').replace(/\s+/g, '\u00A0')}\u00A0Account\u00A0`}
                 </Text>
               </TouchableOpacity>
             </View>

@@ -10,7 +10,7 @@ import {
 import { Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { CurrencyType } from '../../types';
-import { formatCurrency, formatMonthYear, formatCurrencyInput } from '../../utils/formatters';
+import { formatCurrency, formatMonthYear, formatCurrencyInput, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
@@ -102,8 +102,11 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
           { label: '$5,000', val: formatCurrencyInput('5000', 'USD') },
         ];
 
+  const parsedBudget = parseAmount(amount, activeCurrency);
+  const canSubmit = !saving && !isNaN(parsedBudget) && parsedBudget > 0;
+
   const submit = async () => {
-    if (saving) return;
+    if (!canSubmit) return;
     AppHaptics.heavy();
     setSaving(true);
     try {
@@ -220,12 +223,13 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
             {/* Action Buttons */}
             <View style={styles.actionsContainer}>
               <TouchableOpacity
-                style={[styles.saveBtn, saving && { opacity: 0.7 }]}
+                style={[styles.saveBtn, !canSubmit && { opacity: 0.5 }]}
                 onPress={submit}
-                disabled={saving}
+                disabled={!canSubmit}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel="Save budget"
+                accessibilityState={{ disabled: !canSubmit, busy: saving }}
               >
                 {saving ? (
                   <>

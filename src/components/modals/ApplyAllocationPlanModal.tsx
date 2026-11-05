@@ -185,7 +185,7 @@ export const ApplyAllocationPlanModal: React.FC<ApplyAllocationPlanModalProps> =
                   }}
                   activeOpacity={0.75}
                   accessibilityRole="button"
-                  accessibilityLabel={`Select account ${w.name}`}
+                  accessibilityLabel={`Select account ${w.name?.trim() || 'Account'}`}
                 >
                   <View style={styles.walletChipHeader}>
                     <Text
@@ -195,7 +195,7 @@ export const ApplyAllocationPlanModal: React.FC<ApplyAllocationPlanModalProps> =
                       ]}
                       numberOfLines={1}
                     >
-                      {w.name}
+                      {w.name?.trim() || (w.type ? `${w.type} Account` : 'Account')}
                     </Text>
                     <View
                       style={[

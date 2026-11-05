@@ -21,10 +21,11 @@ import {
   HandCoins,
   CheckCircle2,
   ChevronRight,
+  Lock,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
-import { Transaction, TransactionItem, Wallet } from '../../types';
+import { Transaction, TransactionItem, Wallet, Pocket } from '../../types';
 import { getTransactionItems, getLentRepayments } from '../../services/database';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
@@ -37,6 +38,7 @@ interface TxDetailModalProps {
   categoryIcon: string;
   pocketName?: string;
   wallets?: Wallet[];
+  pockets?: Pocket[];
   transactions?: Transaction[];
   privacyMode: boolean;
   onEdit: (tx: Transaction) => void;
@@ -65,6 +67,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   categoryIcon,
   pocketName,
   wallets = [],
+  pockets = [],
   transactions = [],
   privacyMode,
   onEdit,
@@ -135,12 +138,19 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     /^Transfer (to|from)\s+/i.test(currentTx.merchantName);
 
   const currentWallet = wallets.find((w) => w.id === currentTx.walletId);
-  const currentWalletName = currentWallet?.name || 'Account';
+  const currentWalletName = currentTx.deletedWalletName
+    ? `${currentTx.deletedWalletName} (Deleted Acc)`
+    : currentWallet?.name || 'Account';
+  const resolvedPocketName = currentTx.deletedPocketName
+    ? `${currentTx.deletedPocketName} (Deleted Pocket)`
+    : currentPocketName;
 
   let fromAccountName = '';
   let toAccountName = '';
   let fromWallet: Wallet | undefined;
   let toWallet: Wallet | undefined;
+  let fromPocketLabel = '';
+  let toPocketLabel = '';
 
   if (isTransfer) {
     // Names stored in the merchant field, used only as a fallback.
@@ -179,14 +189,57 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     if (!fromWallet) fromWallet = byName(parsedFromName, currentWallet?.id);
     if (!toWallet) toWallet = byName(parsedToName, currentWallet?.id);
 
-    fromAccountName = fromWallet?.name || parsedFromName;
-    toAccountName = toWallet?.name || parsedToName;
+    const fromDeletedName = isIncoming
+      ? pairedTx?.deletedWalletName || currentTx.pairedDeletedWalletName
+      : currentTx.deletedWalletName;
+    const toDeletedName = isIncoming
+      ? currentTx.deletedWalletName
+      : pairedTx?.deletedWalletName || currentTx.pairedDeletedWalletName;
+
+    fromAccountName = fromDeletedName
+      ? `${fromDeletedName} (Deleted Acc)`
+      : fromWallet?.name || parsedFromName;
+    toAccountName = toDeletedName
+      ? `${toDeletedName} (Deleted Acc)`
+      : toWallet?.name || parsedToName;
+
+    const fromPocketId = isIncoming
+      ? pairedTx?.pocketId || currentTx.pairedPocketId
+      : currentTx.pocketId;
+    const toPocketId = isIncoming
+      ? currentTx.pocketId
+      : pairedTx?.pocketId || currentTx.pairedPocketId;
+    const fromDeletedPocketName = isIncoming
+      ? pairedTx?.deletedPocketName || currentTx.pairedDeletedPocketName
+      : currentTx.deletedPocketName;
+    const toDeletedPocketName = isIncoming
+      ? currentTx.deletedPocketName
+      : pairedTx?.deletedPocketName || currentTx.pairedDeletedPocketName;
+
+    const fromPocket = fromPocketId ? pockets.find((p) => p.id === fromPocketId) : undefined;
+    const toPocket = toPocketId ? pockets.find((p) => p.id === toPocketId) : undefined;
+
+    fromPocketLabel = fromDeletedPocketName
+      ? `${fromDeletedPocketName} (Deleted Pocket)`
+      : fromPocket?.name || '';
+    toPocketLabel = toDeletedPocketName
+      ? `${toDeletedPocketName} (Deleted Pocket)`
+      : toPocket?.name || '';
   }
 
   const pairedTransferTx =
     isTransfer && currentTx.transferPairId
       ? transactions.find((t) => t.id === currentTx.transferPairId)
       : undefined;
+
+  const isArchived = Boolean(
+    currentTx.deletedWalletName ||
+      currentTx.deletedPocketName ||
+      currentTx.pairedDeletedWalletName ||
+      currentTx.pairedDeletedPocketName ||
+      pairedTransferTx?.deletedWalletName ||
+      pairedTransferTx?.deletedPocketName
+  );
 
   const parentLentTx = currentTx.lentParentTxId
     ? transactions.find((t) => t.id === currentTx.lentParentTxId)
@@ -327,6 +380,11 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                   {fromWallet ? `${fromWallet.type} • ${fromWallet.currency}` : 'Account'}
                   {fromWallet?.accountNumber ? ` • ${fromWallet.accountNumber}` : ''}
                 </Text>
+                {fromPocketLabel ? (
+                  <Text style={styles.routePocketText} numberOfLines={1}>
+                    Pocket: {fromPocketLabel}
+                  </Text>
+                ) : null}
               </View>
             </View>
 
@@ -360,6 +418,11 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                   {toWallet ? `${toWallet.type} • ${toWallet.currency}` : 'Account'}
                   {toWallet?.accountNumber ? ` • ${toWallet.accountNumber}` : ''}
                 </Text>
+                {toPocketLabel ? (
+                  <Text style={styles.routePocketText} numberOfLines={1}>
+                    Pocket: {toPocketLabel}
+                  </Text>
+                ) : null}
               </View>
             </View>
           </View>
@@ -464,10 +527,10 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 <Text style={styles.metaValue}>{currentTx.paymentMethod}</Text>
               </View>
 
-              {currentPocketName ? (
+              {resolvedPocketName ? (
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>Pocket</Text>
-                  <Text style={styles.metaValue}>{currentPocketName}</Text>
+                  <Text style={styles.metaValue}>{resolvedPocketName}</Text>
                 </View>
               ) : null}
 
@@ -594,6 +657,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
             </Text>
             {repayments.map((rp) => {
               const isDebtPayment = rp.type === 'expense';
+              const rpArchived = Boolean(isArchived || rp.deletedWalletName || rp.deletedPocketName);
               const rpFormatted = `${isDebtPayment ? '-' : '+'}${formatCurrency(rp.amount, rp.currency, privacyMode)}`;
               const rpFontSize =
                 rpFormatted.length > 18
@@ -605,10 +669,13 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                 <TouchableOpacity
                   key={rp.id}
                   style={styles.repaymentRow}
-                  onPress={() => onEdit(rp)}
-                  activeOpacity={0.7}
+                  onPress={() => {
+                    if (!rpArchived) onEdit(rp);
+                  }}
+                  disabled={rpArchived}
+                  activeOpacity={rpArchived ? 1 : 0.7}
                   accessibilityRole="button"
-                  accessibilityLabel={`Edit repayment of ${formatCurrency(rp.amount, rp.currency, privacyMode)}`}
+                  accessibilityLabel={`Repayment of ${formatCurrency(rp.amount, rp.currency, privacyMode)}`}
                 >
                   <View style={styles.repaymentIconBox}>
                     <CheckCircle2 size={15} color={Palette.success} />
@@ -639,7 +706,9 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
                       {rpFormatted}
                     </Text>
                   </View>
-                  <ChevronRight size={14} color={Palette.mutedSoft} style={{ marginLeft: 6 }} />
+                  {!rpArchived ? (
+                    <ChevronRight size={14} color={Palette.mutedSoft} style={{ marginLeft: 6 }} />
+                  ) : null}
                 </TouchableOpacity>
               );
             })}
@@ -669,46 +738,83 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
           </>
         )}
 
-        {/* 5. Action Buttons */}
+        {/* 5. Action Buttons or Archived Notice */}
         <View style={styles.actionButtonsContainer}>
-          {!isTransfer ? (
-            <View style={styles.topActionsRow}>
-              <TouchableOpacity
-                style={styles.editBtn}
-                onPress={() => onEdit(currentTx)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Edit transaction"
-              >
-                <Pencil size={15} color={Palette.white} style={{ marginRight: 6 }} />
-                <Text style={styles.editText}>Edit</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.duplicateBtn}
-                onPress={() => onDuplicate(currentTx)}
-                activeOpacity={0.8}
-                accessibilityRole="button"
-                accessibilityLabel="Duplicate transaction"
-              >
-                <Copy size={15} color={Palette.primary} style={{ marginRight: 6 }} />
-                <Text style={styles.duplicateText}>Duplicate</Text>
-              </TouchableOpacity>
+          {isArchived ? (
+            <View style={styles.archivedNoticeBox}>
+              <Lock size={15} color={Palette.muted} style={{ marginRight: 8 }} />
+              <Text style={styles.archivedNoticeText}>
+                {currentTx.deletedWalletName ||
+                currentTx.pairedDeletedWalletName ||
+                pairedTransferTx?.deletedWalletName
+                  ? 'Archived transaction • Linked to a deleted account and locked as read-only.'
+                  : 'Archived transaction • Linked to a deleted pocket and locked as read-only.'}
+              </Text>
             </View>
-          ) : null}
+          ) : (
+            <>
+              {isTransfer ? (
+                <TouchableOpacity
+                  style={styles.editTransferBtn}
+                  onPress={() => onEdit(currentTx)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit transfer"
+                >
+                  <Pencil size={15} color={Palette.white} style={{ marginRight: 6 }} />
+                  <Text style={styles.editText}>Edit Transfer</Text>
+                </TouchableOpacity>
+              ) : currentTx.isLent || currentTx.lentParentTxId ? (
+                <TouchableOpacity
+                  style={styles.editTransferBtn}
+                  onPress={() => onEdit(currentTx)}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Edit transaction"
+                >
+                  <Pencil size={15} color={Palette.white} style={{ marginRight: 6 }} />
+                  <Text style={styles.editText}>Edit</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.topActionsRow}>
+                  <TouchableOpacity
+                    style={styles.editBtn}
+                    onPress={() => onEdit(currentTx)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit transaction"
+                  >
+                    <Pencil size={15} color={Palette.white} style={{ marginRight: 6 }} />
+                    <Text style={styles.editText}>Edit</Text>
+                  </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.deleteBtn}
-            onPress={() => onDelete(currentTx)}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={isTransfer ? 'Delete transfer' : 'Delete transaction'}
-          >
-            <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
-            <Text style={styles.deleteText}>
-              {isTransfer ? 'Delete Transfer' : 'Delete Transaction'}
-            </Text>
-          </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.duplicateBtn}
+                    onPress={() => onDuplicate(currentTx)}
+                    activeOpacity={0.8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Duplicate transaction"
+                  >
+                    <Copy size={15} color={Palette.primary} style={{ marginRight: 6 }} />
+                    <Text style={styles.duplicateText}>Duplicate</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.deleteBtn}
+                onPress={() => onDelete(currentTx)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={isTransfer ? 'Delete transfer' : 'Delete transaction'}
+              >
+                <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
+                <Text style={styles.deleteText}>
+                  {isTransfer ? 'Delete Transfer' : 'Delete Transaction'}
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </ScrollView>
     </BottomSheetModal>
@@ -788,6 +894,13 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Palette.muted,
     marginTop: 1,
+  },
+  routePocketText: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: Palette.primary,
+    marginTop: 2,
   },
   connectorRow: {
     flexDirection: 'row',
@@ -1161,6 +1274,14 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: Palette.primary,
   },
+  editTransferBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 13,
+    borderRadius: 14,
+    backgroundColor: Palette.primary,
+  },
   editText: {
     ...Typography.body,
     fontSize: 14,
@@ -1199,5 +1320,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: Palette.error,
+  },
+  archivedNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  archivedNoticeText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '500',
+    color: Palette.muted,
+    flex: 1,
   },
 });

@@ -132,7 +132,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   const finalAmount = amountOverride ?? currentData.totalAmount;
   const amountUnreadable = currentData.totalAmount <= 0;
   const itemCount = currentData.items ? currentData.items.length : 0;
-  const canConfirm = hasWalletForCurrency && !!selectedDisplayWallet && !saving;
+  const canConfirm = hasWalletForCurrency && !!selectedDisplayWallet && finalAmount > 0 && !saving;
 
   const handleConfirm = async () => {
     if (!hasWalletForCurrency || !selectedDisplayWallet) {

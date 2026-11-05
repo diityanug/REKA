@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Pocket, Wallet, CurrencyType } from '../../types';
-import { formatCurrency, parseAmount } from '../../utils/formatters';
+import { formatCurrency, formatCurrencyInput, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
@@ -82,8 +82,20 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
   const typedAmount = parseAmount(amount, pCurrency);
   const exceedsLimit = !!amount && !isNaN(typedAmount) && typedAmount > limit;
 
+  const handleSetAll = () => {
+    if (limit <= 0) {
+      AppHaptics.error();
+      return;
+    }
+    AppHaptics.selection();
+    const formatted = formatCurrencyInput(String(limit), pCurrency);
+    onChangeAmount(formatted);
+  };
+
+  const canSubmit = !saving && !isNaN(typedAmount) && typedAmount > 0 && !exceedsLimit;
+
   const submit = async () => {
-    if (saving) return;
+    if (!canSubmit) return;
     setSaving(true);
     try {
       await onConfirm();
@@ -214,6 +226,32 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                 </Text>
               </TouchableOpacity>
 
+              {/* Quick Action: Allocate All / Release All */}
+              <View style={styles.quickActionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.quickActionBtn,
+                    limit <= 0 && styles.quickActionBtnDisabled,
+                  ]}
+                  onPress={handleSetAll}
+                  disabled={limit <= 0}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={mode === 'allocate' ? 'Allocate all available funds' : 'Release all pocket funds'}
+                  accessibilityState={{ disabled: limit <= 0 }}
+                >
+                  <Text
+                    style={[
+                      styles.quickActionBtnText,
+                      limit <= 0 && styles.quickActionBtnTextDisabled,
+                    ]}
+                  >
+                    {mode === 'allocate' ? 'Allocate All' : 'Release All'} (
+                    {formatCurrency(limit, pCurrency, privacyMode)})
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               {/* Dedicated fixed-height warning slot so layout never shifts */}
               <View style={styles.inlineErrorSlot}>
                 {exceedsLimit ? (
@@ -234,14 +272,14 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
                     backgroundColor:
                       mode === 'allocate' ? Palette.accentTeal : Palette.primary,
                   },
-                  (exceedsLimit || saving) && styles.confirmBtnDisabled,
+                  !canSubmit && styles.confirmBtnDisabled,
                 ]}
                 onPress={submit}
-                disabled={exceedsLimit || saving}
+                disabled={!canSubmit}
                 activeOpacity={0.85}
                 accessibilityRole="button"
                 accessibilityLabel={mode === 'allocate' ? 'Confirm allocation' : 'Confirm release'}
-                accessibilityState={{ disabled: exceedsLimit || saving }}
+                accessibilityState={{ disabled: !canSubmit, busy: saving }}
               >
                 {saving ? (
                   <>
@@ -262,7 +300,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
       <AmountInputModal
         visible={showAmountModal}
         title={mode === 'allocate' ? 'Allocate to Pocket' : 'Release from Pocket'}
-        subtitle={`Adjust balance between ${parentWallet?.name || 'Account'} and ${pocket.name}`}
+        subtitle={`Adjust balance between ${parentWallet?.name?.trim() || (parentWallet?.type ? `${parentWallet.type} Account` : 'Account')} and ${pocket.name?.trim() || 'Pocket'}`}
         initialAmount={amount}
         currency={pCurrency}
         onConfirm={(formatted) => {
@@ -402,6 +440,30 @@ const styles = StyleSheet.create({
   amountPickerPlaceholder: {
     color: Palette.mutedSoft,
     fontWeight: '400',
+  },
+  quickActionRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  quickActionBtn: {
+    paddingVertical: 7,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  quickActionBtnDisabled: {
+    opacity: 0.45,
+  },
+  quickActionBtnText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  quickActionBtnTextDisabled: {
+    color: Palette.muted,
   },
   stickyFooter: {
     paddingHorizontal: 20,

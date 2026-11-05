@@ -7,7 +7,6 @@ import {
   SectionList,
   StyleSheet,
   Keyboard,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -61,7 +60,7 @@ interface HistoryTabProps {
   onResetAllFilters: () => void;
   onOpenManualModal?: () => void;
   onSelectTransaction: (tx: Transaction) => void;
-  onDeleteTransactionsBatch?: (ids: string[]) => Promise<void>;
+  onDeleteTransactionsBatch?: (ids: string[], onDeleted?: () => void) => void | Promise<void>;
   getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
 }
@@ -121,7 +120,15 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  const isTxArchived = useCallback((tx: Transaction) => {
+    return Boolean(tx.deletedWalletName || tx.deletedPocketName || tx.pairedDeletedWalletName);
+  }, []);
+
   const handleToggleSelectTransaction = useCallback((tx: Transaction) => {
+    if (isTxArchived(tx)) {
+      onSelectTransaction(tx);
+      return;
+    }
     AppHaptics.selection();
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -132,9 +139,13 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       }
       return next;
     });
-  }, []);
+  }, [isTxArchived, onSelectTransaction]);
 
   const handleLongPressTransaction = useCallback((tx: Transaction) => {
+    if (isTxArchived(tx)) {
+      onSelectTransaction(tx);
+      return;
+    }
     AppHaptics.heavy();
     if (!isSelectionMode) {
       setIsSelectionMode(true);
@@ -142,16 +153,17 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     } else {
       handleToggleSelectTransaction(tx);
     }
-  }, [isSelectionMode, handleToggleSelectTransaction]);
+  }, [isSelectionMode, handleToggleSelectTransaction, isTxArchived, onSelectTransaction]);
 
   const handleSelectAll = useCallback(() => {
     AppHaptics.selection();
-    if (selectedIds.size === transactions.length) {
+    const selectableIds = transactions.filter((t) => !isTxArchived(t)).map((t) => t.id);
+    if (selectableIds.length > 0 && selectedIds.size === selectableIds.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(transactions.map((t) => t.id)));
+      setSelectedIds(new Set(selectableIds));
     }
-  }, [selectedIds.size, transactions]);
+  }, [selectedIds.size, transactions, isTxArchived]);
 
   const handleExitSelectionMode = useCallback(() => {
     AppHaptics.light();
@@ -160,26 +172,10 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   }, []);
 
   const handleBatchDelete = useCallback(() => {
-    if (selectedIds.size === 0) return;
+    if (selectedIds.size === 0 || !onDeleteTransactionsBatch) return;
     AppHaptics.heavy();
-    Alert.alert(
-      `Delete ${selectedIds.size} Transaction${selectedIds.size > 1 ? 's' : ''}?`,
-      'This will restore all corresponding account balances and cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            if (onDeleteTransactionsBatch) {
-              const ids = Array.from(selectedIds);
-              handleExitSelectionMode();
-              await onDeleteTransactionsBatch(ids);
-            }
-          },
-        },
-      ]
-    );
+    const ids = Array.from(selectedIds);
+    onDeleteTransactionsBatch(ids, handleExitSelectionMode);
   }, [selectedIds, onDeleteTransactionsBatch, handleExitSelectionMode]);
 
   const handleClearSearch = useCallback(() => {
