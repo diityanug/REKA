@@ -186,7 +186,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       recommendations = [
         `Cash burn exceeds income. Trim discretionary spending in ${topExpenseCategory || 'high-expense categories'}.`,
         runwayMonths !== null && runwayMonths < 3
-          ? `Emergency buffer stands at ${runwayMonths.toFixed(1)} months, below the recommended 3â€“6 month safety baseline.`
+          ? `Emergency buffer stands at ${runwayMonths.toFixed(1)} months, below the recommended 3–6 month safety baseline.`
           : 'Preserve existing liquid balances until positive monthly cash flow is restored.',
       ];
     } else if (savingsRate >= 0 && savingsRate < 10) {
@@ -206,7 +206,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       statusBgColor = '#EBF7F4';
       diagnosisSummary = `Solid positive surplus of +${formatCurrency(net, activeCurrency, privacyMode)} (${savingsRate.toFixed(1)}% savings rate). Spending is contained at ${burnRate.toFixed(0)}% of income.`;
       recommendations = [
-        'Good financial control. Aim to increase savings by 5â€“10% to reach the recommended 20% 50/30/20 target.',
+        'Good financial control. Aim to increase savings by 5–10% to reach the recommended 20% 50/30/20 target.',
         runwayMonths !== null && runwayMonths >= 3
           ? `Adequate emergency runway (${runwayMonths.toFixed(1)} months). Continue building toward 6 months.`
           : 'Direct current monthly surplus into an emergency pocket.',
@@ -493,7 +493,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           </View>
           <Text style={styles.periodSubtitleText}>
             {selectedMonth === 'all'
-              ? 'Showing all-time flow â€¢ Tap to change'
+              ? 'Showing all-time flow • Tap to change'
               : 'Tap to pick month'}
           </Text>
         </TouchableOpacity>
@@ -794,11 +794,11 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             adjustsFontSizeToFit
           >
             {privacyMode
-              ? 'â€¢â€¢â€¢â€¢'
+              ? '••••'
               : `${financialHealth.savingsRate >= 0 ? '+' : ''}${financialHealth.savingsRate.toFixed(1)}%`}
           </Text>
           <Text style={styles.pillarBenchmark}>
-            {financialHealth.savingsRate >= 20 ? 'Target: â‰¥ 20% (Passed)' : 'Target: â‰¥ 20% standard'}
+            {financialHealth.savingsRate >= 20 ? 'Target: ≥ 20% (Passed)' : 'Target: ≥ 20% standard'}
           </Text>
         </View>
 
@@ -826,7 +826,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             {financialHealth.burnRate.toFixed(0)}%
           </Text>
           <Text style={styles.pillarBenchmark}>
-            {financialHealth.burnRate <= 80 ? 'Target: â‰¤ 80% (Within)' : 'Target: â‰¤ 80% budget'}
+            {financialHealth.burnRate <= 80 ? 'Target: ≤ 80% (Within)' : 'Target: ≤ 80% budget'}
           </Text>
         </View>
 
@@ -850,7 +850,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             adjustsFontSizeToFit
           >
             {privacyMode
-              ? 'â€¢â€¢â€¢â€¢'
+              ? '••••'
               : financialHealth.runwayMonths === null
               ? 'N/A'
               : financialHealth.runwayMonths > 12
@@ -859,8 +859,8 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           </Text>
           <Text style={styles.pillarBenchmark}>
             {financialHealth.runwayMonths !== null && financialHealth.runwayMonths >= 3
-              ? 'Standard: 3â€“6 Mo (Safe)'
-              : 'Standard: 3â€“6 Mo buffer'}
+              ? 'Standard: 3–6 Mo (Safe)'
+              : 'Standard: 3–6 Mo buffer'}
           </Text>
         </View>
 
@@ -916,7 +916,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
               <View style={[styles.budgetStatusPill, { backgroundColor: budgetBadgeBg }]}>
                 <View style={[styles.budgetStatusDot, { backgroundColor: budgetColor }]} />
                 <Text style={[styles.budgetStatusPillText, { color: budgetColor }]}>
-                  {budgetPercentage.toFixed(0)}% â€¢ {budgetStatusLabel}
+                  {budgetPercentage.toFixed(0)}% • {budgetStatusLabel}
                 </Text>
               </View>
             </View>
@@ -1039,7 +1039,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       {/* Budget is monthly; explain the mismatch when the viewed period is not that month */}
       {selectedMonth !== budgetMonthKey ? (
         <Text style={styles.budgetMonthNote}>
-          Budget is set per month â€” showing {formatMonthYear(budgetMonthKey)}
+          Budget is set per month — showing {formatMonthYear(budgetMonthKey)}
         </Text>
       ) : null}
 
