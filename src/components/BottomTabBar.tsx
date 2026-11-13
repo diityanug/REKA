@@ -4,6 +4,7 @@ import { Layers, CreditCard, Plus, Receipt, TrendingUp } from 'lucide-react-nati
 import { Palette, Typography } from '../theme/tokens';
 import { TabType } from '../types';
 import { AppHaptics } from '../utils/haptics';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 interface BottomTabBarProps {
   activeTab: TabType;
@@ -18,6 +19,10 @@ export const BottomTabBar = React.memo<BottomTabBarProps>(({
   onOpenManualTransaction,
   bottomInset,
 }) => {
+  const keyboardHeight = useKeyboardHeight();
+  // Prevent Android adjustResize from pushing the floating nav bar up over search results
+  if (keyboardHeight > 0) return null;
+
   return (
     <View style={[styles.navBarWrapper, { paddingBottom: Math.max(bottomInset, 16) }]}>
       <View style={styles.navBar}>

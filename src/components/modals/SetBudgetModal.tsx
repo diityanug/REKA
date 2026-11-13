@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -13,11 +13,12 @@ import { CurrencyType } from '../../types';
 import { formatCurrency, formatMonthYear, formatCurrencyInput, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
+import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
-import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { CustomAlertModal } from '../CustomAlertModal';
 
 interface SetBudgetModalProps {
   visible: boolean;
@@ -48,41 +49,7 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
   const effectiveBudget =
     useLastDefined(!saving && !removing && visible ? currentBudget : null) ?? currentBudget;
 
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    title: string;
-    message?: string;
-    buttons?: AlertButton[];
-    type?: AlertType;
-  }>({
-    visible: false,
-    title: '',
-  });
-
-  // The confirm handler runs before the alert closes; a newer alert must survive it.
-  const alertSeq = useRef<number>(0);
-  const renderedSeq = alertSeq.current;
-
-  const showAlert = (
-    title: string,
-    message?: string,
-    buttons?: AlertButton[],
-    type: AlertType = 'info'
-  ) => {
-    alertSeq.current += 1;
-    setAlertConfig({
-      visible: true,
-      title,
-      message,
-      buttons: buttons || [{ text: 'OK', style: 'default' }],
-      type,
-    });
-  };
-
-  const hideAlert = () => {
-    if (alertSeq.current !== renderedSeq) return;
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
-  };
+  const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const monthLabel = selectedMonth === 'all' ? 'All Months' : formatMonthYear(selectedMonth);
   const periodLabel = `Limit for ${monthLabel} · ${activeCurrency}`;
@@ -291,6 +258,7 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
 
       <CustomAlertModal
         visible={alertConfig.visible}
+        alertId={alertConfig.id}
         title={alertConfig.title}
         message={alertConfig.message}
         buttons={alertConfig.buttons}

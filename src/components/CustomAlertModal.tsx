@@ -1,6 +1,5 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { AppHaptics } from '../utils/haptics';
+import { OverlayPortal, useOverlayLayer } from './OverlayHost';
 
 export interface AlertButton {
   text: string;
@@ -45,6 +45,19 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   alertId,
   onClose,
 }) => {
+  // A destructive or non-cancel action makes the backdrop non-dismissable,
+  // so an accidental tap can never silently cancel a confirm.
+  const hasBlockingAction = buttons.some((btn) => btn.style !== 'cancel');
+
+  const handleBackPress = useCallback(() => {
+    if (!hasBlockingAction) {
+      onClose(alertId);
+    }
+    return true;
+  }, [hasBlockingAction, onClose, alertId]);
+
+  const { overlayId } = useOverlayLayer(visible, visible, handleBackPress);
+
   if (!visible) return null;
 
   const renderIcon = () => {
@@ -83,9 +96,6 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
     }
   };
 
-  // A destructive or non-cancel action makes the backdrop non-dismissable,
-  // so an accidental tap can never silently cancel a confirm.
-  const hasBlockingAction = buttons.some((btn) => btn.style !== 'cancel');
   const requestClose = hasBlockingAction ? undefined : () => onClose(alertId);
 
   const handleButtonPress = (btn: AlertButton) => {
@@ -99,16 +109,12 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   };
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="fade"
-      statusBarTranslucent={true}
-      onRequestClose={() => {
-        if (!hasBlockingAction) onClose();
-      }}
-    >
-      <Pressable style={styles.overlay} onPress={requestClose}>
+    <OverlayPortal id={overlayId} active={visible}>
+      <Pressable
+        style={styles.overlay}
+        onPress={requestClose}
+        accessibilityViewIsModal={true}
+      >
         <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
           <View style={styles.topSection}>
             {renderIcon()}
@@ -157,13 +163,17 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+    </OverlayPortal>
   );
 };
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: 'rgba(18, 18, 16, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',

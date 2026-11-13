@@ -38,6 +38,8 @@ import { TabType, FilterType, CurrencyType, Wallet, Transaction } from './src/ty
 import { useFinanceData } from './src/hooks/useFinanceData';
 import { useAppModals } from './src/hooks/useAppModals';
 import { useLastDefined } from './src/hooks/useLastDefined';
+import { KeyboardMetricsProvider } from './src/hooks/useKeyboardHeight';
+import { OverlayProvider, OverlayHost } from './src/components/OverlayHost';
 
 // Visual Components & Tabs
 import { AppHeader } from './src/components/AppHeader';
@@ -107,7 +109,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
-        <MainApp />
+        <KeyboardMetricsProvider>
+          <OverlayProvider>
+            <MainApp />
+          </OverlayProvider>
+        </KeyboardMetricsProvider>
       </ErrorBoundary>
     </SafeAreaProvider>
   );
@@ -118,17 +124,85 @@ function MainApp() {
 
   // Navigation & Core States
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [visitedTabs, setVisitedTabs] = useState<Record<TabType, boolean>>({
+    overview: true,
+    accounts: false,
+    history: false,
+    analytics: false,
+  });
   const [splashFinished, setSplashFinished] = useState<boolean>(false);
   const [scanning, setScanning] = useState<boolean>(false);
   const [scanningMode, setScanningMode] = useState<'receipt' | 'statement'>('receipt');
   const [privacyMode, setPrivacyMode] = useState<boolean>(false);
   const scanAbortRef = useRef<AbortController | null>(null);
 
+  const handleSelectTab = useCallback((nextTab: TabType) => {
+    Keyboard.dismiss();
+    setActiveTab(nextTab);
+    setVisitedTabs((prev) => (prev[nextTab] ? prev : { ...prev, [nextTab]: true }));
+  }, []);
+
   // Modals & Dialogs Hook
   const modals = useAppModals();
+  const {
+    showAlert,
+    setSelectedWalletId,
+    setSelectedPocketId,
+    setManType,
+    setManCategory,
+    setManCurrency,
+    setSettingsModalVisible,
+    setManageOrderModalVisible,
+    setTransferModalVisible,
+    setEditingTransfer,
+    setExtractedData,
+    setReviewModalVisible,
+    setSelectedTx,
+    openMonthPicker,
+    openManualModal,
+    openReviewStatement,
+    openCreateAllocationPlan,
+    openEditAllocationPlan,
+    openApplyPlan,
+    openAccountDetail,
+    openAddAccountModal,
+    openCategoryManager,
+    openSetBudget,
+    openEditTransfer,
+    closeTransferModal,
+    handleStartEditTransaction,
+    settingsModalVisible,
+    manualTxModalVisible,
+    reviewModalVisible,
+    newPocketModalVisible,
+    selectedWalletId,
+    selectedPocketId,
+    manCategory,
+  } = modals;
 
   // Finance Domain Data Hook
-  const finance = useFinanceData({ showAlert: modals.showAlert });
+  const finance = useFinanceData({ showAlert });
+  const {
+    wallets,
+    pockets,
+    transactions,
+    categories,
+    initialAppReady,
+    activeCurrency,
+    setActiveCurrency,
+    setSelectedMonth,
+    monthlyBudget,
+    lockSettings,
+    availableCategories,
+    availableExpenseCategories,
+    availableIncomeCategories,
+    getPocketName,
+    getCategoryIconName,
+    checkPreRestoreSnapshot,
+    handleToggleAppLock,
+    handleDuplicateAllocationPlan,
+    handleDeleteTransactionsBatch,
+  } = finance;
 
   // Persist privacy mode so hidden amounts stay hidden after a restart
   useEffect(() => {
@@ -159,19 +233,19 @@ function MainApp() {
   // Auto-lock on app launch once lockSettings are loaded
   const initialLockChecked = useRef<boolean>(false);
   useEffect(() => {
-    if (finance.initialAppReady && !initialLockChecked.current) {
+    if (initialAppReady && !initialLockChecked.current) {
       initialLockChecked.current = true;
-      if (finance.lockSettings.isLockEnabled) {
+      if (lockSettings.isLockEnabled) {
         setIsAppLocked(true);
       }
     }
-  }, [finance.initialAppReady, finance.lockSettings.isLockEnabled]);
+  }, [initialAppReady, lockSettings.isLockEnabled]);
 
-  // Listen to AppState transitions (lock app when entering background)
+  // Listen to AppState transitions (lock app only when backgrounded, not transient OS dialogs/sheets)
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
-      if (nextAppState === 'background' || nextAppState === 'inactive') {
-        if (finance.lockSettings.isLockEnabled) {
+      if (nextAppState === 'background') {
+        if (lockSettings.isLockEnabled) {
           setIsAppLocked(true);
         }
       }
@@ -179,18 +253,18 @@ function MainApp() {
     return () => {
       subscription.remove();
     };
-  }, [finance.lockSettings.isLockEnabled]);
+  }, [lockSettings.isLockEnabled]);
 
   const handleToggleLock = useCallback(async () => {
-    if (finance.lockSettings.isLockEnabled) {
-      await finance.handleToggleAppLock(false);
+    if (lockSettings.isLockEnabled) {
+      await handleToggleAppLock(false);
       setIsAppLocked(false);
       AppHaptics.light();
     } else {
       setIsChangingPin(false);
       setPinSetupVisible(true);
     }
-  }, [finance]);
+  }, [lockSettings.isLockEnabled, handleToggleAppLock]);
 
   const handleChangePin = useCallback(() => {
     setIsChangingPin(true);
@@ -198,20 +272,19 @@ function MainApp() {
   }, []);
 
   const handlePinSetupSuccess = useCallback(async () => {
-    if (!finance.lockSettings.isLockEnabled) {
-      await finance.handleToggleAppLock(true);
+    if (!lockSettings.isLockEnabled) {
+      await handleToggleAppLock(true);
     }
     AppHaptics.success();
-    modals.showAlert('Security Updated', 'Your 4-digit PIN is now active.', undefined, 'success');
-  }, [finance, modals]);
+    showAlert('Security Updated', 'Your 4-digit PIN is now active.', undefined, 'success');
+  }, [lockSettings.isLockEnabled, handleToggleAppLock, showAlert]);
 
   // Whether a "undo last restore" snapshot is available
   const [canUndoRestore, setCanUndoRestore] = useState<boolean>(false);
   useEffect(() => {
-    if (!modals.settingsModalVisible) return;
+    if (!settingsModalVisible) return;
     let cancelled = false;
-    finance
-      .checkPreRestoreSnapshot()
+    checkPreRestoreSnapshot()
       .then((available) => {
         if (!cancelled) setCanUndoRestore(available);
       })
@@ -219,7 +292,7 @@ function MainApp() {
     return () => {
       cancelled = true;
     };
-  }, [modals.settingsModalVisible, finance]);
+  }, [settingsModalVisible, checkPreRestoreSnapshot]);
 
   // History Filter States
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -237,38 +310,42 @@ function MainApp() {
 
   // Sync selected account when currently selected wallet no longer exists or on initial load
   useEffect(() => {
-    if (finance.wallets.length === 0) return;
+    if (wallets.length === 0) return;
     if (
-      modals.manualTxModalVisible ||
-      modals.reviewModalVisible ||
-      modals.newPocketModalVisible
+      manualTxModalVisible ||
+      reviewModalVisible ||
+      newPocketModalVisible
     ) {
       return;
     }
-    const currentWallet = finance.wallets.find((w) => w.id === modals.selectedWalletId);
+    const currentWallet = wallets.find((w) => w.id === selectedWalletId);
     if (!currentWallet) {
       const matching =
-        finance.wallets.find((w) => w.currency === finance.activeCurrency) ||
-        finance.wallets[0];
+        wallets.find((w) => w.currency === activeCurrency) ||
+        wallets[0];
       if (matching) {
-        modals.setSelectedWalletId(matching.id);
+        setSelectedWalletId(matching.id);
       }
     }
   }, [
-    finance.activeCurrency,
-    finance.wallets,
-    modals,
+    activeCurrency,
+    wallets,
+    manualTxModalVisible,
+    reviewModalVisible,
+    newPocketModalVisible,
+    selectedWalletId,
+    setSelectedWalletId,
   ]);
 
   // Keep selectedPocketId valid for active selectedWalletId
   useEffect(() => {
     if (
-      modals.selectedPocketId &&
-      !finance.pockets.some((p) => p.id === modals.selectedPocketId && p.walletId === modals.selectedWalletId)
+      selectedPocketId &&
+      !pockets.some((p) => p.id === selectedPocketId && p.walletId === selectedWalletId)
     ) {
-      modals.setSelectedPocketId('');
+      setSelectedPocketId('');
     }
-  }, [finance.pockets, modals]);
+  }, [pockets, selectedPocketId, selectedWalletId, setSelectedPocketId]);
 
   // Currently viewed account for deep detail breakdown (with sticky cache to prevent slide-down flicker)
   const lastViewedWalletId = useLastDefined(modals.viewingWallet?.id);
@@ -276,29 +353,29 @@ function MainApp() {
   const currentViewingWallet = useMemo(() => {
     const v = modals.viewingWallet;
     if (!v) return null;
-    return finance.wallets.find((w) => w.id === v.id) || null;
-  }, [modals.viewingWallet, finance.wallets]);
+    return wallets.find((w) => w.id === v.id) || null;
+  }, [modals.viewingWallet, wallets]);
 
   const currentViewingPockets = useMemo(() => {
     if (!lastViewedWalletId) return [];
-    return finance.pockets.filter((p) => p.walletId === lastViewedWalletId);
-  }, [lastViewedWalletId, finance.pockets]);
+    return pockets.filter((p) => p.walletId === lastViewedWalletId);
+  }, [lastViewedWalletId, pockets]);
 
   const currentViewingTransactions = useMemo(() => {
     if (!lastViewedWalletId) return [];
-    return finance.transactions.filter((t) => t.walletId === lastViewedWalletId);
-  }, [lastViewedWalletId, finance.transactions]);
+    return transactions.filter((t) => t.walletId === lastViewedWalletId);
+  }, [lastViewedWalletId, transactions]);
 
   // Safely switch history filter type and reset category if incompatible
   const handleHistoryFilterChange = useCallback(
     (newFilter: FilterType) => {
       setHistoryFilter(newFilter);
       if (historyCategory !== 'all') {
-        let allowedList = finance.availableCategories;
-        if (newFilter === 'expense' && finance.availableExpenseCategories.length > 0) {
-          allowedList = finance.availableExpenseCategories;
-        } else if (newFilter === 'income' && finance.availableIncomeCategories.length > 0) {
-          allowedList = finance.availableIncomeCategories;
+        let allowedList = availableCategories;
+        if (newFilter === 'expense' && availableExpenseCategories.length > 0) {
+          allowedList = availableExpenseCategories;
+        } else if (newFilter === 'income' && availableIncomeCategories.length > 0) {
+          allowedList = availableIncomeCategories;
         }
         const isStillAllowed = allowedList.some(
           (c) => c.toLowerCase() === historyCategory.toLowerCase()
@@ -308,7 +385,7 @@ function MainApp() {
         }
       }
     },
-    [historyCategory, finance.availableCategories, finance.availableExpenseCategories, finance.availableIncomeCategories]
+    [historyCategory, availableCategories, availableExpenseCategories, availableIncomeCategories]
   );
 
   // Filtered transactions for history tab with Deep Search (merchant, category, notes, pocket, account, amount)
@@ -317,13 +394,13 @@ function MainApp() {
     const cleanDigits = q.replace(/[^0-9]/g, '');
 
     // Exclude the incoming mirror leg of any paired transfer so all transfers appear as 1 clean unified card
-    const deduplicated = finance.transactions.filter((tx) => {
+    const deduplicated = transactions.filter((tx) => {
       if (
         tx.type === 'income' &&
         tx.transferPairId &&
         (tx.category === 'Transfer' || tx.merchantName.toLowerCase().startsWith('transfer '))
       ) {
-        const counterpart = finance.transactions.find((c) => c.id === tx.transferPairId);
+        const counterpart = transactions.find((c) => c.id === tx.transferPairId);
         if (counterpart) {
           return false;
         }
@@ -335,12 +412,12 @@ function MainApp() {
       const wName = (
         tx.deletedWalletName
           ? `${tx.deletedWalletName} (Deleted Acc)`
-          : finance.wallets.find((w) => w.id === tx.walletId)?.name || ''
+          : wallets.find((w) => w.id === tx.walletId)?.name || ''
       ).toLowerCase();
       const pName = (
         tx.deletedPocketName
           ? `${tx.deletedPocketName} (Deleted Pocket)`
-          : finance.getPocketName(tx.pocketId)
+          : getPocketName(tx.pocketId)
       ).toLowerCase();
       const amtStr = String(Math.round(tx.amount));
       const formattedAmt = formatCurrency(Math.abs(tx.amount), tx.currency, false).toLowerCase();
@@ -357,14 +434,14 @@ function MainApp() {
 
       // If this is a transfer, also allow searching by counterpart wallet name or amount
       if (!matchesSearch && tx.transferPairId) {
-        const counterpart = finance.transactions.find((c) => c.id === tx.transferPairId);
+        const counterpart = transactions.find((c) => c.id === tx.transferPairId);
         if (counterpart) {
           const counterpartAmtStr = String(Math.round(counterpart.amount));
           const counterpartFormatted = formatCurrency(Math.abs(counterpart.amount), counterpart.currency, false).toLowerCase();
           const counterpartWalletName = (
             counterpart.deletedWalletName
               ? `${counterpart.deletedWalletName} (Deleted Acc)`
-              : finance.wallets.find((w) => w.id === counterpart.walletId)?.name || ''
+              : wallets.find((w) => w.id === counterpart.walletId)?.name || ''
           ).toLowerCase();
           matchesSearch =
             counterpart.merchantName.toLowerCase().includes(q) ||
@@ -401,7 +478,9 @@ function MainApp() {
       return matchesSearch && matchesType && matchesCategory && matchesMonth && matchesLent;
     });
   }, [
-    finance,
+    transactions,
+    wallets,
+    getPocketName,
     searchQuery,
     historyFilter,
     historyCategory,
@@ -436,10 +515,41 @@ function MainApp() {
     };
   }, [filteredTransactions]);
 
+  // Open manual transaction modal with auto-selected account matching active currency
+  const handleOpenManualTransaction = useCallback(
+    (preferredCurrency?: CurrencyType) => {
+      const curr = preferredCurrency || activeCurrency;
+      openManualModal(curr);
+      const matchingWallet = wallets.find((w) => w.currency === curr);
+      if (matchingWallet) {
+        setSelectedWalletId(matchingWallet.id);
+      } else {
+        setSelectedWalletId('');
+      }
+      setSelectedPocketId('');
+    },
+    [activeCurrency, openManualModal, wallets, setSelectedWalletId, setSelectedPocketId]
+  );
+
+  // Keep the selected category valid whenever the transaction type changes
+  const handleChangeManType = useCallback(
+    (nextType: 'income' | 'expense') => {
+      setManType(nextType);
+      const stillValid = categories.some(
+        (c) => c.type === nextType && c.name.toLowerCase() === manCategory.toLowerCase()
+      );
+      if (!stillValid) {
+        const firstMatch = categories.find((c) => c.type === nextType);
+        if (firstMatch) setManCategory(firstMatch.name);
+      }
+    },
+    [categories, manCategory, setManType, setManCategory]
+  );
+
   // Explain the scanner state before asking for a photo
-  const promptScannerNotConfigured = (): boolean => {
+  const promptScannerNotConfigured = useCallback((): boolean => {
     if (isReceiptScannerConfigured) return false;
-    modals.showAlert(
+    showAlert(
       'Scanner Not Available',
       'Receipt scanning is not configured in this build, so no photo leaves your device. You can record this purchase manually instead.',
       [
@@ -449,16 +559,80 @@ function MainApp() {
       'info'
     );
     return true;
-  };
+  }, [showAlert, handleOpenManualTransaction]);
+
+  const handleCancelScan = useCallback(() => {
+    AppHaptics.light();
+    scanAbortRef.current?.abort();
+    scanAbortRef.current = null;
+    setScanning(false);
+  }, []);
+
+  // Process receipt through Gemini API
+  const processReceiptImage = useCallback(
+    async (base64: string) => {
+      const controller = new AbortController();
+      scanAbortRef.current = controller;
+      setScanningMode('receipt');
+      setScanning(true);
+      try {
+        const data = await extractReceiptFromBase64(base64, 'image/jpeg', controller.signal);
+        AppHaptics.success();
+        setExtractedData(data);
+
+        const detectedCurrency = data.currency || activeCurrency;
+        const matchingWallet = wallets.find((w) => w.currency === detectedCurrency);
+        if (matchingWallet) {
+          setActiveCurrency(detectedCurrency);
+          setSelectedWalletId(matchingWallet.id);
+        } else {
+          // No account for this currency yet: let the review sheet offer to create one
+          setSelectedWalletId('');
+        }
+
+        setReviewModalVisible(true);
+      } catch (err: any) {
+        if (controller.signal.aborted) return;
+        AppHaptics.error();
+        showAlert(
+          'Receipt Analysis Notice',
+          toUserFriendlyErrorMessage(err, 'receipt'),
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Enter Manually',
+              onPress: () => {
+                handleOpenManualTransaction(activeCurrency);
+              },
+            },
+          ],
+          'confirm'
+        );
+      } finally {
+        scanAbortRef.current = null;
+        setScanning(false);
+      }
+    },
+    [
+      setExtractedData,
+      activeCurrency,
+      wallets,
+      setActiveCurrency,
+      setSelectedWalletId,
+      setReviewModalVisible,
+      showAlert,
+      handleOpenManualTransaction,
+    ]
+  );
 
   // Camera scan handler
-  const handleScanReceipt = async () => {
+  const handleScanReceipt = useCallback(async () => {
     if (promptScannerNotConfigured()) return;
     try {
       AppHaptics.medium();
       const perm = await ImagePicker.requestCameraPermissionsAsync();
       if (!perm.granted) {
-        modals.showAlert('Camera Access', 'Camera permission is required to capture receipts.', undefined, 'warning');
+        showAlert('Camera Access', 'Camera permission is required to capture receipts.', undefined, 'warning');
         return;
       }
 
@@ -472,12 +646,12 @@ function MainApp() {
         processReceiptImage(result.assets[0].base64);
       }
     } catch (err: any) {
-      modals.showAlert('Scanner Notice', toUserFriendlyErrorMessage(err, 'receipt'), undefined, 'error');
+      showAlert('Scanner Notice', toUserFriendlyErrorMessage(err, 'receipt'), undefined, 'error');
     }
-  };
+  }, [promptScannerNotConfigured, showAlert, processReceiptImage]);
 
   // Gallery picker handler
-  const handlePickFromGallery = async () => {
+  const handlePickFromGallery = useCallback(async () => {
     if (promptScannerNotConfigured()) return;
     try {
       AppHaptics.light();
@@ -491,124 +665,79 @@ function MainApp() {
         processReceiptImage(result.assets[0].base64);
       }
     } catch (err: any) {
-      modals.showAlert('Upload Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
+      showAlert('Upload Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
     }
-  };
-
-  const handleCancelScan = useCallback(() => {
-    AppHaptics.light();
-    scanAbortRef.current?.abort();
-    scanAbortRef.current = null;
-    setScanning(false);
-  }, []);
-
-  // Process receipt through Gemini API
-  const processReceiptImage = async (base64: string) => {
-    const controller = new AbortController();
-    scanAbortRef.current = controller;
-    setScanningMode('receipt');
-    setScanning(true);
-    try {
-      const data = await extractReceiptFromBase64(base64, 'image/jpeg', controller.signal);
-      AppHaptics.success();
-      modals.setExtractedData(data);
-
-      const detectedCurrency = data.currency || finance.activeCurrency;
-      const matchingWallet = finance.wallets.find((w) => w.currency === detectedCurrency);
-      if (matchingWallet) {
-        finance.setActiveCurrency(detectedCurrency);
-        modals.setSelectedWalletId(matchingWallet.id);
-      } else {
-        // No account for this currency yet: let the review sheet offer to create one
-        modals.setSelectedWalletId('');
-      }
-
-      modals.setReviewModalVisible(true);
-    } catch (err: any) {
-      if (controller.signal.aborted) return;
-      AppHaptics.error();
-      modals.showAlert(
-        'Receipt Analysis Notice',
-        toUserFriendlyErrorMessage(err, 'receipt'),
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Enter Manually',
-            onPress: () => {
-              handleOpenManualTransaction(finance.activeCurrency);
-            },
-          },
-        ],
-        'confirm'
-      );
-    } finally {
-      scanAbortRef.current = null;
-      setScanning(false);
-    }
-  };
+  }, [promptScannerNotConfigured, showAlert, processReceiptImage]);
 
   // Pick & process e-Statement (PDF, images, CSV)
-  const handlePickStatement = async (preferredWallet?: Wallet) => {
-    if (promptScannerNotConfigured()) return;
-    try {
-      AppHaptics.light();
-      const file = await pickStatementFile();
-      if (file.cancelled) return;
-
-      const controller = new AbortController();
-      scanAbortRef.current = controller;
-      setScanningMode('statement');
-      setScanning(true);
-
+  const handlePickStatement = useCallback(
+    async (preferredWallet?: Wallet) => {
+      if (promptScannerNotConfigured()) return;
       try {
-        const stmtData = await extractStatementFromFile(
-          file as any,
-          finance.wallets.map((w) => w.name),
-          controller.signal
-        );
-        AppHaptics.success();
+        AppHaptics.light();
+        const file = await pickStatementFile();
+        if (file.cancelled) return;
 
-        const { matchedWallet, isAutoMatched } = matchWalletForStatement(
-          stmtData,
-          finance.wallets,
-          preferredWallet?.id
-        );
+        const controller = new AbortController();
+        scanAbortRef.current = controller;
+        setScanningMode('statement');
+        setScanning(true);
 
-        if (matchedWallet && matchedWallet.currency !== finance.activeCurrency) {
-          finance.setActiveCurrency(matchedWallet.currency);
+        try {
+          const stmtData = await extractStatementFromFile(
+            file as any,
+            wallets.map((w) => w.name),
+            controller.signal
+          );
+          AppHaptics.success();
+
+          const { matchedWallet, isAutoMatched } = matchWalletForStatement(
+            stmtData,
+            wallets,
+            preferredWallet?.id
+          );
+
+          if (matchedWallet && matchedWallet.currency !== activeCurrency) {
+            setActiveCurrency(matchedWallet.currency);
+          }
+
+          openReviewStatement(
+            stmtData,
+            matchedWallet ? matchedWallet.id : '',
+            isAutoMatched
+          );
+        } catch (err: any) {
+          if (controller.signal.aborted) return;
+          AppHaptics.error();
+          showAlert(
+            'e-Statement Notice',
+            toUserFriendlyErrorMessage(err, 'statement'),
+            undefined,
+            'error'
+          );
+        } finally {
+          scanAbortRef.current = null;
+          setScanning(false);
         }
-
-        modals.openReviewStatement(
-          stmtData,
-          matchedWallet ? matchedWallet.id : '',
-          isAutoMatched
-        );
       } catch (err: any) {
-        if (controller.signal.aborted) return;
-        AppHaptics.error();
-        modals.showAlert(
-          'e-Statement Notice',
-          toUserFriendlyErrorMessage(err, 'statement'),
-          undefined,
-          'error'
-        );
-      } finally {
-        scanAbortRef.current = null;
-        setScanning(false);
+        showAlert('File Selection Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
       }
-    } catch (err: any) {
-      modals.showAlert('File Selection Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
-    }
-  };
+    },
+    [promptScannerNotConfigured, wallets, activeCurrency, setActiveCurrency, openReviewStatement, showAlert]
+  );
+
+  const handlePickStatementForTab = useCallback(() => {
+    handlePickStatement();
+  }, [handlePickStatement]);
 
   const handleConfirmImportStatement = async (
     selectedTxs: ExtractedStatementTx[],
     targetWalletId: string,
     updateWalletBalance: boolean
   ) => {
-    const targetWallet = finance.wallets.find((w) => w.id === targetWalletId);
+    const targetWallet = wallets.find((w) => w.id === targetWalletId);
     if (!targetWallet) {
-      modals.showAlert('Account Required', 'Please select a valid account to save these transactions.', undefined, 'warning');
+      showAlert('Account Required', 'Please select a valid account to save these transactions.', undefined, 'warning');
       return;
     }
 
@@ -640,7 +769,7 @@ function MainApp() {
       await finance.loadData();
       AppHaptics.success();
 
-      modals.showAlert(
+      showAlert(
         'e-Statement Imported Successfully',
         `Successfully imported ${selectedTxs.length} transaction${selectedTxs.length === 1 ? '' : 's'} to ${targetWallet.name}.${
           updateWalletBalance ? ' Account balance has been updated.' : ''
@@ -649,40 +778,9 @@ function MainApp() {
         'info'
       );
     } catch (err: any) {
-      modals.showAlert('Import Notice', toUserFriendlyErrorMessage(err, 'statement'), undefined, 'error');
+      showAlert('Import Notice', toUserFriendlyErrorMessage(err, 'statement'), undefined, 'error');
     }
   };
-
-  // Open manual transaction modal with auto-selected account matching active currency
-  const handleOpenManualTransaction = useCallback(
-    (preferredCurrency?: CurrencyType) => {
-      const curr = preferredCurrency || finance.activeCurrency;
-      modals.openManualModal(curr);
-      const matchingWallet = finance.wallets.find((w) => w.currency === curr);
-      if (matchingWallet) {
-        modals.setSelectedWalletId(matchingWallet.id);
-      } else {
-        modals.setSelectedWalletId('');
-      }
-      modals.setSelectedPocketId('');
-    },
-    [finance.activeCurrency, finance.wallets, modals]
-  );
-
-  // Keep the selected category valid whenever the transaction type changes
-  const handleChangeManType = useCallback(
-    (nextType: 'income' | 'expense') => {
-      modals.setManType(nextType);
-      const stillValid = finance.categories.some(
-        (c) => c.type === nextType && c.name.toLowerCase() === modals.manCategory.toLowerCase()
-      );
-      if (!stillValid) {
-        const firstMatch = finance.categories.find((c) => c.type === nextType);
-        if (firstMatch) modals.setManCategory(firstMatch.name);
-      }
-    },
-    [finance.categories, modals]
-  );
 
   // Save scanned receipt transaction
   const handleSaveScanTransaction = async (
@@ -838,6 +936,22 @@ function MainApp() {
       return;
     }
 
+    const trimmedTime = (modals.manTime || '').trim();
+    if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(trimmedTime)) {
+      showAlert(
+        'Invalid Time',
+        'Please enter a valid 24-hour time in HH:MM format (e.g. 09:30 or 18:45).',
+        undefined,
+        'warning'
+      );
+      return;
+    }
+    const [timeHours, timeMinutes] = trimmedTime.split(':');
+    const normalizedTime = `${timeHours.padStart(2, '0')}:${timeMinutes}`;
+    if (normalizedTime !== modals.manTime) {
+      modals.setManTime(normalizedTime);
+    }
+
     // Resolve target account strictly matching the selected transaction currency
     let targetWallet = finance.wallets.find((w) => w.id === modals.selectedWalletId);
     if (!targetWallet || targetWallet.currency !== modals.manCurrency) {
@@ -885,7 +999,7 @@ function MainApp() {
       try {
         AppHaptics.heavy();
         const txCurrency = modals.manCurrency;
-        const txTimestamp = buildLocalTimestamp(modals.manDate, modals.manTime);
+        const txTimestamp = buildLocalTimestamp(modals.manDate, normalizedTime);
 
         if (modals.editingTransaction) {
           await updateTransaction(modals.editingTransaction.id, {
@@ -955,35 +1069,35 @@ function MainApp() {
   };
 
   const handleCurrencyChange = useCallback((c: CurrencyType) => {
-    if (finance.activeCurrency === c) return;
-    finance.setActiveCurrency(c);
-    modals.setManCurrency(c);
-  }, [finance, modals]);
+    if (activeCurrency === c) return;
+    setActiveCurrency(c);
+    setManCurrency(c);
+  }, [activeCurrency, setActiveCurrency, setManCurrency]);
 
   const handleOpenSettings = useCallback(() => {
-    modals.setSettingsModalVisible(true);
-  }, [modals]);
+    setSettingsModalVisible(true);
+  }, [setSettingsModalVisible]);
 
   const handleNavigateToAccounts = useCallback(() => {
-    setActiveTab('accounts');
-  }, []);
+    handleSelectTab('accounts');
+  }, [handleSelectTab]);
 
   const handleNavigateToHistory = useCallback(() => {
-    setActiveTab('history');
-  }, []);
+    handleSelectTab('history');
+  }, [handleSelectTab]);
 
   const handleOpenOverviewMonthPicker = useCallback(() => {
-    modals.openMonthPicker('overview');
-  }, [modals]);
+    openMonthPicker('overview');
+  }, [openMonthPicker]);
 
   const handleOpenTransferModal = useCallback(() => {
-    modals.setEditingTransfer(null);
-    modals.setTransferModalVisible(true);
-  }, [modals]);
+    setEditingTransfer(null);
+    setTransferModalVisible(true);
+  }, [setEditingTransfer, setTransferModalVisible]);
 
   const handleCloseTransferModal = useCallback(() => {
-    modals.closeTransferModal();
-  }, [modals]);
+    closeTransferModal();
+  }, [closeTransferModal]);
 
   const handleEditFromTxDetail = useCallback(
     (tx: Transaction) => {
@@ -995,13 +1109,13 @@ function MainApp() {
 
       if (isTransfer) {
         const pairedTx = tx.transferPairId
-          ? finance.transactions.find((t) => t.id === tx.transferPairId)
+          ? transactions.find((t) => t.id === tx.transferPairId)
           : undefined;
         const outTx = tx.type === 'expense' ? tx : pairedTx;
         const inTx = tx.type === 'income' ? tx : pairedTx;
 
         if (!outTx || !inTx) {
-          modals.showAlert(
+          showAlert(
             'Cannot Edit Transfer',
             'Only paired account transfers with both source and destination legs can be edited.',
             undefined,
@@ -1022,7 +1136,7 @@ function MainApp() {
           )
           .join(' • ');
 
-        modals.openEditTransfer({
+        openEditTransfer({
           txId: tx.id,
           fromWalletId: outTx.walletId,
           toWalletId: inTx.walletId,
@@ -1036,47 +1150,47 @@ function MainApp() {
         return;
       }
 
-      modals.handleStartEditTransaction(tx);
+      handleStartEditTransaction(tx);
     },
-    [finance.transactions, modals]
+    [transactions, showAlert, openEditTransfer, handleStartEditTransaction]
   );
 
   const handleCloseSettingsModal = useCallback(() => {
-    modals.setSettingsModalVisible(false);
-  }, [modals]);
+    setSettingsModalVisible(false);
+  }, [setSettingsModalVisible]);
 
   const handleOpenAccountDetail = useCallback((w: Wallet) => {
-    modals.setSelectedWalletId(w.id);
-    modals.openAccountDetail(w);
-  }, [modals]);
+    setSelectedWalletId(w.id);
+    openAccountDetail(w);
+  }, [setSelectedWalletId, openAccountDetail]);
 
   const handleOpenAddAccount = useCallback(() => {
-    modals.openAddAccountModal(finance.activeCurrency, 'none');
-  }, [modals, finance.activeCurrency]);
+    openAddAccountModal(activeCurrency, 'none');
+  }, [openAddAccountModal, activeCurrency]);
 
   const handleSelectTransaction = useCallback((tx: Transaction) => {
-    modals.setSelectedTx(tx);
-  }, [modals]);
+    setSelectedTx(tx);
+  }, [setSelectedTx]);
 
   const handleOpenManageOrder = useCallback(() => {
-    modals.setManageOrderModalVisible(true);
-  }, [modals]);
+    setManageOrderModalVisible(true);
+  }, [setManageOrderModalVisible]);
 
   const handleOpenAnalyticsMonthPicker = useCallback(() => {
-    modals.openMonthPicker('analytics');
-  }, [modals]);
+    openMonthPicker('analytics');
+  }, [openMonthPicker]);
 
   const handleOpenCategoryManagerAnalytics = useCallback((type?: any) => {
-    modals.openCategoryManager(type || 'expense', false, 'none');
-  }, [modals]);
+    openCategoryManager(type || 'expense', false, 'none');
+  }, [openCategoryManager]);
 
   const handleOpenSetBudget = useCallback(() => {
-    const initStr = finance.monthlyBudget > 0 ? formatCurrencyInput(String(finance.monthlyBudget), finance.activeCurrency) : '';
-    modals.openSetBudget(initStr);
-  }, [finance.monthlyBudget, finance.activeCurrency, modals]);
+    const initStr = monthlyBudget > 0 ? formatCurrencyInput(String(monthlyBudget), activeCurrency) : '';
+    openSetBudget(initStr);
+  }, [monthlyBudget, activeCurrency, openSetBudget]);
 
   const handleClearSearch = useCallback(() => setSearchQuery(''), []);
-  const handleOpenHistoryMonthPicker = useCallback(() => modals.openMonthPicker('history'), [modals]);
+  const handleOpenHistoryMonthPicker = useCallback(() => openMonthPicker('history'), [openMonthPicker]);
   const handleResetAllHistoryFilters = useCallback(() => {
     setSearchQuery('');
     setHistoryFilter('all');
@@ -1100,126 +1214,167 @@ function MainApp() {
   }
 
   return (
-    <View style={[styles.mainWrapper, { paddingTop: Math.max(insets.top, 14) }]}>
-      <StatusBar barStyle="dark-content" />
+    <View style={styles.appRoot}>
+      <View style={[styles.mainWrapper, { paddingTop: Math.max(insets.top, 14) }]}>
+        <StatusBar barStyle="dark-content" />
 
-      {/* Top App Bar */}
-      <AppHeader
-        privacyMode={privacyMode}
-        onTogglePrivacy={handleTogglePrivacy}
-        onOpenSettings={handleOpenSettings}
-      />
-
-      {/* Main Tab Screen Content */}
-      {activeTab === 'history' ? (
-        <HistoryTab
-          transactions={filteredTransactions}
-          activeCurrency={finance.activeCurrency}
+        {/* Top App Bar */}
+        <AppHeader
           privacyMode={privacyMode}
-          searchQuery={searchQuery}
-          historyFilter={historyFilter}
-          historyCategory={historyCategory}
-          historyMonth={historyMonth}
-          historyLentFilter={historyLentFilter}
-          outstandingLentCount={finance.outstandingLentSummary.count}
-          outstandingLentTotal={finance.outstandingLentSummary.totalOutstanding}
-          availableCategories={finance.availableCategories}
-          availableExpenseCategories={finance.availableExpenseCategories}
-          availableIncomeCategories={finance.availableIncomeCategories}
-          availableMonths={finance.availableMonths}
-          historyFlowStats={historyFlowStats}
-          onChangeSearch={setSearchQuery}
-          onClearSearch={handleClearSearch}
-          onChangeFilter={handleHistoryFilterChange}
-          onChangeCategory={setHistoryCategory}
-          onChangeMonth={setHistoryMonth}
-          onChangeLentFilter={handleChangeLentFilter}
-          onOpenMonthPicker={handleOpenHistoryMonthPicker}
-          onResetAllFilters={handleResetAllHistoryFilters}
-          onOpenManualModal={handleOpenManualTransaction}
-          onSelectTransaction={handleSelectTransaction}
-          onDeleteTransactionsBatch={finance.handleDeleteTransactionsBatch}
-          getCategoryIconName={finance.getCategoryIconName}
-          getPocketName={finance.getPocketName}
+          onTogglePrivacy={handleTogglePrivacy}
+          onOpenSettings={handleOpenSettings}
         />
-      ) : (
-        <ScrollView
-          contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-          {activeTab === 'overview' && (
-            <OverviewTab
-              wallets={finance.wallets}
-              transactions={finance.transactions}
-              activeCurrency={finance.activeCurrency}
-              privacyMode={privacyMode}
-              selectedMonth={finance.selectedMonth}
-              availableMonths={finance.availableMonths}
-              scanning={scanning}
-              onNavigateToAccounts={handleNavigateToAccounts}
-              onNavigateToHistory={handleNavigateToHistory}
-              onSelectMonth={finance.setSelectedMonth}
-              onOpenMonthPicker={handleOpenOverviewMonthPicker}
-              onOpenTransferModal={handleOpenTransferModal}
-              onOpenManualModal={handleOpenManualTransaction}
-              onScanReceipt={handleScanReceipt}
-              onPickFromGallery={handlePickFromGallery}
-              onImportStatement={() => handlePickStatement()}
-              onOpenAccountDetail={handleOpenAccountDetail}
-              onOpenAddAccount={handleOpenAddAccount}
-              onSelectTransaction={handleSelectTransaction}
-              onCurrencyChange={handleCurrencyChange}
-              getCategoryIconName={finance.getCategoryIconName}
-              getPocketName={finance.getPocketName}
-            />
+
+        {/* Persistent Tab Screens (lazily mounted on first visit so scroll & input state survive switches) */}
+        <View style={styles.tabsArea}>
+          {visitedTabs.overview && (
+            <View
+              style={[styles.tabPane, activeTab !== 'overview' && styles.tabPaneHidden]}
+              pointerEvents={activeTab === 'overview' ? 'auto' : 'none'}
+            >
+              <ScrollView
+                style={styles.tabScroll}
+                contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              >
+                <OverviewTab
+                  wallets={finance.wallets}
+                  transactions={finance.transactions}
+                  activeCurrency={finance.activeCurrency}
+                  privacyMode={privacyMode}
+                  selectedMonth={finance.selectedMonth}
+                  availableMonths={finance.availableMonths}
+                  scanning={scanning}
+                  onNavigateToAccounts={handleNavigateToAccounts}
+                  onNavigateToHistory={handleNavigateToHistory}
+                  onSelectMonth={setSelectedMonth}
+                  onOpenMonthPicker={handleOpenOverviewMonthPicker}
+                  onOpenTransferModal={handleOpenTransferModal}
+                  onOpenManualModal={handleOpenManualTransaction}
+                  onScanReceipt={handleScanReceipt}
+                  onPickFromGallery={handlePickFromGallery}
+                  onImportStatement={handlePickStatementForTab}
+                  onOpenAccountDetail={handleOpenAccountDetail}
+                  onOpenAddAccount={handleOpenAddAccount}
+                  onSelectTransaction={handleSelectTransaction}
+                  onCurrencyChange={handleCurrencyChange}
+                  getCategoryIconName={getCategoryIconName}
+                  getPocketName={getPocketName}
+                />
+              </ScrollView>
+            </View>
           )}
 
-          {activeTab === 'accounts' && (
-            <AccountsTab
-              wallets={finance.wallets}
-              activeCurrency={finance.activeCurrency}
-              privacyMode={privacyMode}
-              allocationPlans={finance.allocationPlans}
-              onOpenAccountDetail={handleOpenAccountDetail}
-              onOpenAddAccount={handleOpenAddAccount}
-              onImportStatement={() => handlePickStatement()}
-              onOpenManageOrder={handleOpenManageOrder}
-              onCreateAllocationPlan={modals.openCreateAllocationPlan}
-              onEditAllocationPlan={modals.openEditAllocationPlan}
-              onDuplicateAllocationPlan={finance.handleDuplicateAllocationPlan}
-              onApplyAllocationPlan={modals.openApplyPlan}
-            />
+          {visitedTabs.accounts && (
+            <View
+              style={[styles.tabPane, activeTab !== 'accounts' && styles.tabPaneHidden]}
+              pointerEvents={activeTab === 'accounts' ? 'auto' : 'none'}
+            >
+              <ScrollView
+                style={styles.tabScroll}
+                contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              >
+                <AccountsTab
+                  wallets={finance.wallets}
+                  activeCurrency={finance.activeCurrency}
+                  privacyMode={privacyMode}
+                  allocationPlans={finance.allocationPlans}
+                  onOpenAccountDetail={handleOpenAccountDetail}
+                  onOpenAddAccount={handleOpenAddAccount}
+                  onImportStatement={handlePickStatementForTab}
+                  onOpenManageOrder={handleOpenManageOrder}
+                  onCreateAllocationPlan={openCreateAllocationPlan}
+                  onEditAllocationPlan={openEditAllocationPlan}
+                  onDuplicateAllocationPlan={handleDuplicateAllocationPlan}
+                  onApplyAllocationPlan={openApplyPlan}
+                />
+              </ScrollView>
+            </View>
           )}
 
-          {activeTab === 'analytics' && (
-            <AnalyticsTab
-              transactions={finance.transactions}
-              activeCurrency={finance.activeCurrency}
-              privacyMode={privacyMode}
-              totalBalance={finance.totalBalance}
-              selectedMonth={finance.selectedMonth}
-              budgetMonthKey={finance.budgetMonthKey}
-              monthlyBudget={finance.monthlyBudget}
-              onSelectMonth={finance.setSelectedMonth}
-              onOpenMonthPicker={handleOpenAnalyticsMonthPicker}
-              onOpenCategoryManager={handleOpenCategoryManagerAnalytics}
-              onOpenSetBudget={handleOpenSetBudget}
-              onCurrencyChange={handleCurrencyChange}
-              getCategoryIconName={finance.getCategoryIconName}
-            />
+          {visitedTabs.history && (
+            <View
+              style={[styles.tabPane, activeTab !== 'history' && styles.tabPaneHidden]}
+              pointerEvents={activeTab === 'history' ? 'auto' : 'none'}
+            >
+              <HistoryTab
+                transactions={filteredTransactions}
+                activeCurrency={finance.activeCurrency}
+                privacyMode={privacyMode}
+                searchQuery={searchQuery}
+                historyFilter={historyFilter}
+                historyCategory={historyCategory}
+                historyMonth={historyMonth}
+                historyLentFilter={historyLentFilter}
+                outstandingLentCount={finance.outstandingLentSummary.count}
+                outstandingLentTotal={finance.outstandingLentSummary.totalOutstanding}
+                availableCategories={finance.availableCategories}
+                availableExpenseCategories={finance.availableExpenseCategories}
+                availableIncomeCategories={finance.availableIncomeCategories}
+                availableMonths={finance.availableMonths}
+                historyFlowStats={historyFlowStats}
+                onChangeSearch={setSearchQuery}
+                onClearSearch={handleClearSearch}
+                onChangeFilter={handleHistoryFilterChange}
+                onChangeCategory={setHistoryCategory}
+                onChangeMonth={setHistoryMonth}
+                onChangeLentFilter={handleChangeLentFilter}
+                onOpenMonthPicker={handleOpenHistoryMonthPicker}
+                onResetAllFilters={handleResetAllHistoryFilters}
+                onOpenManualModal={handleOpenManualTransaction}
+                onSelectTransaction={handleSelectTransaction}
+                onDeleteTransactionsBatch={handleDeleteTransactionsBatch}
+                getCategoryIconName={getCategoryIconName}
+                getPocketName={getPocketName}
+              />
+            </View>
           )}
-        </ScrollView>
-      )}
 
-      {/* Floating Bottom Navigation Bar */}
-      <BottomTabBar
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        onOpenManualTransaction={handleOpenManualTransaction}
-        bottomInset={insets.bottom}
-      />
+          {visitedTabs.analytics && (
+            <View
+              style={[styles.tabPane, activeTab !== 'analytics' && styles.tabPaneHidden]}
+              pointerEvents={activeTab === 'analytics' ? 'auto' : 'none'}
+            >
+              <ScrollView
+                style={styles.tabScroll}
+                contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              >
+                <AnalyticsTab
+                  transactions={finance.transactions}
+                  activeCurrency={finance.activeCurrency}
+                  privacyMode={privacyMode}
+                  totalBalance={finance.totalBalance}
+                  selectedMonth={finance.selectedMonth}
+                  budgetMonthKey={finance.budgetMonthKey}
+                  monthlyBudget={finance.monthlyBudget}
+                  onSelectMonth={setSelectedMonth}
+                  onOpenMonthPicker={handleOpenAnalyticsMonthPicker}
+                  onOpenCategoryManager={handleOpenCategoryManagerAnalytics}
+                  onOpenSetBudget={handleOpenSetBudget}
+                  onCurrencyChange={handleCurrencyChange}
+                  getCategoryIconName={getCategoryIconName}
+                />
+              </ScrollView>
+            </View>
+          )}
+        </View>
+
+        {/* Floating Bottom Navigation Bar */}
+        <BottomTabBar
+          activeTab={activeTab}
+          onSelectTab={handleSelectTab}
+          onOpenManualTransaction={handleOpenManualTransaction}
+          bottomInset={insets.bottom}
+        />
+      </View>
 
       {/* Scanning Receipt In-Progress Custom Modal */}
       <ScanningReceiptModal
@@ -1649,15 +1804,7 @@ function MainApp() {
         onClose={() => setPinSetupVisible(false)}
       />
 
-      {/* Fullscreen App Lock Screen (rendered on top of app when locked) */}
-      <AppLockScreen
-        visible={isAppLocked}
-        biometricsEnabled={finance.lockSettings.isBiometricsEnabled}
-        biometricType={finance.biometricCaps.biometricType}
-        onUnlock={() => setIsAppLocked(false)}
-      />
-
-      {/* Custom Global Alert Dialog */}
+      {/* Custom Global Alert Dialog (portaled into OverlayHost) */}
       <CustomAlertModal
         visible={modals.alertConfig.visible}
         alertId={modals.alertConfig.id}
@@ -1667,14 +1814,41 @@ function MainApp() {
         type={modals.alertConfig.type}
         onClose={modals.hideAlert}
       />
+
+      {/* Portal Host for stacked alerts, scanner overlay, and nested sheet pickers */}
+      <OverlayHost />
+
+      {/* Fullscreen App Lock Screen (rendered last so it covers any active sheet or alert) */}
+      <AppLockScreen
+        visible={isAppLocked}
+        biometricsEnabled={finance.lockSettings.isBiometricsEnabled}
+        biometricType={finance.biometricCaps.biometricType}
+        onUnlock={() => setIsAppLocked(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  appRoot: {
+    flex: 1,
+    backgroundColor: Palette.canvas,
+  },
   mainWrapper: {
     flex: 1,
     backgroundColor: Palette.canvas,
+  },
+  tabsArea: {
+    flex: 1,
+  },
+  tabPane: {
+    flex: 1,
+  },
+  tabPaneHidden: {
+    display: 'none',
+  },
+  tabScroll: {
+    flex: 1,
   },
   scrollBody: {
     paddingHorizontal: 20,

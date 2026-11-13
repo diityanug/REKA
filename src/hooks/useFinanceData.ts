@@ -528,561 +528,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   }, [availableExpenseCategories, availableIncomeCategories]);
 
   // CRUD & Actions
-  const handleCreateAccount = async (params: {
-    name: string;
-    type: AccountType;
-    balance: string;
-    currency: CurrencyType;
-    accountNumber: string;
-  }): Promise<string> => {
-    const trimmedName = params.name.trim();
-    if (!trimmedName) {
-      showAlert('Missing Account Name', 'Please enter a name for your account.', undefined, 'warning');
-      throw new Error('Missing account name');
-    }
-    const parsedBal = parseAmount(params.balance, params.currency);
-    const initialBal = isNaN(parsedBal) ? 0 : parsedBal;
-
-    const usedColors = [...wallets.map((w) => w.color), ...pockets.map((p) => p.color)];
-    const assignedColor = getUniqueEntityColor(usedColors);
-
-    try {
-      const createdId = await createWallet({
-        name: trimmedName,
-        type: params.type,
-        balance: initialBal,
-        currency: params.currency,
-        color: assignedColor,
-        accountNumber: params.accountNumber.trim() || 'Main',
-      });
-      setActiveCurrency(params.currency);
-      await loadData();
-      AppHaptics.success();
-      return createdId;
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to create account.', undefined, 'error');
-      throw err;
-    }
-  };
-
-  const handleRenameWallet = async (
-    walletId: string,
-    newName: string,
-    newType?: AccountType | string,
-    newAccountNumber?: string
-  ) => {
-    try {
-      await updateWalletName(walletId, newName, newType, newAccountNumber);
-      AppHaptics.success();
-      await loadData();
-    } catch (err: any) {
-      showAlert('Error', err?.message || 'Could not update account.', undefined, 'error');
-    }
-  };
-
-  const handleAdjustWalletBalance = async (walletId: string, newBalance: number) => {
-    try {
-      await adjustWalletBalance(walletId, newBalance);
-      AppHaptics.success();
-      await loadData();
-    } catch (err: any) {
-      showAlert('Error', err?.message || 'Could not adjust account balance.', undefined, 'error');
-    }
-  };
-
-  const handleDeleteAccount = (wallet: Wallet, onDeleted?: () => void) => {
-    if (wallets.length <= 1) {
-      showAlert(
-        'Cannot Delete Account',
-        'This is your only account. Create another account first so the app always has somewhere to record transactions.',
-        undefined,
-        'warning'
-      );
-      return;
-    }
-
-    if (Math.abs(wallet.balance) > 0.005) {
-      showAlert(
-        'Cannot Delete Account',
-        `"${wallet.name}" still has a balance of ${formatCurrency(wallet.balance, wallet.currency)}. Please transfer or clear all funds until the balance is 0 before deleting this account.`,
-        undefined,
-        'warning'
-      );
-      return;
-    }
-
-    const activePocketsWithBalance = pockets.filter(
-      (p) => p.walletId === wallet.id && Math.abs(p.balance) > 0.005
-    );
-    if (activePocketsWithBalance.length > 0) {
-      showAlert(
-        'Cannot Delete Account',
-        `"${wallet.name}" still has pockets holding allocated funds. Please release all pocket funds first.`,
-        undefined,
-        'warning'
-      );
-      return;
-    }
-
-    const unsettledLoans = transactions.filter(
-      (t) => t.walletId === wallet.id && t.isLent && t.lentStatus !== 'settled'
-    );
-    if (unsettledLoans.length > 0) {
-      showAlert(
-        'Cannot Delete Account',
-        `"${wallet.name}" still has ${unsettledLoans.length} unsettled loan or debt record${unsettledLoans.length === 1 ? '' : 's'}. Please settle them completely before deleting this account.`,
-        undefined,
-        'warning'
-      );
-      return;
-    }
-
-    const txCount = transactions.filter((t) => t.walletId === wallet.id).length;
-
-    showAlert(
-      'Delete Account',
-      txCount > 0
-        ? `Remove "${wallet.name}"? Its ${txCount} historical transaction${txCount === 1 ? '' : 's'} will be preserved in History as "${wallet.name} (Deleted Acc)" and locked as read-only.`
-        : `Remove "${wallet.name}" from this device? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteWallet(wallet.id);
-              if (onDeleted) onDeleted();
-              await loadData();
-              AppHaptics.light();
-            } catch (err: any) {
-              showAlert('Error', err.message || 'Could not delete account.', undefined, 'error');
-            }
-          },
-        },
-      ],
-      'confirm'
-    );
-  };
-
-  const handleUpdateWalletsOrder = async (orderedIds: string[]) => {
-    try {
-      setWallets((prev) => {
-        const idMap = new Map(prev.map((w) => [w.id, w]));
-        return orderedIds.map((id) => idMap.get(id)).filter((w): w is Wallet => !!w);
-      });
-      await updateWalletsOrder(orderedIds);
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to update account order.', undefined, 'error');
-      await loadData();
-    }
-  };
-
-  const handleCreatePocket = async (params: {
-    walletId: string;
-    name: string;
-    balance: string;
-    target: string;
-    icon: string;
-  }): Promise<string> => {
-    const trimmedName = params.name.trim();
-    if (!trimmedName) {
-      showAlert('Missing Pocket Name', 'Please enter a name for your pocket.', undefined, 'warning');
-      throw new Error('Missing pocket name');
-    }
-    if (!params.walletId) {
-      showAlert('Account Required', 'Please select a main account.', undefined, 'warning');
-      throw new Error('Account required');
-    }
-
-    const parentWallet = wallets.find((w) => w.id === params.walletId);
-    const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
-    const parsedBal = parseAmount(params.balance, pCurrency);
-    const parsedTarget = parseAmount(params.target, pCurrency);
-    const initialBal = isNaN(parsedBal) ? 0 : parsedBal;
-    const targetAmt = isNaN(parsedTarget) ? 0 : parsedTarget;
-
-    const unallocated = getUnallocated(params.walletId);
-    if (initialBal > unallocated + 0.005) {
-      showAlert(
-        'Not Enough Funds',
-        `Only ${formatCurrency(unallocated, pCurrency)} is available in this account. Your starting balance cannot exceed that amount.`,
-        undefined,
-        'warning'
-      );
-      throw new Error('Starting balance exceeds available funds');
-    }
-
-    const usedColors = [...wallets.map((w) => w.color), ...pockets.map((p) => p.color)];
-    const assignedColor = getUniqueEntityColor(usedColors);
-
-    try {
-      const createdId = await createPocket({
-        walletId: params.walletId,
-        name: trimmedName,
-        balance: initialBal,
-        targetAmount: targetAmt,
-        icon: params.icon,
-        color: assignedColor,
-      });
-      await loadData();
-      AppHaptics.success();
-      return createdId;
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to create pocket.', undefined, 'error');
-      throw err;
-    }
-  };
-
-  const handleRenamePocket = async (
-    pocketId: string,
-    newName: string,
-    newIcon?: string
-  ) => {
-    try {
-      await updatePocketName(pocketId, newName, newIcon);
-      AppHaptics.success();
-      await loadData();
-    } catch (err: any) {
-      showAlert('Error', err?.message || 'Could not update pocket.', undefined, 'error');
-    }
-  };
-
-  const handleAdjustPocket = async (
-    targetPocket: Pocket,
-    mode: 'allocate' | 'release',
-    amountStr: string
-  ): Promise<boolean> => {
-    const parentWallet = wallets.find((w) => w.id === targetPocket.walletId);
-    const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
-    const amt = parseAmount(amountStr, pCurrency);
-    if (isNaN(amt) || amt <= 0) {
-      showAlert('Invalid Amount', 'Please enter a valid amount.', undefined, 'warning');
-      return false;
-    }
-
-    if (mode === 'allocate') {
-      const unallocated = getUnallocated(targetPocket.walletId);
-      if (amt > unallocated + 0.005) {
-        showAlert(
-          'Not Enough Funds',
-          `Only ${formatCurrency(unallocated, pCurrency)} is available to allocate from this account.`,
-          undefined,
-          'warning'
-        );
-        return false;
-      }
-    } else if (amt > targetPocket.balance + 0.005) {
-      showAlert(
-        'Not Enough Funds',
-        `You can release at most ${formatCurrency(targetPocket.balance, pCurrency)} from this pocket.`,
-        undefined,
-        'warning'
-      );
-      return false;
-    }
-
-    try {
-      const delta = mode === 'allocate' ? amt : -amt;
-      await adjustPocketBalance(targetPocket.id, delta);
-      await loadData();
-      AppHaptics.success();
-      return true;
-    } catch (err: any) {
-      if (err instanceof InsufficientFundsError) {
-        showAlert(
-          'Not Enough Funds',
-          `Only ${formatCurrency(err.available, pCurrency)} is available for this action.`,
-          undefined,
-          'warning'
-        );
-      } else {
-        showAlert('Error', err.message || 'Could not update pocket balance.', undefined, 'error');
-      }
-      return false;
-    }
-  };
-
-  const handleDirectAdjustPocketBalance = async (
-    pocket: Pocket,
-    newBalance: number
-  ): Promise<boolean> => {
-    try {
-      await setPocketBalanceDirect(pocket.id, newBalance);
-      await loadData();
-      AppHaptics.success();
-      return true;
-    } catch (err: any) {
-      showAlert('Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
-      return false;
-    }
-  };
-
-  const handleDeletePocket = (pocket: Pocket) => {
-    const parentWallet = wallets.find((w) => w.id === pocket.walletId);
-    const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
-
-    if (Math.abs(pocket.balance) > 0.005) {
-      showAlert(
-        'Cannot Delete Pocket',
-        `"${pocket.name}" still has a balance of ${formatCurrency(pocket.balance, pCurrency)}. Please release or move all funds to the main account until the pocket balance is 0 before deleting it.`,
-        undefined,
-        'warning'
-      );
-      return;
-    }
-
-    const unsettledPocketLoans = transactions.filter(
-      (t) => t.pocketId === pocket.id && t.isLent && t.lentStatus !== 'settled'
-    );
-    if (unsettledPocketLoans.length > 0) {
-      showAlert(
-        'Cannot Delete Pocket',
-        `"${pocket.name}" still has ${unsettledPocketLoans.length} unsettled loan or debt record${unsettledPocketLoans.length === 1 ? '' : 's'}. Please settle them completely before deleting this pocket.`,
-        undefined,
-        'warning'
-      );
-      return;
-    }
-
-    const txCount = transactions.filter((t) => t.pocketId === pocket.id).length;
-
-    showAlert(
-      'Delete Pocket',
-      txCount > 0
-        ? `Remove "${pocket.name}"? Its ${txCount} historical transaction${txCount === 1 ? '' : 's'} will be preserved in History as "${pocket.name} (Deleted Pocket)" and locked as read-only.`
-        : `Remove "${pocket.name}" from this account?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deletePocket(pocket.id);
-              await loadData();
-              AppHaptics.light();
-            } catch (err: any) {
-              showAlert('Error', err.message || 'Could not delete pocket.', undefined, 'error');
-            }
-          },
-        },
-      ],
-      'confirm'
-    );
-  };
-
-  const handleApplyAllocationPlan = async (
-    walletId: string,
-    distributions: { pocketId: string; amount: number }[]
-  ): Promise<boolean> => {
-    try {
-      AppHaptics.heavy();
-      await applyAllocationPlanToWallet(walletId, distributions);
-      await loadData();
-      AppHaptics.success();
-      showAlert(
-        'Allocation Applied',
-        'Funds have been distributed to the selected pockets successfully.',
-        undefined,
-        'success'
-      );
-      return true;
-    } catch (err: any) {
-      showAlert('Allocation Error', err.message || 'Failed to distribute funds to pockets.', undefined, 'error');
-      return false;
-    }
-  };
-
-  const handleCreateCategory = async (params: {
-    name: string;
-    type: TransactionType;
-    icon: string;
-  }): Promise<boolean> => {
-    const trimmed = params.name.trim();
-    if (!trimmed) {
-      showAlert('Missing Name', 'Please enter a category name.', undefined, 'warning');
-      return false;
-    }
-    try {
-      await createCategory({
-        name: trimmed,
-        type: params.type,
-        icon: params.icon,
-        color: params.type === 'expense' ? '#CC785C' : '#5DB8A6',
-      });
-      await loadData();
-      AppHaptics.success();
-      return true;
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to create category.', undefined, 'error');
-      return false;
-    }
-  };
-
-  const handleDeleteCategory = (id: string, name: string) => {
-    showAlert('Delete Category', `Remove "${name}" from your categories?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await deleteCategory(id);
-            await loadData();
-            AppHaptics.light();
-          } catch (err: any) {
-            showAlert('Cannot Delete', err.message, undefined, 'error');
-          }
-        },
-      },
-    ], 'confirm');
-  };
-
-  const handleExecuteTransfer = async (
-    fromWalletId: string,
-    toWalletId: string,
-    amount: number,
-    notes: string,
-    targetAmount?: number,
-    exchangeRate?: number,
-    fromPocketId?: string,
-    toPocketId?: string
-  ) => {
-    try {
-      await transferFunds({
-        fromWalletId,
-        toWalletId,
-        fromPocketId,
-        toPocketId,
-        amount,
-        targetAmount,
-        exchangeRate,
-        currency: activeCurrency,
-        notes,
-      });
-      if (exchangeRate && exchangeRate > 0) {
-        await handleSaveExchangeRate(exchangeRate);
-      }
-      await loadData();
-      AppHaptics.success();
-    } catch (err: any) {
-      throw err;
-    }
-  };
-
-  const handleUpdateTransfer = async (params: UpdateTransferFundsParams) => {
-    try {
-      await updateTransferFunds(params);
-      if (params.exchangeRate && params.exchangeRate > 0) {
-        await handleSaveExchangeRate(params.exchangeRate);
-      }
-      await loadData();
-      AppHaptics.success();
-    } catch (err: any) {
-      throw err;
-    }
-  };
-
-  const handleDeleteTransaction = (tx: Transaction, onDeleted?: () => void) => {
-    const isTransfer =
-      tx.category === 'Transfer' ||
-      tx.paymentMethod === 'Transfer' ||
-      /^Transfer (to|from)\s+/i.test(tx.merchantName);
-
-    const alertTitle = isTransfer ? 'Delete Transfer' : 'Delete Transaction';
-    const alertMessage = isTransfer
-      ? `Delete this transfer record? The amount will be reversed for both source and destination accounts.`
-      : `Delete transaction from "${tx.merchantName}"? The amount will be reverted to your balance.`;
-
-    showAlert(
-      alertTitle,
-      alertMessage,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteTransaction(tx.id);
-              if (onDeleted) onDeleted();
-              await loadData();
-              AppHaptics.light();
-            } catch (err: any) {
-              showAlert('Error', err.message || 'Could not delete transaction.', undefined, 'error');
-            }
-          },
-        },
-      ],
-      'confirm'
-    );
-  };
-
-  const handleDeleteTransactionsBatch = (ids: string[], onDeleted?: () => void) => {
-    if (!ids || ids.length === 0) return;
-    showAlert(
-      `Delete ${ids.length} Transaction${ids.length > 1 ? 's' : ''}?`,
-      'This will restore all corresponding account balances and cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              if (onDeleted) onDeleted();
-              await deleteTransactionsBatch(ids);
-              await loadData();
-              AppHaptics.success();
-            } catch (err: any) {
-              showAlert('Error', err.message || 'Failed to delete selected transactions.', undefined, 'error');
-            }
-          },
-        },
-      ],
-      'confirm'
-    );
-  };
-
-  const handleRecordLentRepayment = async (params: RecordLentRepaymentParams): Promise<string> => {
-    try {
-      const repaymentTxId = await recordLentRepayment(params);
-      await loadData();
-      AppHaptics.success();
-      return repaymentTxId;
-    } catch (err: any) {
-      showAlert('Repayment Notice', toUserFriendlyErrorMessage(err, 'general'), undefined, 'error');
-      throw err;
-    }
-  };
-
-  const getLentAuditTrail = useCallback(async (parentTxId: string): Promise<Transaction[]> => {
-    return await getLentRepayments(parentTxId);
-  }, []);
-
-  const handleSaveBudget = async (amount: number) => {
-    try {
-      AppHaptics.heavy();
-      await setMonthlyBudget(amount, activeCurrency, budgetMonthKey);
-      setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: amount }));
-      AppHaptics.success();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to save budget.', undefined, 'error');
-    }
-  };
-
-  const handleRemoveBudget = async () => {
-    try {
-      AppHaptics.light();
-      await setMonthlyBudget(0, activeCurrency, budgetMonthKey);
-      setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: 0 }));
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to remove budget.', undefined, 'error');
-    }
-  };
-
-  const handleSaveExchangeRate = async (rate: number) => {
+  const handleSaveExchangeRate = useCallback(async (rate: number) => {
     if (!isFinite(rate) || rate <= 0 || rate > 1e9) return;
     setExchangeRate(rate);
     try {
@@ -1090,7 +536,618 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     } catch {
       // rate persistence is a convenience, never block a transfer on it
     }
-  };
+  }, []);
+
+  const handleCreateAccount = useCallback(
+    async (params: {
+      name: string;
+      type: AccountType;
+      balance: string;
+      currency: CurrencyType;
+      accountNumber: string;
+    }): Promise<string> => {
+      const trimmedName = params.name.trim();
+      if (!trimmedName) {
+        showAlert('Missing Account Name', 'Please enter a name for your account.', undefined, 'warning');
+        throw new Error('Missing account name');
+      }
+      const parsedBal = parseAmount(params.balance, params.currency);
+      const initialBal = isNaN(parsedBal) ? 0 : parsedBal;
+
+      const usedColors = [...wallets.map((w) => w.color), ...pockets.map((p) => p.color)];
+      const assignedColor = getUniqueEntityColor(usedColors);
+
+      try {
+        const createdId = await createWallet({
+          name: trimmedName,
+          type: params.type,
+          balance: initialBal,
+          currency: params.currency,
+          color: assignedColor,
+          accountNumber: params.accountNumber.trim() || 'Main',
+        });
+        setActiveCurrency(params.currency);
+        await loadData();
+        AppHaptics.success();
+        return createdId;
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to create account.', undefined, 'error');
+        throw err;
+      }
+    },
+    [wallets, pockets, showAlert, loadData]
+  );
+
+  const handleRenameWallet = useCallback(
+    async (
+      walletId: string,
+      newName: string,
+      newType?: AccountType | string,
+      newAccountNumber?: string
+    ) => {
+      try {
+        await updateWalletName(walletId, newName, newType, newAccountNumber);
+        AppHaptics.success();
+        await loadData();
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Could not update account.', undefined, 'error');
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleAdjustWalletBalance = useCallback(
+    async (walletId: string, newBalance: number) => {
+      try {
+        await adjustWalletBalance(walletId, newBalance);
+        AppHaptics.success();
+        await loadData();
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Could not adjust account balance.', undefined, 'error');
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleDeleteAccount = useCallback(
+    (wallet: Wallet, onDeleted?: () => void) => {
+      if (wallets.length <= 1) {
+        showAlert(
+          'Cannot Delete Account',
+          'This is your only account. Create another account first so the app always has somewhere to record transactions.',
+          undefined,
+          'warning'
+        );
+        return;
+      }
+
+      if (Math.abs(wallet.balance) > 0.005) {
+        showAlert(
+          'Cannot Delete Account',
+          `"${wallet.name}" still has a balance of ${formatCurrency(wallet.balance, wallet.currency)}. Please transfer or clear all funds until the balance is 0 before deleting this account.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+
+      const activePocketsWithBalance = pockets.filter(
+        (p) => p.walletId === wallet.id && Math.abs(p.balance) > 0.005
+      );
+      if (activePocketsWithBalance.length > 0) {
+        showAlert(
+          'Cannot Delete Account',
+          `"${wallet.name}" still has pockets holding allocated funds. Please release all pocket funds first.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+
+      const unsettledLoans = transactions.filter(
+        (t) => t.walletId === wallet.id && t.isLent && t.lentStatus !== 'settled'
+      );
+      if (unsettledLoans.length > 0) {
+        showAlert(
+          'Cannot Delete Account',
+          `"${wallet.name}" still has ${unsettledLoans.length} unsettled loan or debt record${unsettledLoans.length === 1 ? '' : 's'}. Please settle them completely before deleting this account.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+
+      const txCount = transactions.filter((t) => t.walletId === wallet.id).length;
+
+      showAlert(
+        'Delete Account',
+        txCount > 0
+          ? `Remove "${wallet.name}"? Its ${txCount} historical transaction${txCount === 1 ? '' : 's'} will be preserved in History as "${wallet.name} (Deleted Acc)" and locked as read-only.`
+          : `Remove "${wallet.name}" from this device? This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteWallet(wallet.id);
+                if (onDeleted) onDeleted();
+                await loadData();
+                AppHaptics.light();
+              } catch (err: any) {
+                showAlert('Error', err.message || 'Could not delete account.', undefined, 'error');
+              }
+            },
+          },
+        ],
+        'confirm'
+      );
+    },
+    [wallets, pockets, transactions, showAlert, loadData]
+  );
+
+  const handleUpdateWalletsOrder = useCallback(
+    async (orderedIds: string[]) => {
+      try {
+        setWallets((prev) => {
+          const idMap = new Map(prev.map((w) => [w.id, w]));
+          return orderedIds.map((id) => idMap.get(id)).filter((w): w is Wallet => !!w);
+        });
+        await updateWalletsOrder(orderedIds);
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to update account order.', undefined, 'error');
+        await loadData();
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleCreatePocket = useCallback(
+    async (params: {
+      walletId: string;
+      name: string;
+      balance: string;
+      target: string;
+      icon: string;
+    }): Promise<string> => {
+      const trimmedName = params.name.trim();
+      if (!trimmedName) {
+        showAlert('Missing Pocket Name', 'Please enter a name for your pocket.', undefined, 'warning');
+        throw new Error('Missing pocket name');
+      }
+      if (!params.walletId) {
+        showAlert('Account Required', 'Please select a main account.', undefined, 'warning');
+        throw new Error('Account required');
+      }
+
+      const parentWallet = wallets.find((w) => w.id === params.walletId);
+      const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
+      const parsedBal = parseAmount(params.balance, pCurrency);
+      const parsedTarget = parseAmount(params.target, pCurrency);
+      const initialBal = isNaN(parsedBal) ? 0 : parsedBal;
+      const targetAmt = isNaN(parsedTarget) ? 0 : parsedTarget;
+
+      const unallocated = getUnallocated(params.walletId);
+      if (initialBal > unallocated + 0.005) {
+        showAlert(
+          'Not Enough Funds',
+          `Only ${formatCurrency(unallocated, pCurrency)} is available in this account. Your starting balance cannot exceed that amount.`,
+          undefined,
+          'warning'
+        );
+        throw new Error('Starting balance exceeds available funds');
+      }
+
+      const usedColors = [...wallets.map((w) => w.color), ...pockets.map((p) => p.color)];
+      const assignedColor = getUniqueEntityColor(usedColors);
+
+      try {
+        const createdId = await createPocket({
+          walletId: params.walletId,
+          name: trimmedName,
+          balance: initialBal,
+          targetAmount: targetAmt,
+          icon: params.icon,
+          color: assignedColor,
+        });
+        await loadData();
+        AppHaptics.success();
+        return createdId;
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to create pocket.', undefined, 'error');
+        throw err;
+      }
+    },
+    [wallets, pockets, activeCurrency, getUnallocated, showAlert, loadData]
+  );
+
+  const handleRenamePocket = useCallback(
+    async (
+      pocketId: string,
+      newName: string,
+      newIcon?: string
+    ) => {
+      try {
+        await updatePocketName(pocketId, newName, newIcon);
+        AppHaptics.success();
+        await loadData();
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Could not update pocket.', undefined, 'error');
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleAdjustPocket = useCallback(
+    async (
+      targetPocket: Pocket,
+      mode: 'allocate' | 'release',
+      amountStr: string
+    ): Promise<boolean> => {
+      const parentWallet = wallets.find((w) => w.id === targetPocket.walletId);
+      const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
+      const amt = parseAmount(amountStr, pCurrency);
+      if (isNaN(amt) || amt <= 0) {
+        showAlert('Invalid Amount', 'Please enter a valid amount.', undefined, 'warning');
+        return false;
+      }
+
+      if (mode === 'allocate') {
+        const unallocated = getUnallocated(targetPocket.walletId);
+        if (amt > unallocated + 0.005) {
+          showAlert(
+            'Not Enough Funds',
+            `Only ${formatCurrency(unallocated, pCurrency)} is available to allocate from this account.`,
+            undefined,
+            'warning'
+          );
+          return false;
+        }
+      } else if (amt > targetPocket.balance + 0.005) {
+        showAlert(
+          'Not Enough Funds',
+          `You can release at most ${formatCurrency(targetPocket.balance, pCurrency)} from this pocket.`,
+          undefined,
+          'warning'
+        );
+        return false;
+      }
+
+      try {
+        const delta = mode === 'allocate' ? amt : -amt;
+        await adjustPocketBalance(targetPocket.id, delta);
+        await loadData();
+        AppHaptics.success();
+        return true;
+      } catch (err: any) {
+        if (err instanceof InsufficientFundsError) {
+          showAlert(
+            'Not Enough Funds',
+            `Only ${formatCurrency(err.available, pCurrency)} is available for this action.`,
+            undefined,
+            'warning'
+          );
+        } else {
+          showAlert('Error', err.message || 'Could not update pocket balance.', undefined, 'error');
+        }
+        return false;
+      }
+    },
+    [wallets, activeCurrency, getUnallocated, showAlert, loadData]
+  );
+
+  const handleDirectAdjustPocketBalance = useCallback(
+    async (
+      pocket: Pocket,
+      newBalance: number
+    ): Promise<boolean> => {
+      try {
+        await setPocketBalanceDirect(pocket.id, newBalance);
+        await loadData();
+        AppHaptics.success();
+        return true;
+      } catch (err: any) {
+        showAlert('Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
+        return false;
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleDeletePocket = useCallback(
+    (pocket: Pocket) => {
+      const parentWallet = wallets.find((w) => w.id === pocket.walletId);
+      const pCurrency = parentWallet ? parentWallet.currency : activeCurrency;
+
+      if (Math.abs(pocket.balance) > 0.005) {
+        showAlert(
+          'Cannot Delete Pocket',
+          `"${pocket.name}" still has a balance of ${formatCurrency(pocket.balance, pCurrency)}. Please release or move all funds to the main account until the pocket balance is 0 before deleting it.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+
+      const unsettledPocketLoans = transactions.filter(
+        (t) => t.pocketId === pocket.id && t.isLent && t.lentStatus !== 'settled'
+      );
+      if (unsettledPocketLoans.length > 0) {
+        showAlert(
+          'Cannot Delete Pocket',
+          `"${pocket.name}" still has ${unsettledPocketLoans.length} unsettled loan or debt record${unsettledPocketLoans.length === 1 ? '' : 's'}. Please settle them completely before deleting this pocket.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+
+      const txCount = transactions.filter((t) => t.pocketId === pocket.id).length;
+
+      showAlert(
+        'Delete Pocket',
+        txCount > 0
+          ? `Remove "${pocket.name}"? Its ${txCount} historical transaction${txCount === 1 ? '' : 's'} will be preserved in History as "${pocket.name} (Deleted Pocket)" and locked as read-only.`
+          : `Remove "${pocket.name}" from this account?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deletePocket(pocket.id);
+                await loadData();
+                AppHaptics.light();
+              } catch (err: any) {
+                showAlert('Error', err.message || 'Could not delete pocket.', undefined, 'error');
+              }
+            },
+          },
+        ],
+        'confirm'
+      );
+    },
+    [wallets, activeCurrency, transactions, showAlert, loadData]
+  );
+
+  const handleApplyAllocationPlan = useCallback(
+    async (
+      walletId: string,
+      distributions: { pocketId: string; amount: number }[]
+    ): Promise<boolean> => {
+      try {
+        AppHaptics.heavy();
+        await applyAllocationPlanToWallet(walletId, distributions);
+        await loadData();
+        AppHaptics.success();
+        showAlert(
+          'Allocation Applied',
+          'Funds have been distributed to the selected pockets successfully.',
+          undefined,
+          'success'
+        );
+        return true;
+      } catch (err: any) {
+        showAlert('Allocation Error', err.message || 'Failed to distribute funds to pockets.', undefined, 'error');
+        return false;
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleCreateCategory = useCallback(
+    async (params: {
+      name: string;
+      type: TransactionType;
+      icon: string;
+    }): Promise<boolean> => {
+      const trimmed = params.name.trim();
+      if (!trimmed) {
+        showAlert('Missing Name', 'Please enter a category name.', undefined, 'warning');
+        return false;
+      }
+      try {
+        await createCategory({
+          name: trimmed,
+          type: params.type,
+          icon: params.icon,
+          color: params.type === 'expense' ? '#CC785C' : '#5DB8A6',
+        });
+        await loadData();
+        AppHaptics.success();
+        return true;
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to create category.', undefined, 'error');
+        return false;
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const handleDeleteCategory = useCallback(
+    (id: string, name: string) => {
+      showAlert('Delete Category', `Remove "${name}" from your categories?`, [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteCategory(id);
+              await loadData();
+              AppHaptics.light();
+            } catch (err: any) {
+              showAlert('Cannot Delete', err.message, undefined, 'error');
+            }
+          },
+        },
+      ], 'confirm');
+    },
+    [showAlert, loadData]
+  );
+
+  const handleExecuteTransfer = useCallback(
+    async (
+      fromWalletId: string,
+      toWalletId: string,
+      amount: number,
+      notes: string,
+      targetAmount?: number,
+      exchangeRate?: number,
+      fromPocketId?: string,
+      toPocketId?: string
+    ) => {
+      try {
+        await transferFunds({
+          fromWalletId,
+          toWalletId,
+          fromPocketId,
+          toPocketId,
+          amount,
+          targetAmount,
+          exchangeRate,
+          currency: activeCurrency,
+          notes,
+        });
+        if (exchangeRate && exchangeRate > 0) {
+          await handleSaveExchangeRate(exchangeRate);
+        }
+        await loadData();
+        AppHaptics.success();
+      } catch (err: any) {
+        throw err;
+      }
+    },
+    [activeCurrency, handleSaveExchangeRate, loadData]
+  );
+
+  const handleUpdateTransfer = useCallback(
+    async (params: UpdateTransferFundsParams) => {
+      try {
+        await updateTransferFunds(params);
+        if (params.exchangeRate && params.exchangeRate > 0) {
+          await handleSaveExchangeRate(params.exchangeRate);
+        }
+        await loadData();
+        AppHaptics.success();
+      } catch (err: any) {
+        throw err;
+      }
+    },
+    [handleSaveExchangeRate, loadData]
+  );
+
+  const handleDeleteTransaction = useCallback(
+    (tx: Transaction, onDeleted?: () => void) => {
+      const isTransfer =
+        tx.category === 'Transfer' ||
+        tx.paymentMethod === 'Transfer' ||
+        /^Transfer (to|from)\s+/i.test(tx.merchantName);
+
+      const alertTitle = isTransfer ? 'Delete Transfer' : 'Delete Transaction';
+      const alertMessage = isTransfer
+        ? `Delete this transfer record? The amount will be reversed for both source and destination accounts.`
+        : `Delete transaction from "${tx.merchantName}"? The amount will be reverted to your balance.`;
+
+      showAlert(
+        alertTitle,
+        alertMessage,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await deleteTransaction(tx.id);
+                if (onDeleted) onDeleted();
+                await loadData();
+                AppHaptics.light();
+              } catch (err: any) {
+                showAlert('Error', err.message || 'Could not delete transaction.', undefined, 'error');
+              }
+            },
+          },
+        ],
+        'confirm'
+      );
+    },
+    [showAlert, loadData]
+  );
+
+  const handleDeleteTransactionsBatch = useCallback(
+    (ids: string[], onDeleted?: () => void) => {
+      if (!ids || ids.length === 0) return;
+      showAlert(
+        `Delete ${ids.length} Transaction${ids.length > 1 ? 's' : ''}?`,
+        'This will restore all corresponding account balances and cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                if (onDeleted) onDeleted();
+                await deleteTransactionsBatch(ids);
+                await loadData();
+                AppHaptics.success();
+              } catch (err: any) {
+                showAlert('Error', err.message || 'Failed to delete selected transactions.', undefined, 'error');
+              }
+            },
+          },
+        ],
+        'confirm'
+      );
+    },
+    [showAlert, loadData]
+  );
+
+  const handleRecordLentRepayment = useCallback(
+    async (params: RecordLentRepaymentParams): Promise<string> => {
+      try {
+        const repaymentTxId = await recordLentRepayment(params);
+        await loadData();
+        AppHaptics.success();
+        return repaymentTxId;
+      } catch (err: any) {
+        showAlert('Repayment Notice', toUserFriendlyErrorMessage(err, 'general'), undefined, 'error');
+        throw err;
+      }
+    },
+    [showAlert, loadData]
+  );
+
+  const getLentAuditTrail = useCallback(async (parentTxId: string): Promise<Transaction[]> => {
+    return await getLentRepayments(parentTxId);
+  }, []);
+
+  const handleSaveBudget = useCallback(
+    async (amount: number) => {
+      try {
+        AppHaptics.heavy();
+        await setMonthlyBudget(amount, activeCurrency, budgetMonthKey);
+        setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: amount }));
+        AppHaptics.success();
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to save budget.', undefined, 'error');
+      }
+    },
+    [activeCurrency, budgetMonthKey, showAlert]
+  );
+
+  const handleRemoveBudget = useCallback(async () => {
+    try {
+      AppHaptics.light();
+      await setMonthlyBudget(0, activeCurrency, budgetMonthKey);
+      setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: 0 }));
+    } catch (err: any) {
+      showAlert('Error', err.message || 'Failed to remove budget.', undefined, 'error');
+    }
+  }, [activeCurrency, budgetMonthKey, showAlert]);
 
   const handleRefreshExchangeRate = useCallback(async (force = true): Promise<ExchangeRateResult | null> => {
     try {
@@ -1109,134 +1166,146 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   }, []);
 
-  const checkPreRestoreSnapshot = async (): Promise<boolean> => {
+  const checkPreRestoreSnapshot = useCallback(async (): Promise<boolean> => {
     try {
       return await hasPreRestoreSnapshot();
     } catch {
       return false;
     }
-  };
+  }, []);
 
-  const handleUndoRestore = async () => {
+  const handleUndoRestore = useCallback(async () => {
     await restorePreRestoreSnapshot();
     await loadData();
-  };
+  }, [loadData]);
 
-  const handleSaveAllocationPlan = async (plan: AllocationPlan) => {
-    try {
-      AppHaptics.heavy();
-      const targetCurrency: CurrencyType = plan.currency || 'IDR';
-      const otherCurrency: CurrencyType = targetCurrency === 'IDR' ? 'USD' : 'IDR';
+  const handleSaveAllocationPlan = useCallback(
+    async (plan: AllocationPlan) => {
+      try {
+        AppHaptics.heavy();
+        const targetCurrency: CurrencyType = plan.currency || 'IDR';
+        const otherCurrency: CurrencyType = targetCurrency === 'IDR' ? 'USD' : 'IDR';
 
-      const currPlans = allocationPlansMap[targetCurrency] || [];
-      const existsInTarget = currPlans.some((p) => p.id === plan.id);
-      const updatedTarget = existsInTarget
-        ? currPlans.map((p) => (p.id === plan.id ? plan : p))
-        : [...currPlans, plan];
+        const currPlans = allocationPlansMap[targetCurrency] || [];
+        const existsInTarget = currPlans.some((p) => p.id === plan.id);
+        const updatedTarget = existsInTarget
+          ? currPlans.map((p) => (p.id === plan.id ? plan : p))
+          : [...currPlans, plan];
 
-      const otherPlans = allocationPlansMap[otherCurrency] || [];
-      const existsInOther = otherPlans.some((p) => p.id === plan.id);
-      const updatedOther = existsInOther
-        ? otherPlans.filter((p) => p.id !== plan.id)
-        : otherPlans;
+        const otherPlans = allocationPlansMap[otherCurrency] || [];
+        const existsInOther = otherPlans.some((p) => p.id === plan.id);
+        const updatedOther = existsInOther
+          ? otherPlans.filter((p) => p.id !== plan.id)
+          : otherPlans;
 
-      await saveAllocationPlans(updatedTarget, targetCurrency);
-      if (existsInOther) {
-        await saveAllocationPlans(updatedOther, otherCurrency);
+        await saveAllocationPlans(updatedTarget, targetCurrency);
+        if (existsInOther) {
+          await saveAllocationPlans(updatedOther, otherCurrency);
+        }
+
+        setAllocationPlansMap({
+          [targetCurrency]: updatedTarget,
+          [otherCurrency]: updatedOther,
+        } as Record<CurrencyType, AllocationPlan[]>);
+        AppHaptics.success();
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to save allocation plan.', undefined, 'error');
       }
+    },
+    [allocationPlansMap, showAlert]
+  );
 
-      setAllocationPlansMap({
-        [targetCurrency]: updatedTarget,
-        [otherCurrency]: updatedOther,
-      } as Record<CurrencyType, AllocationPlan[]>);
-      AppHaptics.success();
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to save allocation plan.', undefined, 'error');
-    }
-  };
+  const handleDeleteAllocationPlan = useCallback(
+    async (planId: string) => {
+      try {
+        AppHaptics.light();
+        const idrPlans = allocationPlansMap.IDR || [];
+        const usdPlans = allocationPlansMap.USD || [];
+        const inIdr = idrPlans.some((p) => p.id === planId);
+        const inUsd = usdPlans.some((p) => p.id === planId);
 
-  const handleDeleteAllocationPlan = async (planId: string) => {
-    try {
-      AppHaptics.light();
-      const idrPlans = allocationPlansMap.IDR || [];
-      const usdPlans = allocationPlansMap.USD || [];
-      const inIdr = idrPlans.some((p) => p.id === planId);
-      const inUsd = usdPlans.some((p) => p.id === planId);
+        const nextIdr = inIdr ? idrPlans.filter((p) => p.id !== planId) : idrPlans;
+        const nextUsd = inUsd ? usdPlans.filter((p) => p.id !== planId) : usdPlans;
 
-      const nextIdr = inIdr ? idrPlans.filter((p) => p.id !== planId) : idrPlans;
-      const nextUsd = inUsd ? usdPlans.filter((p) => p.id !== planId) : usdPlans;
+        if (inIdr) await saveAllocationPlans(nextIdr, 'IDR');
+        if (inUsd) await saveAllocationPlans(nextUsd, 'USD');
 
-      if (inIdr) await saveAllocationPlans(nextIdr, 'IDR');
-      if (inUsd) await saveAllocationPlans(nextUsd, 'USD');
-
-      setAllocationPlansMap({ IDR: nextIdr, USD: nextUsd });
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to delete allocation plan.', undefined, 'error');
-    }
-  };
-
-  const handleDuplicateAllocationPlan = async (plan: AllocationPlan) => {
-    try {
-      AppHaptics.heavy();
-      const targetCurrency: CurrencyType = plan.currency || 'IDR';
-      const currPlans = allocationPlansMap[targetCurrency] || [];
-      const newPlanId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-
-      let newTitle = `${plan.title} (Copy)`;
-      let copyIndex = 1;
-      while (currPlans.some((p) => p.title.toLowerCase() === newTitle.toLowerCase())) {
-        copyIndex += 1;
-        newTitle = `${plan.title} (Copy ${copyIndex})`;
+        setAllocationPlansMap({ IDR: nextIdr, USD: nextUsd });
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to delete allocation plan.', undefined, 'error');
       }
+    },
+    [allocationPlansMap, showAlert]
+  );
 
-      const duplicatedPlan: AllocationPlan = {
-        id: newPlanId,
-        title: newTitle,
-        currency: targetCurrency,
-        items: (plan.items || []).map((it) => ({
-          id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          label: it.label,
-          amount: it.amount,
-        })),
-      };
+  const handleDuplicateAllocationPlan = useCallback(
+    async (plan: AllocationPlan) => {
+      try {
+        AppHaptics.heavy();
+        const targetCurrency: CurrencyType = plan.currency || 'IDR';
+        const currPlans = allocationPlansMap[targetCurrency] || [];
+        const newPlanId = `plan_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
-      const updatedPlans = [...currPlans, duplicatedPlan];
-      await saveAllocationPlans(updatedPlans, targetCurrency);
-      setAllocationPlansMap((prev) => ({
-        ...prev,
-        [targetCurrency]: updatedPlans,
-      }));
-      AppHaptics.success();
-      showAlert(
-        'Plan Duplicated',
-        `Created "${newTitle}" with ${duplicatedPlan.items.length} items.`,
-        undefined,
-        'success'
-      );
-      return duplicatedPlan;
-    } catch (err: any) {
-      showAlert('Error', err.message || 'Failed to duplicate allocation plan.', undefined, 'error');
-      return null;
-    }
-  };
+        let newTitle = `${plan.title} (Copy)`;
+        let copyIndex = 1;
+        while (currPlans.some((p) => p.title.toLowerCase() === newTitle.toLowerCase())) {
+          copyIndex += 1;
+          newTitle = `${plan.title} (Copy ${copyIndex})`;
+        }
 
-  const handleExportBackup = async () => {
+        const duplicatedPlan: AllocationPlan = {
+          id: newPlanId,
+          title: newTitle,
+          currency: targetCurrency,
+          items: (plan.items || []).map((it) => ({
+            id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+            label: it.label,
+            amount: it.amount,
+          })),
+        };
+
+        const updatedPlans = [...currPlans, duplicatedPlan];
+        await saveAllocationPlans(updatedPlans, targetCurrency);
+        setAllocationPlansMap((prev) => ({
+          ...prev,
+          [targetCurrency]: updatedPlans,
+        }));
+        AppHaptics.success();
+        showAlert(
+          'Plan Duplicated',
+          `Created "${newTitle}" with ${duplicatedPlan.items.length} items.`,
+          undefined,
+          'success'
+        );
+        return duplicatedPlan;
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to duplicate allocation plan.', undefined, 'error');
+        return null;
+      }
+    },
+    [allocationPlansMap, showAlert]
+  );
+
+  const handleExportBackup = useCallback(async () => {
     return await exportAllData();
-  };
+  }, []);
 
-  const handleExportCSV = async () => {
+  const handleExportCSV = useCallback(async () => {
     return await exportTransactionsCSV();
-  };
+  }, []);
 
-  const handleImportBackup = async (jsonString: string) => {
-    await importAllData(jsonString);
-    await loadData();
-  };
+  const handleImportBackup = useCallback(
+    async (jsonString: string) => {
+      await importAllData(jsonString);
+      await loadData();
+    },
+    [loadData]
+  );
 
-  const handleWipeAllData = async () => {
+  const handleWipeAllData = useCallback(async () => {
     await wipeAllData();
     await loadData();
-  };
+  }, [loadData]);
 
   const handleReloadLockSettings = useCallback(async () => {
     try {
@@ -1251,28 +1320,37 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     }
   }, []);
 
-  const handleToggleAppLock = async (enabled: boolean) => {
-    await setLockEnabled(enabled);
-    await handleReloadLockSettings();
-  };
+  const handleToggleAppLock = useCallback(
+    async (enabled: boolean) => {
+      await setLockEnabled(enabled);
+      await handleReloadLockSettings();
+    },
+    [handleReloadLockSettings]
+  );
 
-  const handleToggleBiometrics = async (enabled: boolean) => {
-    await setBiometricsEnabled(enabled);
-    await handleReloadLockSettings();
-  };
+  const handleToggleBiometrics = useCallback(
+    async (enabled: boolean) => {
+      await setBiometricsEnabled(enabled);
+      await handleReloadLockSettings();
+    },
+    [handleReloadLockSettings]
+  );
 
-  const handleExportStatementPdf = async (month?: string): Promise<string> => {
-    const targetMonth = month || selectedMonth;
-    return await generateAndShareStatementPdf({
-      monthKey: targetMonth,
-      currency: activeCurrency,
-      wallets,
-      transactions,
-      exchangeRate,
-    });
-  };
+  const handleExportStatementPdf = useCallback(
+    async (month?: string): Promise<string> => {
+      const targetMonth = month || selectedMonth;
+      return await generateAndShareStatementPdf({
+        monthKey: targetMonth,
+        currency: activeCurrency,
+        wallets,
+        transactions,
+        exchangeRate,
+      });
+    },
+    [selectedMonth, activeCurrency, wallets, transactions, exchangeRate]
+  );
 
-  return {
+  return useMemo(() => ({
     wallets,
     pockets,
     transactions,
@@ -1336,5 +1414,67 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleExportStatementPdf,
     handleImportBackup,
     handleWipeAllData,
-  };
+  }), [
+    wallets,
+    pockets,
+    transactions,
+    categories,
+    allocationPlans,
+    monthlyBudget,
+    loading,
+    initialAppReady,
+    activeCurrency,
+    selectedMonth,
+    budgetMonthKey,
+    exchangeRate,
+    exchangeRateInfo,
+    lockSettings,
+    biometricCaps,
+    totalBalance,
+    outstandingLentSummary,
+    getUnallocated,
+    availableMonths,
+    availableExpenseCategories,
+    availableIncomeCategories,
+    availableCategories,
+    getPocketName,
+    getCategoryIconName,
+    loadData,
+    handleCreateAccount,
+    handleRenameWallet,
+    handleAdjustWalletBalance,
+    handleDeleteAccount,
+    handleUpdateWalletsOrder,
+    handleCreatePocket,
+    handleRenamePocket,
+    handleAdjustPocket,
+    handleDirectAdjustPocketBalance,
+    handleDeletePocket,
+    handleCreateCategory,
+    handleDeleteCategory,
+    handleExecuteTransfer,
+    handleUpdateTransfer,
+    handleDeleteTransaction,
+    handleDeleteTransactionsBatch,
+    handleRecordLentRepayment,
+    getLentAuditTrail,
+    handleSaveBudget,
+    handleRemoveBudget,
+    handleSaveExchangeRate,
+    handleRefreshExchangeRate,
+    handleReloadLockSettings,
+    handleToggleAppLock,
+    handleToggleBiometrics,
+    checkPreRestoreSnapshot,
+    handleUndoRestore,
+    handleSaveAllocationPlan,
+    handleDeleteAllocationPlan,
+    handleDuplicateAllocationPlan,
+    handleApplyAllocationPlan,
+    handleExportBackup,
+    handleExportCSV,
+    handleExportStatementPdf,
+    handleImportBackup,
+    handleWipeAllData,
+  ]);
 }

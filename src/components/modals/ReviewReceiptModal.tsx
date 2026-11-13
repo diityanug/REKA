@@ -14,6 +14,7 @@ import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
+import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { Wallet, Pocket, ExtractedReceiptData, CurrencyType } from '../../types';
 import { formatCurrency, formatCurrencyInput, formatDate } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -21,7 +22,7 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
-import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { CustomAlertModal } from '../CustomAlertModal';
 
 interface ReviewReceiptModalProps {
   visible: boolean;
@@ -65,35 +66,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   const [amountOverride, setAmountOverride] = useState<number | null>(null);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    title: string;
-    message?: string;
-    buttons?: AlertButton[];
-    type?: AlertType;
-  }>({
-    visible: false,
-    title: '',
-  });
-
-  const showAlert = (
-    title: string,
-    message?: string,
-    buttons?: AlertButton[],
-    type: AlertType = 'info'
-  ) => {
-    setAlertConfig({
-      visible: true,
-      title,
-      message,
-      buttons: buttons || [{ text: 'OK', style: 'default' }],
-      type,
-    });
-  };
-
-  const hideAlert = () => {
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
-  };
+  const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const currentData = useLastDefined(extractedData);
 
@@ -460,6 +433,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
 
       <CustomAlertModal
         visible={alertConfig.visible}
+        alertId={alertConfig.id}
         title={alertConfig.title}
         message={alertConfig.message}
         buttons={alertConfig.buttons}

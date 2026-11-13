@@ -29,7 +29,8 @@ import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
-import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { CustomAlertModal } from '../CustomAlertModal';
+import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { saveTextFileDirectly, pickBackupFile } from '../../utils/fileStorage';
 import { getTodayDateStr } from '../../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../../utils/errorHandling';
@@ -147,42 +148,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   // Custom alert dialog state
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    title: string;
-    message?: string;
-    buttons?: AlertButton[];
-    type?: AlertType;
-  }>({
-    visible: false,
-    title: '',
-  });
-
-  // Alerts may chain (step 1 -> step 2). The button handler runs before the
-  // alert closes, so a newer alert must survive that close call.
-  const alertSeq = useRef<number>(0);
-  const renderedSeq = alertSeq.current;
-
-  const showAlert = (
-    title: string,
-    message?: string,
-    buttons?: AlertButton[],
-    type: AlertType = 'info'
-  ) => {
-    alertSeq.current += 1;
-    setAlertConfig({
-      visible: true,
-      title,
-      message,
-      buttons: buttons || [{ text: 'OK', style: 'default' }],
-      type,
-    });
-  };
-
-  const hideAlert = () => {
-    if (alertSeq.current !== renderedSeq) return;
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
-  };
+  const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   // Shared outcome handling for every file export path.
   const reportExportResult = (
@@ -715,6 +681,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       {/* Custom Alert Modal for Settings */}
       <CustomAlertModal
         visible={alertConfig.visible}
+        alertId={alertConfig.id}
         title={alertConfig.title}
         message={alertConfig.message}
         buttons={alertConfig.buttons}

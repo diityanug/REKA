@@ -1,6 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  Modal,
   View,
   TouchableOpacity,
   Animated,
@@ -14,11 +13,29 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Palette } from '../theme/tokens';
-import { useLastDefined } from '../hooks/useLastDefined';
+import {
+  OverlayPortal,
+  SheetDepthContext,
+  useIsInsideSheet,
+  useOverlayLayer,
+} from './OverlayHost';
 
 const { height: WINDOW_HEIGHT } = Dimensions.get('window');
 const { height: SCREEN_HEIGHT_RAW } = Dimensions.get('screen');
 const SCREEN_HEIGHT = Math.max(WINDOW_HEIGHT, SCREEN_HEIGHT_RAW || 0);
+
+/**
+ * Keeps the closing sheet's last visible children subtree intact during the
+ * 200ms slide-down animation without triggering double renders while open.
+ */
+const FrozenContent = React.memo<{
+  visible: boolean;
+  children: React.ReactNode;
+}>(
+  ({ children }) => <>{children}</>,
+  (_prevProps, nextProps) => !nextProps.visible
+);
+FrozenContent.displayName = 'FrozenContent';
 
 interface BottomSheetModalProps {
   visible: boolean;
@@ -42,11 +59,9 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   fullPage = false,
 }) => {
   const insets = useSafeAreaInsets();
+  const insideSheet = useIsInsideSheet();
   const [modalMounted, setModalMounted] = useState(visible);
   const animValue = useState(() => new Animated.Value(0))[0];
-  // Freeze the rendered children snapshot as soon as visible turns false so
-  // closing/saving never mutates or flashes modal contents during the slide-out animation.
-  const frozenChildren = useLastDefined(visible ? children : null);
 
   // Mount synchronously when opening (derived state) instead of through an effect (cascading render)
   if (visible && !modalMounted) {
@@ -55,6 +70,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
 
   useEffect(() => {
     if (visible) {
+      Keyboard.dismiss();
       Animated.timing(animValue, {
         toValue: 1,
         duration: 260,
@@ -74,6 +90,21 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
       });
     }
   }, [visible, animValue]);
+
+  const handleRequestClose = useCallback(() => {
+    if (Keyboard.isVisible && Keyboard.isVisible()) {
+      Keyboard.dismiss();
+      return true;
+    }
+    onClose();
+    return true;
+  }, [onClose]);
+
+  const { overlayId, zIndex } = useOverlayLayer(
+    modalMounted,
+    visible,
+    handleRequestClose
+  );
 
   if (!modalMounted) return null;
 
@@ -101,64 +132,67 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
     onClose();
   };
 
-  const handleRequestClose = () => {
-    if (Keyboard.isVisible && Keyboard.isVisible()) {
-      Keyboard.dismiss();
-      return;
-    }
-    onClose();
-  };
-
-  return (
-    <Modal
-      visible={modalMounted}
-      transparent={true}
-      animationType="none"
-      statusBarTranslucent={true}
-      onRequestClose={handleRequestClose}
+  const overlayView = (
+    <View
+      accessibilityViewIsModal={visible}
+      pointerEvents={visible ? 'auto' : 'none'}
+      style={[
+        styles.rootContainer,
+        !insideSheet && { zIndex },
+        fullPage ? styles.rootContainerFullPage : { paddingTop: Math.max(insets.top, 24) + 8 },
+      ]}
     >
-      <View
+      {/* Soft Stationary Fading Scrim - Warm Editorial Overlay */}
+      <Animated.View
         style={[
-          styles.rootContainer,
-          fullPage ? styles.rootContainerFullPage : { paddingTop: Math.max(insets.top, 24) + 8 },
+          StyleSheet.absoluteFill,
+          styles.backdrop,
+          { opacity: backdropOpacity },
         ]}
       >
-        {/* Soft Stationary Fading Scrim - Warm Editorial Overlay */}
-        <Animated.View
-          style={[
-            StyleSheet.absoluteFill,
-            styles.backdrop,
-            { opacity: backdropOpacity },
-          ]}
-        >
-          <TouchableOpacity
-            style={StyleSheet.absoluteFill}
-            activeOpacity={1}
-            onPress={handleBackdropPress}
-          />
-        </Animated.View>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFill}
+          activeOpacity={1}
+          onPress={handleBackdropPress}
+        />
+      </Animated.View>
 
-        {/* Sliding Sheet / Page Container with Curved Header */}
-        <Animated.View
-          style={[
-            styles.sheet,
-            fullPage && [styles.sheetFullPage, { paddingTop: insets.top }],
-            height && !fullPage ? { height } : null,
-            maxHeight && !fullPage ? { maxHeight } : null,
-            sheetStyle,
-            { transform: [{ translateY: sheetTranslateY }] },
-          ]}
-        >
-          {visible ? children : (frozenChildren ?? children)}
-        </Animated.View>
-      </View>
-    </Modal>
+      {/* Sliding Sheet / Page Container with Curved Header */}
+      <Animated.View
+        style={[
+          styles.sheet,
+          fullPage && [styles.sheetFullPage, { paddingTop: insets.top }],
+          height && !fullPage ? { height } : null,
+          maxHeight && !fullPage ? { maxHeight } : null,
+          sheetStyle,
+          { transform: [{ translateY: sheetTranslateY }] },
+        ]}
+      >
+        <SheetDepthContext.Provider value={true}>
+          <FrozenContent visible={visible}>{children}</FrozenContent>
+        </SheetDepthContext.Provider>
+      </Animated.View>
+    </View>
   );
+
+  if (insideSheet) {
+    return (
+      <OverlayPortal id={overlayId} active={modalMounted}>
+        {overlayView}
+      </OverlayPortal>
+    );
+  }
+
+  return overlayView;
 };
 
 const styles = StyleSheet.create({
   rootContainer: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     justifyContent: 'flex-end',
     backgroundColor: 'transparent',
   },

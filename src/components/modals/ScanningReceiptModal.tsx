@@ -1,6 +1,5 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
-  Modal,
   View,
   Text,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 import { Receipt, FileText, CheckCircle2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { AppHaptics } from '../../utils/haptics';
+import { OverlayPortal, useOverlayLayer } from '../OverlayHost';
 
 interface ScanningReceiptModalProps {
   visible: boolean;
@@ -168,6 +168,15 @@ export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({
     [shimmerAnim]
   );
 
+  const handleBackPress = useCallback(() => {
+    if (onCancel) {
+      onCancel();
+    }
+    return true;
+  }, [onCancel]);
+
+  const { overlayId } = useOverlayLayer(visible, visible, handleBackPress);
+
   if (!visible) return null;
 
   const accentColor = isStatement ? '#D97706' : Palette.accentTeal;
@@ -175,14 +184,8 @@ export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({
   const innerRingBg = isStatement ? '#FEF3C7' : '#E6F5F3';
 
   return (
-    <Modal
-      visible={visible}
-      transparent={true}
-      animationType="fade"
-      statusBarTranslucent={true}
-      onRequestClose={onCancel}
-    >
-      <View style={styles.overlay}>
+    <OverlayPortal id={overlayId} active={visible}>
+      <View style={styles.overlay} accessibilityViewIsModal={true}>
         <Animated.View style={[styles.card, { opacity: fadeAnim }]}>
           {/* Scanner Visual Hero */}
           <View style={styles.visualContainer}>
@@ -274,13 +277,17 @@ export const ScanningReceiptModal: React.FC<ScanningReceiptModalProps> = ({
           ) : null}
         </Animated.View>
       </View>
-    </Modal>
+    </OverlayPortal>
   );
 };
 
 const styles = StyleSheet.create({
   overlay: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: 'rgba(16, 15, 14, 0.62)',
     alignItems: 'center',
     justifyContent: 'center',

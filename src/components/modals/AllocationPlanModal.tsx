@@ -13,6 +13,7 @@ import { Plus, Trash2, Check, Layers, Edit3, Copy } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useLastDefined } from '../../hooks/useLastDefined';
+import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { CurrencyType, AllocationPlan, AllocationItem } from '../../types';
 import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -20,7 +21,7 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { AmountInputModal } from './AmountInputModal';
 import { BottomSheetModal } from '../BottomSheetModal';
-import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { CustomAlertModal } from '../CustomAlertModal';
 
 interface AllocationPlanModalProps {
   visible: boolean;
@@ -77,35 +78,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
   const [deleting, setDeleting] = useState<boolean>(false);
   const [duplicating, setDuplicating] = useState<boolean>(false);
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    title: string;
-    message?: string;
-    buttons?: AlertButton[];
-    type?: AlertType;
-  }>({
-    visible: false,
-    title: '',
-  });
-
-  const showAlert = (
-    title: string,
-    message?: string,
-    buttons?: AlertButton[],
-    type: AlertType = 'info'
-  ) => {
-    setAlertConfig({
-      visible: true,
-      title,
-      message,
-      buttons,
-      type,
-    });
-  };
-
-  const hideAlert = () => {
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
-  };
+  const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const activeRow = useMemo(() => {
     return rows.find((r) => r.id === activeAmountRowId) || null;
@@ -629,6 +602,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
       {/* Custom Alert Modal for Allocation Plan */}
       <CustomAlertModal
         visible={alertConfig.visible}
+        alertId={alertConfig.id}
         title={alertConfig.title}
         message={alertConfig.message}
         buttons={alertConfig.buttons}

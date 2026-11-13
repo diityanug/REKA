@@ -98,18 +98,25 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const insets = useSafeAreaInsets();
   const [filterModalVisible, setFilterModalVisible] = useState<boolean>(false);
   const [localSearch, setLocalSearch] = useState<string>(searchQuery);
+  const [lastEmittedSearch, setLastEmittedSearch] = useState<string | null>(null);
   const [prevSearchQuery, setPrevSearchQuery] = useState<string>(searchQuery);
 
-  // Sync the local (debounced) input when the parent resets/changes the query externally.
-  // Derived-state-during-render avoids the extra cascading render of a setState-in-effect.
+  // Sync the local (debounced) input only on external changes, never overwriting keys
+  // typed right after our own debounced commit.
   if (searchQuery !== prevSearchQuery) {
     setPrevSearchQuery(searchQuery);
-    setLocalSearch(searchQuery);
+    if (searchQuery === lastEmittedSearch) {
+      setLastEmittedSearch(null);
+    } else {
+      setLastEmittedSearch(null);
+      setLocalSearch(searchQuery);
+    }
   }
 
   useEffect(() => {
     const timer = setTimeout(() => {
       if (localSearch !== searchQuery) {
+        setLastEmittedSearch(localSearch);
         onChangeSearch(localSearch);
       }
     }, 250);
@@ -180,6 +187,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
 
   const handleClearSearch = useCallback(() => {
     setLocalSearch('');
+    setLastEmittedSearch('');
     onChangeSearch('');
     onClearSearch();
   }, [onChangeSearch, onClearSearch]);
@@ -258,7 +266,9 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const hasUsdHistoryFlow =
     (historyFlowStats.usdIncome || 0) > 0 || (historyFlowStats.usdExpense || 0) > 0;
 
-  const renderHeader = useCallback(() => (
+  // Memoize as a React element (not a function component) so SectionList reconciles
+  // the header in place instead of unmounting/remounting TextInput on each keystroke.
+  const listHeader = useMemo(() => (
     <View>
       {/* Title */}
       <View style={styles.bannerHeader}>
@@ -547,7 +557,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   ]);
 
   // Two distinct empty states: filters/search hid everything vs. no records at all
-  const renderEmpty = useCallback(() => {
+  const emptyComponent = useMemo(() => {
     if (isFilterActive) {
       return (
         <View style={styles.emptyCard}>
@@ -637,8 +647,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmpty}
+        ListHeaderComponent={listHeader}
+        ListEmptyComponent={emptyComponent}
         contentContainerStyle={[
           styles.listContent,
           { paddingBottom: Math.max(insets.bottom, 16) + 96 },

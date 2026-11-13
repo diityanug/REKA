@@ -30,13 +30,15 @@ import { formatCurrency } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
+import { useLocalAlert } from '../../hooks/useLocalAlert';
+import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
 import { POCKET_ICON_CATEGORIES } from './NewPocketModal';
 import { TransactionItemRow } from '../TransactionItemRow';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
-import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { CustomAlertModal } from '../CustomAlertModal';
 
 const normalizeAccountType = (rawType?: string): AccountType => {
   const t = (rawType || '').toLowerCase();
@@ -113,16 +115,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [pocketEditName, setPocketEditName] = useState<string>('');
   const [pocketEditIcon, setPocketEditIcon] = useState<string>('Briefcase');
   const [pocketIconGroupKey, setPocketIconGroupKey] = useState<string>('all');
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    title: string;
-    message?: string;
-    buttons?: AlertButton[];
-    type?: AlertType;
-  }>({
-    visible: false,
-    title: '',
-  });
+  const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const displayedPocketIcons = useMemo(() => {
     if (pocketIconGroupKey === 'all') {
@@ -139,25 +132,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     }
     return rows;
   }, [displayedPocketIcons]);
-
-  const showAlert = (
-    title: string,
-    message?: string,
-    buttons?: AlertButton[],
-    type: AlertType = 'info'
-  ) => {
-    setAlertConfig({
-      visible: true,
-      title,
-      message,
-      buttons: buttons || [{ text: 'OK', style: 'default' }],
-      type,
-    });
-  };
-
-  const hideAlert = () => {
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
-  };
 
   useSyncOnChange([propWallet], () => {
     if (propWallet) {
@@ -217,14 +191,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         onClose={onClose}
       />
 
-            <ScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.scrollContent,
-                { paddingBottom: Math.max(insets.bottom, 20) + 20 },
-              ]}
-              keyboardShouldPersistTaps="handled"
-            >
+      <KeyboardSafeContainer
+        contentContainerStyle={styles.scrollContent}
+        extraBottomSpace={Math.max(insets.bottom, 20) + 20}
+        keyboardDismissMode="on-drag"
+      >
               {/* Master Account Balance Breakdown Card */}
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryLabel}>Total Balance</Text>
@@ -756,7 +727,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <Trash2 size={16} color={Palette.error} style={{ marginRight: 6 }} />
                 <Text style={styles.deleteAccountText}>Delete Account</Text>
               </TouchableOpacity>
-            </ScrollView>
+            </KeyboardSafeContainer>
 
       <AmountInputModal
         visible={showAdjustAmountModal}
@@ -828,6 +799,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
 
       <CustomAlertModal
         visible={alertConfig.visible}
+        alertId={alertConfig.id}
         title={alertConfig.title}
         message={alertConfig.message}
         buttons={alertConfig.buttons}

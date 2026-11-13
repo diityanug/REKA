@@ -6,7 +6,7 @@ import {
   StyleProp,
   View,
 } from 'react-native';
-import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+import { useUncompensatedKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 interface KeyboardSafeContainerProps {
   children: React.ReactNode;
@@ -24,9 +24,9 @@ export const KeyboardSafeContainer: React.FC<KeyboardSafeContainerProps> = ({
   extraBottomSpace = 40,
   keyboardDismissMode = 'none',
 }) => {
-  const keyboardHeight = useKeyboardHeight();
+  const keyboardHeight = useUncompensatedKeyboardHeight();
 
-  // Dynamic bottom padding for both iOS and Android in modal dialogs so fields can be scrolled into view
+  // Dynamic bottom padding for iOS and unresized Android layouts so fields can scroll into view
   const dynamicBottomPadding =
     keyboardHeight > 0
       ? keyboardHeight + extraBottomSpace

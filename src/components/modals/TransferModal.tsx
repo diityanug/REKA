@@ -27,7 +27,8 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
-import { CustomAlertModal, AlertButton, AlertType } from '../CustomAlertModal';
+import { CustomAlertModal } from '../CustomAlertModal';
+import { useLocalAlert } from '../../hooks/useLocalAlert';
 
 // Fallback used when the typed exchange rate cannot be applied
 const DEFAULT_EXCHANGE_RATE = 16000;
@@ -159,35 +160,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     useLastDefined(!submitting && visible ? wallets : null) ?? wallets;
   const eligiblePockets =
     useLastDefined(!submitting && visible ? pockets : null) ?? pockets;
-  const [alertConfig, setAlertConfig] = useState<{
-    visible: boolean;
-    title: string;
-    message?: string;
-    buttons?: AlertButton[];
-    type?: AlertType;
-  }>({
-    visible: false,
-    title: '',
-  });
-
-  const showAlert = (
-    title: string,
-    message?: string,
-    buttons?: AlertButton[],
-    type: AlertType = 'info'
-  ) => {
-    setAlertConfig({
-      visible: true,
-      title,
-      message,
-      buttons: buttons || [{ text: 'OK', style: 'default' }],
-      type,
-    });
-  };
-
-  const hideAlert = () => {
-    setAlertConfig((prev) => ({ ...prev, visible: false }));
-  };
+  const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const handleModalClose = () => {
     Keyboard.dismiss();
@@ -1073,6 +1046,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
 
       <CustomAlertModal
         visible={alertConfig.visible}
+        alertId={alertConfig.id}
         title={alertConfig.title}
         message={alertConfig.message}
         buttons={alertConfig.buttons}

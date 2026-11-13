@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Animated,
+  Keyboard,
   StatusBar,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +13,7 @@ import { Lock, Delete, Fingerprint, ScanFace } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { AppHaptics } from '../utils/haptics';
 import { useSyncOnChange } from '../hooks/useSyncOnChange';
+import { useOverlayLayer } from './OverlayHost';
 import {
   verifyPin,
   authenticateWithBiometrics,
@@ -58,9 +60,14 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
     }
   }, [biometricsEnabled, biometricType, onUnlock]);
 
-  // Prompt biometrics automatically when lock screen becomes visible
+  const blockBackWhileLocked = useCallback(() => true, []);
+  useOverlayLayer(visible, visible, blockBackWhileLocked, true);
+
+  // Dismiss any lingering background keyboard and prompt biometrics when locked
   useEffect(() => {
-    if (visible && biometricsEnabled && biometricType !== 'None') {
+    if (!visible) return;
+    Keyboard.dismiss();
+    if (biometricsEnabled && biometricType !== 'None') {
       const timer = setTimeout(() => {
         handleBiometricAuth();
       }, 350);
@@ -116,7 +123,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   if (!visible) return null;
 
   return (
-    <View style={[styles.overlay, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 20 }]}>
+    <View
+      accessibilityViewIsModal={true}
+      style={[styles.overlay, { paddingTop: insets.top + 28, paddingBottom: insets.bottom + 20 }]}
+    >
       <StatusBar barStyle="dark-content" />
 
       {/* Lock Icon & Title */}

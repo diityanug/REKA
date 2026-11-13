@@ -31,6 +31,8 @@ import {
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
+import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon } from '../CategoryIcon';
@@ -71,6 +73,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
   getCategoryIconName,
 }) => {
   const insets = useSafeAreaInsets();
+  const footerKeyboardOffset = useFooterKeyboardOffset();
   const [items, setItems] = useState<ExtractedStatementTx[]>([]);
   const [updateBalance, setUpdateBalance] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -207,13 +210,10 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
         onClose={onClose}
       />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 20) + 115 },
-        ]}
-        keyboardShouldPersistTaps="handled"
+      <KeyboardSafeContainer
+        contentContainerStyle={styles.scrollContent}
+        extraBottomSpace={28}
+        keyboardDismissMode="on-drag"
       >
         {/* 1. Target Account & Auto-Match Card */}
         <View style={styles.sectionCard}>
@@ -642,13 +642,13 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
             </View>
           );
         })}
-      </ScrollView>
+      </KeyboardSafeContainer>
 
       {/* Sticky Footer Action */}
       <View
         style={[
           styles.stickyFooter,
-          { paddingBottom: Math.max(insets.bottom, 14) },
+          { paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset },
         ]}
       >
         <TouchableOpacity
@@ -1118,14 +1118,10 @@ const styles = StyleSheet.create({
     color: Palette.white,
   },
   stickyFooter: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
     backgroundColor: Palette.white,
     paddingHorizontal: 20,
-    paddingTop: 14,
-    borderTopWidth: 1,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Palette.hairline,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
