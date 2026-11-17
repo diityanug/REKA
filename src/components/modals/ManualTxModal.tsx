@@ -22,7 +22,7 @@ import { PAYMENT_METHODS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
 import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { useCurrentDate } from '../../hooks/useCurrentDate';
-import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
@@ -114,7 +114,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
   const [datePickerVisible, setDatePickerVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
-  const footerKeyboardOffset = useFooterKeyboardOffset();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
 
   // Freeze wallets and pockets while saving or closing so account/pocket balances and warnings never jump
   const isStable = !saving && visible;
@@ -775,43 +775,44 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               </View>
             </KeyboardSafeContainer>
 
-            <View
-              style={[
-                styles.stickyFooter,
-                {
-                  paddingBottom:
-                    Math.max(insets.bottom, 14) + footerKeyboardOffset,
-                },
-              ]}
-            >
-              <TouchableOpacity
-                style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
-                onPress={handleSubmit}
-                disabled={!canSubmit}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel={isEditing ? 'Save changes' : 'Save transaction'}
-                accessibilityState={{ disabled: !canSubmit, busy: saving }}
+            {!isKeyboardVisible && (
+              <View
+                style={[
+                  styles.stickyFooter,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 14),
+                  },
+                ]}
               >
-                {saving ? (
-                  <>
-                    <ActivityIndicator
-                      size="small"
-                      color={Palette.white}
-                      style={{ marginRight: 8 }}
-                    />
-                    <Text style={styles.confirmBtnText}>Saving...</Text>
-                  </>
-                ) : (
-                  <>
-                    <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                    <Text style={styles.confirmBtnText}>
-                      {isEditing ? 'Save Changes' : 'Save Transaction'}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity
+                  style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
+                  onPress={handleSubmit}
+                  disabled={!canSubmit}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={isEditing ? 'Save changes' : 'Save transaction'}
+                  accessibilityState={{ disabled: !canSubmit, busy: saving }}
+                >
+                  {saving ? (
+                    <>
+                      <ActivityIndicator
+                        size="small"
+                        color={Palette.white}
+                        style={{ marginRight: 8 }}
+                      />
+                      <Text style={styles.confirmBtnText}>Saving...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                      <Text style={styles.confirmBtnText}>
+                        {isEditing ? 'Save Changes' : 'Save Transaction'}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
 
       <AmountInputModal
         visible={amountModalVisible}

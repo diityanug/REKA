@@ -15,7 +15,8 @@ import { AppHaptics } from '../utils/haptics';
 import { useSyncOnChange } from '../hooks/useSyncOnChange';
 import { useOverlayLayer } from './OverlayHost';
 import {
-  verifyPin,
+  verifyPinDetailed,
+  getLockoutState,
   authenticateWithBiometrics,
   BiometricType,
 } from '../services/authService';
@@ -37,15 +38,56 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   const [pin, setPin] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+  const [lockedUntilMs, setLockedUntilMs] = useState<number>(0);
+  const [remainingSec, setRemainingSec] = useState<number>(0);
   const [shakeAnim] = useState(() => new Animated.Value(0));
 
-  // Reset PIN when visible changes
+  const isLockedOut = remainingSec > 0;
+
+  // Reset draft and stale countdown state when lock modal visibility changes
   useSyncOnChange([visible], () => {
     if (visible) {
       setPin('');
       setErrorMessage('');
+    } else {
+      setLockedUntilMs(0);
+      setRemainingSec(0);
     }
   });
+
+  // Load persisted lockout timer asynchronously whenever Lock Screen shows
+  useEffect(() => {
+    if (!visible) return;
+    let cancelled = false;
+    getLockoutState()
+      .then(({ lockedUntilMs: until }) => {
+        if (cancelled) return;
+        const left = until > Date.now() ? Math.ceil((until - Date.now()) / 1000) : 0;
+        setLockedUntilMs(left > 0 ? until : 0);
+        setRemainingSec(left);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [visible]);
+
+  // Live cooldown ticker while locked out (updates strictly inside interval callback)
+  useEffect(() => {
+    if (!visible || lockedUntilMs <= 0) return;
+    const timer = setInterval(() => {
+      const diffMs = lockedUntilMs - Date.now();
+      if (diffMs <= 0) {
+        setLockedUntilMs(0);
+        setRemainingSec(0);
+        setErrorMessage('');
+        clearInterval(timer);
+      } else {
+        setRemainingSec(Math.ceil(diffMs / 1000));
+      }
+    }, 500);
+    return () => clearInterval(timer);
+  }, [visible, lockedUntilMs]);
 
   // Trigger biometric prompt
   const handleBiometricAuth = useCallback(async () => {
@@ -56,6 +98,8 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
       AppHaptics.success();
       setPin('');
       setErrorMessage('');
+      setLockedUntilMs(0);
+      setRemainingSec(0);
       onUnlock();
     }
   }, [biometricsEnabled, biometricType, onUnlock]);
@@ -87,7 +131,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
   }, [shakeAnim]);
 
   const handleKeyPress = async (digit: string) => {
-    if (isVerifying || pin.length >= 4) return;
+    if (isVerifying || isLockedOut || pin.length >= 4) return;
     AppHaptics.light();
     setErrorMessage('');
     const nextPin = pin + digit;
@@ -95,32 +139,50 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
 
     if (nextPin.length === 4) {
       setIsVerifying(true);
-      const isMatch = await verifyPin(nextPin);
-      if (isMatch) {
+      const res = await verifyPinDetailed(nextPin);
+      if (res.ok) {
         AppHaptics.success();
         setPin('');
+        setLockedUntilMs(0);
+        setRemainingSec(0);
         setIsVerifying(false);
         onUnlock();
       } else {
         AppHaptics.error();
         triggerShake();
-        setErrorMessage('Incorrect PIN. Try again.');
-        setTimeout(() => {
+        if (res.isLockedOut) {
+          setLockedUntilMs(res.lockedUntilMs);
+          setRemainingSec(res.remainingSeconds);
           setPin('');
           setIsVerifying(false);
-        }, 300);
+        } else {
+          const attemptsLeft = Math.max(0, 5 - res.failedAttempts);
+          setErrorMessage(
+            attemptsLeft > 0 && res.failedAttempts >= 3
+              ? `Incorrect PIN (${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left)`
+              : 'Incorrect PIN. Try again.'
+          );
+          setTimeout(() => {
+            setPin('');
+            setIsVerifying(false);
+          }, 300);
+        }
       }
     }
   };
 
   const handleDelete = () => {
-    if (isVerifying || pin.length === 0) return;
+    if (isVerifying || isLockedOut || pin.length === 0) return;
     AppHaptics.light();
     setPin((prev) => prev.slice(0, -1));
     setErrorMessage('');
   };
 
   if (!visible) return null;
+
+  const feedbackText = isLockedOut
+    ? `Too many failed attempts. Try again in ${remainingSec}s`
+    : errorMessage;
 
   return (
     <View
@@ -142,7 +204,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
       <Animated.View style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}>
         {[0, 1, 2, 3].map((index) => {
           const isFilled = pin.length > index;
-          const isError = Boolean(errorMessage);
+          const isError = Boolean(feedbackText);
           return (
             <View
               key={index}
@@ -158,7 +220,7 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
 
       {/* Feedback Message */}
       <View style={styles.messageContainer}>
-        {Boolean(errorMessage) && <Text style={styles.errorText}>{errorMessage}</Text>}
+        {Boolean(feedbackText) && <Text style={styles.errorText}>{feedbackText}</Text>}
       </View>
 
       {/* Numeric Keypad */}
@@ -167,10 +229,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
           {['1', '2', '3'].map((num) => (
             <TouchableOpacity
               key={num}
-              style={styles.keyBtn}
+              style={[styles.keyBtn, isLockedOut && styles.keyBtnDisabled]}
               onPress={() => handleKeyPress(num)}
               activeOpacity={0.65}
-              disabled={isVerifying}
+              disabled={isVerifying || isLockedOut}
             >
               <Text style={styles.keyText}>{num}</Text>
             </TouchableOpacity>
@@ -180,10 +242,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
           {['4', '5', '6'].map((num) => (
             <TouchableOpacity
               key={num}
-              style={styles.keyBtn}
+              style={[styles.keyBtn, isLockedOut && styles.keyBtnDisabled]}
               onPress={() => handleKeyPress(num)}
               activeOpacity={0.65}
-              disabled={isVerifying}
+              disabled={isVerifying || isLockedOut}
             >
               <Text style={styles.keyText}>{num}</Text>
             </TouchableOpacity>
@@ -193,10 +255,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
           {['7', '8', '9'].map((num) => (
             <TouchableOpacity
               key={num}
-              style={styles.keyBtn}
+              style={[styles.keyBtn, isLockedOut && styles.keyBtnDisabled]}
               onPress={() => handleKeyPress(num)}
               activeOpacity={0.65}
-              disabled={isVerifying}
+              disabled={isVerifying || isLockedOut}
             >
               <Text style={styles.keyText}>{num}</Text>
             </TouchableOpacity>
@@ -224,10 +286,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
 
           {/* Zero */}
           <TouchableOpacity
-            style={styles.keyBtn}
+            style={[styles.keyBtn, isLockedOut && styles.keyBtnDisabled]}
             onPress={() => handleKeyPress('0')}
             activeOpacity={0.65}
-            disabled={isVerifying}
+            disabled={isVerifying || isLockedOut}
           >
             <Text style={styles.keyText}>0</Text>
           </TouchableOpacity>
@@ -237,10 +299,10 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
             style={[styles.keyBtn, styles.actionKeyBtn]}
             onPress={handleDelete}
             activeOpacity={0.65}
-            disabled={isVerifying || pin.length === 0}
+            disabled={isVerifying || isLockedOut || pin.length === 0}
             accessibilityLabel="Delete last digit"
           >
-            <Delete size={22} color={pin.length > 0 ? Palette.ink : Palette.mutedSoft} />
+            <Delete size={22} color={pin.length > 0 && !isLockedOut ? Palette.ink : Palette.mutedSoft} />
           </TouchableOpacity>
         </View>
       </View>
@@ -315,6 +377,7 @@ const styles = StyleSheet.create({
     ...Typography.caption,
     color: Palette.error,
     fontWeight: '600',
+    textAlign: 'center',
   },
   keypad: {
     width: '100%',
@@ -336,6 +399,9 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  keyBtnDisabled: {
+    opacity: 0.45,
   },
   actionKeyBtn: {
     backgroundColor: 'transparent',

@@ -26,7 +26,7 @@ import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
-import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 
 interface NewAccountModalProps {
   visible: boolean;
@@ -71,7 +71,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const footerKeyboardOffset = useFooterKeyboardOffset();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
   const [amountModalVisible, setAmountModalVisible] = useState(false);
   const [saving, setSaving] = useState<boolean>(false);
 
@@ -335,36 +335,38 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
       </KeyboardSafeContainer>
 
       {/* Sticky Bottom Action */}
-      <View
-        style={[
-          styles.stickyFooter,
-          {
-            paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
-          },
-        ]}
-      >
-        <TouchableOpacity
-          style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
-          onPress={submit}
-          disabled={!canSubmit}
-          activeOpacity={0.85}
-          accessibilityRole="button"
-          accessibilityLabel="Save account"
-          accessibilityState={{ disabled: !canSubmit, busy: saving }}
+      {!isKeyboardVisible && (
+        <View
+          style={[
+            styles.stickyFooter,
+            {
+              paddingBottom: Math.max(insets.bottom, 14),
+            },
+          ]}
         >
-          {saving ? (
-            <>
-              <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
-              <Text style={styles.confirmBtnText}>Saving...</Text>
-            </>
-          ) : (
-            <>
-              <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-              <Text style={styles.confirmBtnText}>Save Account</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[styles.confirmBtn, !canSubmit && styles.confirmBtnDisabled]}
+            onPress={submit}
+            disabled={!canSubmit}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel="Save account"
+            accessibilityState={{ disabled: !canSubmit, busy: saving }}
+          >
+            {saving ? (
+              <>
+                <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                <Text style={styles.confirmBtnText}>Saving...</Text>
+              </>
+            ) : (
+              <>
+                <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                <Text style={styles.confirmBtnText}>Save Account</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
 
       <AmountInputModal
         visible={amountModalVisible}

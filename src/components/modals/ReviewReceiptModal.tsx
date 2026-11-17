@@ -12,7 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Check, Pencil } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
-import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { Wallet, Pocket, ExtractedReceiptData, CurrencyType } from '../../types';
@@ -60,7 +60,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const footerKeyboardOffset = useFooterKeyboardOffset();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
   const [reviewNotes, setReviewNotes] = useState<string>('');
   const [merchantName, setMerchantName] = useState<string>('');
   const [amountOverride, setAmountOverride] = useState<number | null>(null);
@@ -382,40 +382,42 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
               />
             </KeyboardSafeContainer>
 
-            <View
-              style={[
-                styles.stickyFooter,
-                {
-                  paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
-                },
-              ]}
-            >
-              <TouchableOpacity
+            {!isKeyboardVisible && (
+              <View
                 style={[
-                  styles.confirmBtn,
-                  !canConfirm && styles.confirmBtnDisabled,
+                  styles.stickyFooter,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 14),
+                  },
                 ]}
-                onPress={handleConfirm}
-                disabled={!canConfirm}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel={`Save transaction of ${formatCurrency(finalAmount, receiptCurrency)}`}
-                accessibilityState={{ disabled: !canConfirm, busy: saving }}
               >
-                {saving ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={Palette.white}
-                    style={{ marginRight: 8 }}
-                  />
-                ) : (
-                  <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                )}
-                <Text style={styles.confirmBtnText}>
-                  {saving ? 'Saving...' : 'Save Transaction'}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                <TouchableOpacity
+                  style={[
+                    styles.confirmBtn,
+                    !canConfirm && styles.confirmBtnDisabled,
+                  ]}
+                  onPress={handleConfirm}
+                  disabled={!canConfirm}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Save transaction of ${formatCurrency(finalAmount, receiptCurrency)}`}
+                  accessibilityState={{ disabled: !canConfirm, busy: saving }}
+                >
+                  {saving ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={Palette.white}
+                      style={{ marginRight: 8 }}
+                    />
+                  ) : (
+                    <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                  )}
+                  <Text style={styles.confirmBtnText}>
+                    {saving ? 'Saving...' : 'Save Transaction'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
       <AmountInputModal
         visible={amountModalVisible}

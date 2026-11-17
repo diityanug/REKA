@@ -1,6 +1,14 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getTodayDateStr } from '../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
+import {
+  CANDIDATE_MODELS,
+  getGeminiScannerConfig,
+  parseSafeAmount,
+  postToGeminiProxy,
+  sleep,
+  withTimeout,
+} from './geminiProxyClient';
 
 export interface ExtractedReceiptData {
   merchantName: string;
@@ -23,87 +31,23 @@ export interface ExtractedReceiptData {
 }
 
 /**
- * Security Best Practice (Item 1a):
- * - In production builds, set `EXPO_PUBLIC_GEMINI_PROXY_URL` to a backend/serverless proxy endpoint
- *   so the Gemini API key stays strictly server-side and is never embedded in the client bundle.
- * - If `EXPO_PUBLIC_GEMINI_API_KEY` is used directly for local/personal builds, restrict the key in
- *   Google Cloud Console to your Android package (`com.anonymous.projekamba`) + SHA-1 certificate
- *   fingerprint and iOS bundle identifier, and restrict API scope to Generative Language API only.
+ * Security Best Practice:
+ * - In shared/CBT and production builds, configure `EXPO_PUBLIC_GEMINI_PROXY_URL` to point to
+ *   `workers/gemini-proxy` (Cloudflare Workers) so `GEMINI_API_KEY` stays strictly server-side
+ *   and is never embedded in the client bundle. Do not set `EXPO_PUBLIC_GEMINI_API_KEY` in EAS
+ *   when using a proxy build.
  */
-const proxyUrl = process.env.EXPO_PUBLIC_GEMINI_PROXY_URL;
-const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-
 // Lets the UI explain the situation instead of failing after a photo was taken
-export const isReceiptScannerConfigured = Boolean(proxyUrl || apiKey);
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+export const isReceiptScannerConfigured = getGeminiScannerConfig().isConfigured;
 
 const REQUEST_TIMEOUT_MS = 30000;
-
-// Rejects after `ms` or when the caller cancels, so the scanner can never hang forever
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  signal?: AbortSignal,
-  message: string = 'Receipt scanning took too long. Please try again or enter the details manually.'
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (signal) signal.removeEventListener('abort', onAbort);
-      fn();
-    };
-    const onAbort = () =>
-      finish(() => reject(new Error('Receipt scanning was cancelled.')));
-    const timer = setTimeout(() => finish(() => reject(new Error(message))), ms);
-
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener('abort', onAbort);
-    }
-
-    promise.then(
-      (value) => finish(() => resolve(value)),
-      (err) => finish(() => reject(err))
-    );
-  });
-}
+const RECEIPT_TIMEOUT_MSG =
+  'Receipt scanning took too long. Please try again or enter the details manually.';
+const RECEIPT_CANCEL_MSG = 'Receipt scanning was cancelled.';
 
 const sanitizeErrorMessage = (err: unknown): string => {
   return toUserFriendlyErrorMessage(err, 'receipt');
 };
-
-// Fast candidate model cascade for instant nominal reading
-const CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-];
-
-function parseSafeAmount(val: any, currency: 'IDR' | 'USD' = 'IDR'): number {
-  if (typeof val === 'number') {
-    return currency === 'IDR' ? Math.round(Math.abs(val)) : Math.round(Math.abs(val) * 100) / 100;
-  }
-  if (!val) return 0;
-  let str = String(val).trim();
-  if (currency === 'IDR') {
-    // Strip trailing sen/decimal cents (.00, ,00, .50) before stripping dots
-    str = str.replace(/[.,]\d{1,2}$/, '');
-    const cleaned = str.replace(/\./g, '').replace(/[^0-9]/g, '');
-    const parsed = parseInt(cleaned, 10);
-    return isNaN(parsed) ? 0 : Math.abs(parsed);
-  } else {
-    const cleaned = str.replace(/,/g, '').replace(/[^0-9.]/g, '');
-    const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : Math.round(Math.abs(parsed) * 100) / 100;
-  }
-}
 
 function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): ExtractedReceiptData {
   const currency: 'IDR' | 'USD' = parsed.currency === 'USD' ? 'USD' : 'IDR';
@@ -144,25 +88,24 @@ export async function extractReceiptFromBase64(
   mimeType: string = 'image/jpeg',
   signal?: AbortSignal
 ): Promise<ExtractedReceiptData> {
+  const { proxyUrl, apiKey } = getGeminiScannerConfig();
+
   // 1. Prefer secure backend proxy if configured
   if (proxyUrl) {
-    const res = await withTimeout(
-      fetch(proxyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base64Image, mimeType }),
-      }),
+    const data = await postToGeminiProxy<Partial<ExtractedReceiptData>>(
+      { action: 'receipt', base64Image, mimeType },
       REQUEST_TIMEOUT_MS,
-      signal
+      signal,
+      {
+        serviceName: 'Receipt scanner',
+        timeoutMessage: RECEIPT_TIMEOUT_MSG,
+        cancelMessage: RECEIPT_CANCEL_MSG,
+      }
     );
-    if (!res.ok) {
-      throw new Error(`Receipt scanner is unavailable right now (status ${res.status}).`);
-    }
-    const data = (await res.json()) as Partial<ExtractedReceiptData>;
     return normalizeReceiptResult(data);
   }
 
-  // 2. Fallback to direct client SDK call
+  // 2. Fallback to direct client SDK call (local dev only)
   if (!apiKey) {
     throw new Error(
       'Receipt scanning is not set up for this build. Add a receipt photo manually instead.'
@@ -257,7 +200,9 @@ Rules:
           },
           }),
           REQUEST_TIMEOUT_MS,
-          signal
+          signal,
+          RECEIPT_TIMEOUT_MSG,
+          RECEIPT_CANCEL_MSG
         );
 
         if (response && response.text) {

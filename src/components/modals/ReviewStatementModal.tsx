@@ -31,7 +31,7 @@ import {
 import { formatCurrency, formatDate } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
-import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { ModalHeader } from '../ModalHeader';
@@ -73,7 +73,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
   getCategoryIconName,
 }) => {
   const insets = useSafeAreaInsets();
-  const footerKeyboardOffset = useFooterKeyboardOffset();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
   const [items, setItems] = useState<ExtractedStatementTx[]>([]);
   const [updateBalance, setUpdateBalance] = useState<boolean>(true);
   const [saving, setSaving] = useState<boolean>(false);
@@ -645,43 +645,45 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
       </KeyboardSafeContainer>
 
       {/* Sticky Footer Action */}
-      <View
-        style={[
-          styles.stickyFooter,
-          { paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset },
-        ]}
-      >
-        <TouchableOpacity
+      {!isKeyboardVisible && (
+        <View
           style={[
-            styles.confirmBtn,
-            (saving || selectedItems.length === 0 || !selectedWallet) &&
-              styles.confirmBtnDisabled,
+            styles.stickyFooter,
+            { paddingBottom: Math.max(insets.bottom, 14) },
           ]}
-          disabled={saving || selectedItems.length === 0 || !selectedWallet}
-          onPress={handleConfirm}
-          activeOpacity={0.85}
         >
-          {saving ? (
-            <>
-              <ActivityIndicator
-                size="small"
-                color={Palette.white}
-                style={{ marginRight: 8 }}
-              />
-              <Text style={styles.confirmBtnText}>Saving Transactions...</Text>
-            </>
-          ) : (
-            <>
-              <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-              <Text style={styles.confirmBtnText} numberOfLines={1}>
-                {selectedWallet
-                  ? `Save ${selectedItems.length} Transaction${selectedItems.length === 1 ? '' : 's'} to ${selectedWallet.name}`
-                  : 'Select Target Account First'}
-              </Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[
+              styles.confirmBtn,
+              (saving || selectedItems.length === 0 || !selectedWallet) &&
+                styles.confirmBtnDisabled,
+            ]}
+            disabled={saving || selectedItems.length === 0 || !selectedWallet}
+            onPress={handleConfirm}
+            activeOpacity={0.85}
+          >
+            {saving ? (
+              <>
+                <ActivityIndicator
+                  size="small"
+                  color={Palette.white}
+                  style={{ marginRight: 8 }}
+                />
+                <Text style={styles.confirmBtnText}>Saving Transactions...</Text>
+              </>
+            ) : (
+              <>
+                <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                <Text style={styles.confirmBtnText} numberOfLines={1}>
+                  {selectedWallet
+                    ? `Save ${selectedItems.length} Transaction${selectedItems.length === 1 ? '' : 's'} to ${selectedWallet.name}`
+                    : 'Select Target Account First'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </BottomSheetModal>
   );
 };

@@ -5,6 +5,14 @@ import * as DocumentPicker from 'expo-document-picker';
 import { AccountType, CurrencyType, Transaction, TransactionType, Wallet } from './database';
 import { getTodayDateStr, getDateStrFromTimestamp } from '../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
+import {
+  CANDIDATE_MODELS,
+  getGeminiScannerConfig,
+  parseSafeAmount,
+  postToGeminiProxy,
+  sleep,
+  withTimeout,
+} from './geminiProxyClient';
 
 export interface ExtractedStatementTx {
   id: string;
@@ -33,76 +41,14 @@ export interface ExtractedStatementData {
   transactions: ExtractedStatementTx[];
 }
 
-const proxyUrl = process.env.EXPO_PUBLIC_GEMINI_PROXY_URL;
-const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-
 const STATEMENT_TIMEOUT_MS = 65000;
-
-const CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
-];
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  signal?: AbortSignal,
-  message: string = 'Statement analysis took too long. Please try a smaller file or fewer pages.'
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      if (signal) signal.removeEventListener('abort', onAbort);
-      fn();
-    };
-    const onAbort = () =>
-      finish(() => reject(new Error('Statement scanning was cancelled.')));
-    const timer = setTimeout(() => finish(() => reject(new Error(message))), ms);
-
-    if (signal) {
-      if (signal.aborted) {
-        onAbort();
-        return;
-      }
-      signal.addEventListener('abort', onAbort);
-    }
-
-    promise.then(
-      (value) => finish(() => resolve(value)),
-      (err) => finish(() => reject(err))
-    );
-  });
-}
+const STATEMENT_TIMEOUT_MSG =
+  'Statement analysis took too long. Please try a smaller file or fewer pages.';
+const STATEMENT_CANCEL_MSG = 'Statement scanning was cancelled.';
 
 const sanitizeErrorMessage = (err: unknown): string => {
   return toUserFriendlyErrorMessage(err, 'statement');
 };
-
-function parseSafeAmount(val: any, currency: CurrencyType = 'IDR'): number {
-  if (typeof val === 'number') {
-    return currency === 'IDR'
-      ? Math.round(Math.abs(val))
-      : Math.round(Math.abs(val) * 100) / 100;
-  }
-  if (!val) return 0;
-  let str = String(val).trim();
-  if (currency === 'IDR') {
-    str = str.replace(/[.,]\d{1,2}$/, '');
-    const cleaned = str.replace(/\./g, '').replace(/[^0-9]/g, '');
-    const parsed = parseInt(cleaned, 10);
-    return isNaN(parsed) ? 0 : Math.abs(parsed);
-  } else {
-    const cleaned = str.replace(/,/g, '').replace(/[^0-9.]/g, '');
-    const parsed = parseFloat(cleaned);
-    return isNaN(parsed) ? 0 : Math.round(Math.abs(parsed) * 100) / 100;
-  }
-}
 
 function normalizeDateStr(raw?: string): string {
   if (!raw) return getTodayDateStr();
@@ -380,13 +326,39 @@ export async function extractStatementFromFile(
     mimeType: string;
     fileName?: string;
   },
-  existingWalletNames: string[] = [],
+  _existingWalletNames: string[] = [],
   signal?: AbortSignal
 ): Promise<ExtractedStatementData> {
+  const { proxyUrl, apiKey } = getGeminiScannerConfig();
+  const safeFileName = input.fileName
+    ? String(input.fileName).replace(/[\r\n]/g, ' ').slice(0, 120)
+    : undefined;
+
   if (!apiKey && !proxyUrl) {
     throw new Error(
       'AI statement scanner is not configured in this build. Please check your Gemini API configuration.'
     );
+  }
+
+  // Prefer server-side proxy so the Gemini API key is never shipped in shared/production builds
+  if (proxyUrl) {
+    const data = await postToGeminiProxy<Partial<ExtractedStatementData>>(
+      {
+        action: 'statement',
+        base64: input.base64,
+        textContent: input.textContent ? input.textContent.slice(0, 120000) : undefined,
+        mimeType: input.mimeType,
+        fileName: safeFileName,
+      },
+      STATEMENT_TIMEOUT_MS,
+      signal,
+      {
+        serviceName: 'Statement scanner',
+        timeoutMessage: STATEMENT_TIMEOUT_MSG,
+        cancelMessage: STATEMENT_CANCEL_MSG,
+      }
+    );
+    return normalizeStatementResult(data, safeFileName);
   }
 
   if (!apiKey) {
@@ -395,17 +367,14 @@ export async function extractStatementFromFile(
 
   const ai = new GoogleGenAI({ apiKey });
 
-  const walletHint =
-    existingWalletNames.length > 0
-      ? `The user currently has these accounts in the app: ${existingWalletNames.map((n) => `"${n}"`).join(', ')}. If the statement belongs to one of these banks/accounts (e.g. SeaBank, BCA, Mandiri, BNI, BRI, Jago, Blu, Jenius, GoPay, OVO, ShopeePay), set "bankName" to match that bank's clean name.`
-      : 'Set "bankName" to the clean official short name of the bank or e-wallet (e.g. "SeaBank", "BCA", "Mandiri", "BNI", "BRI", "Bank Jago", "Blu", "Jenius", "GoPay", "ShopeePay", "OVO").';
-
+  // Never send the user's private local account names to external AI prompts;
+  // local matching happens offline in `matchWalletForStatement`.
   const prompt = `
 Carefully read this bank, credit card, or e-wallet e-Statement / mutation history (mutasi rekening).
 Extract the account header and EVERY individual transaction row into strict JSON.
 
 Rules:
-1. "bankName": Clean name of the bank, card issuer, or e-wallet. ${walletHint}
+1. "bankName": Clean official short name of the bank, card issuer, or e-wallet (e.g. "SeaBank", "BCA", "Mandiri", "BNI", "BRI", "Bank Jago", "Blu", "Jenius", "BSI", "CIMB", "GoPay", "ShopeePay", "OVO", "DANA").
 2. "accountNumber": Account number or last 4 digits shown on the statement (or "" if not visible).
 3. "accountType": One of "Bank", "E-Wallet", "Credit Card", or "E-Money".
 4. "currency": "IDR" (Rupiah) or "USD" (US Dollar).
@@ -503,7 +472,9 @@ Rules:
             },
           }),
           STATEMENT_TIMEOUT_MS,
-          signal
+          signal,
+          STATEMENT_TIMEOUT_MSG,
+          STATEMENT_CANCEL_MSG
         );
 
         if (response && response.text) {

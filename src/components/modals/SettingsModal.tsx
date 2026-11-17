@@ -9,6 +9,7 @@ import {
   Platform,
   Animated,
   Easing,
+  Linking,
 } from 'react-native';
 import {
   Download,
@@ -23,6 +24,7 @@ import {
   RefreshCw,
   Lock,
   KeyRound,
+  ExternalLink,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { AppHaptics } from '../../utils/haptics';
@@ -35,6 +37,9 @@ import { saveTextFileDirectly, pickBackupFile } from '../../utils/fileStorage';
 import { getTodayDateStr } from '../../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../../utils/errorHandling';
 import { BiometricType } from '../../services/authService';
+
+const PRIVACY_POLICY_URL = (process.env.EXPO_PUBLIC_PRIVACY_POLICY_URL || '').trim();
+const SUPPORT_EMAIL = (process.env.EXPO_PUBLIC_SUPPORT_EMAIL || '').trim();
 
 interface SettingsModalProps {
   visible: boolean;
@@ -397,7 +402,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Text style={styles.sectionTitle}>Backup & Restore</Text>
           </View>
           <Text style={styles.sectionDesc}>
-            Save your data to your device storage or restore them from an existing file.
+            Save your data to your device storage or restore them from an existing file. Exported JSON, CSV, and PDF files are unencrypted — store them in a safe location.
           </Text>
 
           {/* Direct Export JSON */}
@@ -640,11 +645,59 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <Text style={styles.sectionTitle}>Privacy & Data</Text>
           </View>
           <Text style={styles.privacyLine}>
-            All records are stored only on this device in a local database. REKA has no server and no account.
+            All accounts, pockets, and transactions live only on your device in a local SQLite database. REKA has no user accounts or cloud backend.
           </Text>
           <Text style={styles.privacyLine}>
-            Scanning a receipt sends that photo to Google Gemini for text extraction. Manual entry never leaves the device.
+            Optional AI scanning (receipts & e-Statements) sends only the selected file over HTTPS to Google Gemini for text extraction. Manual entry stays completely offline.
           </Text>
+          <Text style={styles.privacyLine}>
+            Live currency lookup fetches public USD/IDR rates from open.er-api.com without sending personal or transaction data. App Lock PIN credentials stay in device SecureStore and are excluded from backups.
+          </Text>
+          <Text style={styles.privacyLine}>
+            Analytics metrics and scores are informational tools only and are not professional financial or investment advice.
+          </Text>
+
+          <TouchableOpacity
+            style={[styles.outlineActionBtn, { marginTop: 4, marginBottom: 8 }]}
+            onPress={() => {
+              AppHaptics.light();
+              showAlert(
+                'Data & Privacy Summary',
+                '• Storage: Local SQLite only; delete anytime via Wipe All Data.\n• Security: App Lock PIN uses salted stretched hashes inside hardware-backed device SecureStore (excluded from JSON backups).\n• AI Features: Only triggered by you; photos/statements go to Google Gemini AI strictly for extraction.\n• Exports: JSON, CSV, and PDF exports are unencrypted plaintext — store exported files securely.' +
+                  (SUPPORT_EMAIL ? `\n• Support: ${SUPPORT_EMAIL}` : ''),
+                undefined,
+                'info'
+              );
+            }}
+            activeOpacity={0.7}
+          >
+            <ShieldCheck size={16} color={Palette.primary} />
+            <Text style={styles.outlineActionBtnText}>Data & Privacy Notice</Text>
+          </TouchableOpacity>
+
+          {PRIVACY_POLICY_URL ? (
+            <TouchableOpacity
+              style={[styles.outlineActionBtn, { marginBottom: 8 }]}
+              onPress={async () => {
+                AppHaptics.light();
+                try {
+                  const canOpen = await Linking.canOpenURL(PRIVACY_POLICY_URL);
+                  if (canOpen) {
+                    await Linking.openURL(PRIVACY_POLICY_URL);
+                  } else {
+                    showAlert('Unavailable', 'Could not open the privacy policy URL on this device.', undefined, 'warning');
+                  }
+                } catch {
+                  showAlert('Unavailable', 'Could not open the privacy policy URL.', undefined, 'warning');
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <ExternalLink size={16} color={Palette.primary} />
+              <Text style={styles.outlineActionBtnText}>Online Privacy Policy</Text>
+            </TouchableOpacity>
+          ) : null}
+
           <Text style={styles.appVersionLine}>App version {appVersion}</Text>
         </View>
 

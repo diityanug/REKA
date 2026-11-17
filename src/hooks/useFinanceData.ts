@@ -59,10 +59,12 @@ import {
   checkBiometricCapabilities,
   setLockEnabled,
   setBiometricsEnabled,
+  clearAuthData,
   LockSettings,
   BiometricCapabilities,
 } from '../services/authService';
 import { generateAndShareStatementPdf } from '../services/statementPdfGenerator';
+import { clearSensitiveTempFiles } from '../utils/fileStorage';
 
 interface UseFinanceDataProps {
   showAlert: (
@@ -1303,7 +1305,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   );
 
   const handleWipeAllData = useCallback(async () => {
-    await wipeAllData();
+    await Promise.all([
+      wipeAllData(),
+      clearAuthData(),
+      clearSensitiveTempFiles(),
+    ]);
     await loadData();
   }, [loadData]);
 

@@ -1,0 +1,19 @@
+{
+  "name": "reka-gemini-proxy",
+  "main": "src/index.js",
+  "compatibility_date": "2026-01-01",
+  "workers_dev": true,
+  "observability": {
+    "enabled": false
+  },
+  "ratelimits": [
+    {
+      "name": "SCAN_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": {
+        "limit": 15,
+        "period": 60
+      }
+    }
+  ]
+}

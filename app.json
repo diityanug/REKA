@@ -11,13 +11,14 @@
       "bundleIdentifier": "com.aes.finance",
       "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow REKA to use the camera so you can scan a receipt.",
-        "NSPhotoLibraryUsageDescription": "Allow REKA to access your photos so you can import a receipt image."
+        "NSCameraUsageDescription": "Allow REKA to use the camera to capture receipt and bank statement photos for transaction scanning.",
+        "NSPhotoLibraryUsageDescription": "Allow REKA to access your photos so you can import receipt or e-statement images for scanning."
       }
     },
     "android": {
       "package": "com.aes.finance",
       "versionCode": 10,
+      "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO"
@@ -49,6 +50,12 @@
         "expo-local-authentication",
         {
           "faceIDPermission": "Allow REKA to use Face ID for biometric app lock."
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
         }
       ]
     ],

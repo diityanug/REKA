@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
+  Text,
   ScrollView,
   StatusBar,
   Keyboard,
@@ -9,6 +10,7 @@ import {
   AppStateStatus,
 } from 'react-native';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ShieldCheck } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as SplashScreen from 'expo-splash-screen';
 
@@ -27,7 +29,7 @@ import {
   matchWalletForStatement,
   ExtractedStatementTx,
 } from './src/services/statementScanner';
-import { Palette } from './src/theme/tokens';
+import { Palette, Typography } from './src/theme/tokens';
 import { formatCurrency, parseAmount, formatCurrencyInput, getCurrentTimeStr } from './src/utils/formatters';
 import { sanitizeExpressionForCurrency } from './src/utils/calculator';
 import { AppHaptics } from './src/utils/haptics';
@@ -227,6 +229,7 @@ function MainApp() {
 
   // Security & App Lock State
   const [isAppLocked, setIsAppLocked] = useState<boolean>(false);
+  const [isAppInactive, setIsAppInactive] = useState<boolean>(false);
   const [pinSetupVisible, setPinSetupVisible] = useState<boolean>(false);
   const [isChangingPin, setIsChangingPin] = useState<boolean>(false);
 
@@ -241,9 +244,10 @@ function MainApp() {
     }
   }, [initialAppReady, lockSettings.isLockEnabled]);
 
-  // Listen to AppState transitions (lock app only when backgrounded, not transient OS dialogs/sheets)
+  // Lock only on full background; use transient Privacy Curtain during OS app-switcher ('inactive')
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      setIsAppInactive(nextAppState === 'inactive');
       if (nextAppState === 'background') {
         if (lockSettings.isLockEnabled) {
           setIsAppLocked(true);
@@ -625,105 +629,143 @@ function MainApp() {
     ]
   );
 
+  // Explicit one-time consent before sending photos or bank statements to external AI
+  const withAiConsent = useCallback(
+    async (onApproved: () => void | Promise<void>) => {
+      try {
+        const accepted = await getSetting('ai_disclosure_accepted', '0');
+        if (accepted === '1') {
+          await onApproved();
+          return;
+        }
+      } catch {
+        // Ask explicitly if settings read fails
+      }
+
+      showAlert(
+        'AI Processing & Privacy',
+        'Scanning receipts or importing e-Statements sends only your selected photo or statement file over HTTPS to Google Gemini AI to extract transaction details.\n\nREKA does not store these files on developer servers. Manual entry stays completely offline.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Agree & Continue',
+            onPress: async () => {
+              await setSetting('ai_disclosure_accepted', '1').catch(() => {});
+              await onApproved();
+            },
+          },
+        ],
+        'confirm'
+      );
+    },
+    [showAlert]
+  );
+
   // Camera scan handler
   const handleScanReceipt = useCallback(async () => {
     if (promptScannerNotConfigured()) return;
-    try {
-      AppHaptics.medium();
-      const perm = await ImagePicker.requestCameraPermissionsAsync();
-      if (!perm.granted) {
-        showAlert('Camera Access', 'Camera permission is required to capture receipts.', undefined, 'warning');
-        return;
-      }
+    await withAiConsent(async () => {
+      try {
+        AppHaptics.medium();
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          showAlert('Camera Access', 'Camera permission is required to capture receipts.', undefined, 'warning');
+          return;
+        }
 
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        quality: 0.85,
-        base64: true,
-      });
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          quality: 0.85,
+          base64: true,
+        });
 
-      if (!result.canceled && result.assets && result.assets[0]?.base64) {
-        processReceiptImage(result.assets[0].base64);
+        if (!result.canceled && result.assets && result.assets[0]?.base64) {
+          processReceiptImage(result.assets[0].base64);
+        }
+      } catch (err: any) {
+        showAlert('Scanner Notice', toUserFriendlyErrorMessage(err, 'receipt'), undefined, 'error');
       }
-    } catch (err: any) {
-      showAlert('Scanner Notice', toUserFriendlyErrorMessage(err, 'receipt'), undefined, 'error');
-    }
-  }, [promptScannerNotConfigured, showAlert, processReceiptImage]);
+    });
+  }, [promptScannerNotConfigured, withAiConsent, showAlert, processReceiptImage]);
 
   // Gallery picker handler
   const handlePickFromGallery = useCallback(async () => {
     if (promptScannerNotConfigured()) return;
-    try {
-      AppHaptics.light();
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        quality: 0.85,
-        base64: true,
-      });
+    await withAiConsent(async () => {
+      try {
+        AppHaptics.light();
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          quality: 0.85,
+          base64: true,
+        });
 
-      if (!result.canceled && result.assets && result.assets[0]?.base64) {
-        processReceiptImage(result.assets[0].base64);
+        if (!result.canceled && result.assets && result.assets[0]?.base64) {
+          processReceiptImage(result.assets[0].base64);
+        }
+      } catch (err: any) {
+        showAlert('Upload Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
       }
-    } catch (err: any) {
-      showAlert('Upload Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
-    }
-  }, [promptScannerNotConfigured, showAlert, processReceiptImage]);
+    });
+  }, [promptScannerNotConfigured, withAiConsent, showAlert, processReceiptImage]);
 
   // Pick & process e-Statement (PDF, images, CSV)
   const handlePickStatement = useCallback(
     async (preferredWallet?: Wallet) => {
       if (promptScannerNotConfigured()) return;
-      try {
-        AppHaptics.light();
-        const file = await pickStatementFile();
-        if (file.cancelled) return;
-
-        const controller = new AbortController();
-        scanAbortRef.current = controller;
-        setScanningMode('statement');
-        setScanning(true);
-
+      await withAiConsent(async () => {
         try {
-          const stmtData = await extractStatementFromFile(
-            file as any,
-            wallets.map((w) => w.name),
-            controller.signal
-          );
-          AppHaptics.success();
+          AppHaptics.light();
+          const file = await pickStatementFile();
+          if (file.cancelled) return;
 
-          const { matchedWallet, isAutoMatched } = matchWalletForStatement(
-            stmtData,
-            wallets,
-            preferredWallet?.id
-          );
+          const controller = new AbortController();
+          scanAbortRef.current = controller;
+          setScanningMode('statement');
+          setScanning(true);
 
-          if (matchedWallet && matchedWallet.currency !== activeCurrency) {
-            setActiveCurrency(matchedWallet.currency);
+          try {
+            const stmtData = await extractStatementFromFile(
+              file as any,
+              [],
+              controller.signal
+            );
+            AppHaptics.success();
+
+            const { matchedWallet, isAutoMatched } = matchWalletForStatement(
+              stmtData,
+              wallets,
+              preferredWallet?.id
+            );
+
+            if (matchedWallet && matchedWallet.currency !== activeCurrency) {
+              setActiveCurrency(matchedWallet.currency);
+            }
+
+            openReviewStatement(
+              stmtData,
+              matchedWallet ? matchedWallet.id : '',
+              isAutoMatched
+            );
+          } catch (err: any) {
+            if (controller.signal.aborted) return;
+            AppHaptics.error();
+            showAlert(
+              'e-Statement Notice',
+              toUserFriendlyErrorMessage(err, 'statement'),
+              undefined,
+              'error'
+            );
+          } finally {
+            scanAbortRef.current = null;
+            setScanning(false);
           }
-
-          openReviewStatement(
-            stmtData,
-            matchedWallet ? matchedWallet.id : '',
-            isAutoMatched
-          );
         } catch (err: any) {
-          if (controller.signal.aborted) return;
-          AppHaptics.error();
-          showAlert(
-            'e-Statement Notice',
-            toUserFriendlyErrorMessage(err, 'statement'),
-            undefined,
-            'error'
-          );
-        } finally {
-          scanAbortRef.current = null;
-          setScanning(false);
+          showAlert('File Selection Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
         }
-      } catch (err: any) {
-        showAlert('File Selection Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
-      }
+      });
     },
-    [promptScannerNotConfigured, wallets, activeCurrency, setActiveCurrency, openReviewStatement, showAlert]
+    [promptScannerNotConfigured, withAiConsent, wallets, activeCurrency, setActiveCurrency, openReviewStatement, showAlert]
   );
 
   const handlePickStatementForTab = useCallback(() => {
@@ -1818,6 +1860,17 @@ function MainApp() {
       {/* Portal Host for stacked alerts, scanner overlay, and nested sheet pickers */}
       <OverlayHost />
 
+      {/* Transient Privacy Curtain shown in OS App Switcher / Recent Apps previews */}
+      {isAppInactive && !isAppLocked && (lockSettings.isLockEnabled || privacyMode) ? (
+        <View pointerEvents="none" style={styles.privacyCurtain}>
+          <View style={styles.privacyCurtainIconBox}>
+            <ShieldCheck size={28} color={Palette.primary} />
+          </View>
+          <Text style={styles.privacyCurtainTitle}>REKA</Text>
+          <Text style={styles.privacyCurtainSub}>Financial information hidden</Text>
+        </View>
+      ) : null}
+
       {/* Fullscreen App Lock Screen (rendered last so it covers any active sheet or alert) */}
       <AppLockScreen
         visible={isAppLocked}
@@ -1853,5 +1906,38 @@ const styles = StyleSheet.create({
   scrollBody: {
     paddingHorizontal: 20,
     paddingTop: 8,
+  },
+  privacyCurtain: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 999990,
+    elevation: 999990,
+    backgroundColor: Palette.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  privacyCurtainIconBox: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  privacyCurtainTitle: {
+    ...Typography.heading,
+    color: Palette.ink,
+    letterSpacing: 1,
+  },
+  privacyCurtainSub: {
+    ...Typography.caption,
+    color: Palette.muted,
+    marginTop: 4,
   },
 });

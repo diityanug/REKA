@@ -2,6 +2,16 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Transaction, Wallet, CurrencyType } from '../types';
 import { formatCurrency, formatMonthYear } from '../utils/formatters';
+import { clearSensitiveTempFiles } from '../utils/fileStorage';
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 interface StatementPdfData {
   monthKey: string; // "YYYY-MM" or "all"
@@ -60,7 +70,7 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
 <html>
 <head>
   <meta charset="utf-8">
-  <title>REKA Financial Statement - ${periodLabel}</title>
+  <title>REKA Financial Statement - ${escapeHtml(periodLabel)}</title>
   <style>
     @page {
       margin: 20mm 15mm 20mm 15mm;
@@ -227,8 +237,8 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
     </div>
     <div class="doc-meta">
       <div class="doc-title">Financial Statement</div>
-      <div class="doc-period">${periodLabel} (${currency})</div>
-      <div class="doc-date">Generated on ${generatedDate}</div>
+      <div class="doc-period">${escapeHtml(periodLabel)} (${escapeHtml(currency)})</div>
+      <div class="doc-date">Generated on ${escapeHtml(generatedDate)}</div>
     </div>
   </div>
 
@@ -236,19 +246,19 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
   <div class="summary-grid">
     <div class="summary-card">
       <div class="summary-label">Total Inflow</div>
-      <div class="summary-value income">+${formatCurrency(totalIncome, currency)}</div>
+      <div class="summary-value income">+${escapeHtml(formatCurrency(totalIncome, currency))}</div>
     </div>
     <div class="summary-card">
       <div class="summary-label">Total Outflow</div>
-      <div class="summary-value expense">-${formatCurrency(totalExpense, currency)}</div>
+      <div class="summary-value expense">-${escapeHtml(formatCurrency(totalExpense, currency))}</div>
     </div>
     <div class="summary-card">
       <div class="summary-label">Net Cash Flow</div>
-      <div class="summary-value net">${netSavings >= 0 ? '+' : ''}${formatCurrency(netSavings, currency)}</div>
+      <div class="summary-value net">${netSavings >= 0 ? '+' : ''}${escapeHtml(formatCurrency(netSavings, currency))}</div>
     </div>
     <div class="summary-card">
       <div class="summary-label">Ending Balance</div>
-      <div class="summary-value">${formatCurrency(totalAccountBalance, currency)}</div>
+      <div class="summary-value">${escapeHtml(formatCurrency(totalAccountBalance, currency))}</div>
     </div>
   </div>
 
@@ -268,10 +278,10 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
         .map(
           (w) => `
         <tr>
-          <td><strong>${w.name}</strong></td>
-          <td>${w.type.toUpperCase()}</td>
-          <td>${w.accountNumber || '-'}</td>
-          <td class="text-right"><strong>${formatCurrency(w.balance, w.currency)}</strong></td>
+          <td><strong>${escapeHtml(w.name)}</strong></td>
+          <td>${escapeHtml(w.type.toUpperCase())}</td>
+          <td>${escapeHtml(w.accountNumber || '-')}</td>
+          <td class="text-right"><strong>${escapeHtml(formatCurrency(w.balance, w.currency))}</strong></td>
         </tr>
       `
         )
@@ -298,9 +308,9 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
             const share = totalExpense > 0 ? ((amount / totalExpense) * 100).toFixed(1) : '0';
             return `
             <tr>
-              <td><strong>${cat}</strong></td>
-              <td class="text-right">${formatCurrency(amount, currency)}</td>
-              <td class="text-right">${share}%</td>
+              <td><strong>${escapeHtml(cat)}</strong></td>
+              <td class="text-right">${escapeHtml(formatCurrency(amount, currency))}</td>
+              <td class="text-right">${escapeHtml(share)}%</td>
             </tr>
           `;
           })
@@ -333,12 +343,12 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
                 const isIncome = tx.type === 'income';
                 return `
             <tr>
-              <td>${datePart}</td>
-              <td><strong>${tx.merchantName || tx.notes || 'Transaction'}</strong></td>
-              <td>${tx.category}</td>
-              <td class="text-muted">${tx.paymentMethod || 'Other'}</td>
+              <td>${escapeHtml(datePart)}</td>
+              <td><strong>${escapeHtml(tx.merchantName || tx.notes || 'Transaction')}</strong></td>
+              <td>${escapeHtml(tx.category)}</td>
+              <td class="text-muted">${escapeHtml(tx.paymentMethod || 'Other')}</td>
               <td class="text-right ${isIncome ? 'type-income' : 'type-expense'}">
-                ${isIncome ? '+' : '-'}${formatCurrency(tx.amount, tx.currency)}
+                ${isIncome ? '+' : '-'}${escapeHtml(formatCurrency(tx.amount, tx.currency))}
               </td>
             </tr>
           `;
@@ -354,6 +364,9 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
 </body>
 </html>
   `;
+
+  // Clean previous temporary exports before creating a new PDF file
+  await clearSensitiveTempFiles();
 
   // Render HTML to PDF file
   const { uri } = await Print.printToFileAsync({

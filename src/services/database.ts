@@ -2196,6 +2196,23 @@ export async function setSetting(key: string, value: string): Promise<void> {
   );
 }
 
+export async function deleteSetting(key: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM app_settings WHERE key = ?', key);
+}
+
+const SENSITIVE_OR_INTERNAL_SETTING_KEYS = new Set([
+  '__pre_restore_snapshot',
+  'ai_disclosure_accepted',
+  'app_lock_enabled',
+  'app_lock_pin_hash',
+  'app_lock_biometrics_enabled',
+]);
+
+function isExcludedBackupSetting(key: string): boolean {
+  return SENSITIVE_OR_INTERNAL_SETTING_KEYS.has(key) || key.startsWith('app_lock_');
+}
+
 // Budgeting & Spending Limits
 // Budgets are stored per month so setting one month never rewrites another.
 // The legacy global key is only read as a fallback for data created by older versions.
@@ -2308,6 +2325,7 @@ export async function exportAllData(): Promise<string> {
 
   const settings: Record<string, string> = {};
   for (const s of settingRows) {
+    if (isExcludedBackupSetting(s.key)) continue;
     settings[s.key] = s.value;
   }
 
@@ -2361,9 +2379,14 @@ export async function exportTransactionsCSV(): Promise<string> {
     'Notes',
   ];
 
+  // Escape quotes and neutralize spreadsheet formula injection (=, +, -, @, tab, CR)
   const escapeCSV = (str: any) => {
     if (str === null || str === undefined) return '""';
-    const s = String(str).replace(/"/g, '""');
+    let raw = String(str);
+    if (/^[\t\r ]*[=+\-@]/.test(raw) || /^[\t\r]/.test(raw)) {
+      raw = `'${raw}`;
+    }
+    const s = raw.replace(/"/g, '""');
     return `"${s}"`;
   };
 
@@ -2490,9 +2513,10 @@ export async function importAllData(
       await db.runAsync('DELETE FROM wallets');
       await db.runAsync('DELETE FROM app_settings');
 
-      // Restore settings
+      // Restore settings (never import device-local security lock keys or internal snapshots)
       if (data.settings && typeof data.settings === 'object') {
         for (const [k, v] of Object.entries(data.settings)) {
+          if (isExcludedBackupSetting(k)) continue;
           await db.runAsync(
             'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
             k,

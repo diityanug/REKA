@@ -4,6 +4,31 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as Sharing from 'expo-sharing';
 
 /**
+ * Removes leftover temporary REKA export / Print cache files created by previous share sheets.
+ */
+export async function clearSensitiveTempFiles(): Promise<void> {
+  try {
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) return;
+    const entries = await FileSystem.readDirectoryAsync(cacheDir);
+    await Promise.all(
+      entries
+        .filter((name) => /^(REKA_|bk_\d+_|Print)/i.test(name))
+        .map((name) =>
+          FileSystem.deleteAsync(`${cacheDir}${name}`, { idempotent: true }).catch(() => {})
+        )
+    );
+    const printDir = `${cacheDir}Print`;
+    const printInfo = await FileSystem.getInfoAsync(printDir);
+    if (printInfo.exists) {
+      await FileSystem.deleteAsync(printDir, { idempotent: true }).catch(() => {});
+    }
+  } catch {
+    // Non-critical cache cleanup
+  }
+}
+
+/**
  * Saves a file by letting the user choose a target folder directly via StorageAccessFramework (Android)
  * or via system file sharing / save to files (iOS / Fallback).
  */
@@ -39,8 +64,9 @@ export async function saveTextFileDirectly(
     }
   }
 
-  // iOS or Android Fallback: Write to cacheDirectory, then open system Share/Save to Files
+  // iOS or Android Fallback: Clear stale export artifacts first, write to cacheDirectory, then open Share sheet
   try {
+    await clearSensitiveTempFiles();
     const tempUri = `${FileSystem.cacheDirectory}${filename}`;
     await FileSystem.writeAsStringAsync(tempUri, content, {
       encoding: FileSystem.EncodingType.UTF8,

@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowDown, ArrowLeftRight, ArrowRight, Plus, RefreshCw } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
-import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { Wallet, Pocket, CurrencyType } from '../../types';
 import { UpdateTransferFundsParams } from '../../services/database';
@@ -94,7 +94,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const footerKeyboardOffset = useFooterKeyboardOffset();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
 
   const [fromWalletId, setFromWalletId] = useState<string>('');
   const [toWalletId, setToWalletId] = useState<string>('');
@@ -979,12 +979,12 @@ export const TransferModal = React.memo<TransferModalProps>(({
           </KeyboardSafeContainer>
 
           {/* Sticky Bottom Action */}
-          {eligibleWallets.length >= 2 && (
+          {eligibleWallets.length >= 2 && !isKeyboardVisible && (
             <View
               style={[
                 styles.stickyFooter,
                 {
-                  paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
+                  paddingBottom: Math.max(insets.bottom, 14),
                 },
               ]}
             >

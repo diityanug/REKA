@@ -1,0 +1,12 @@
+{
+  "name": "reka-gemini-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx --yes wrangler dev",
+    "deploy": "npx --yes wrangler deploy",
+    "secret:gemini": "npx --yes wrangler secret put GEMINI_API_KEY",
+    "secret:token": "npx --yes wrangler secret put PROXY_ACCESS_TOKEN"
+  }
+}

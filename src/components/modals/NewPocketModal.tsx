@@ -18,6 +18,7 @@ import { POCKET_PRESETS } from '../../constants/presets';
 import { formatCurrency, parseAmount } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
@@ -224,6 +225,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
   const { width: screenWidth } = useWindowDimensions();
   const [gridWidth, setGridWidth] = useState<number>(() => Math.max(screenWidth - 40 - 20, 260));
   const [amountModalType, setAmountModalType] = useState<'balance' | 'target' | null>(null);
@@ -566,29 +568,31 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               </View>
             </KeyboardSafeContainer>
 
-            <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
-              <TouchableOpacity
-                style={[styles.confirmBtn, !canSubmit && { opacity: 0.5 }]}
-                onPress={submit}
-                disabled={!canSubmit}
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                accessibilityLabel="Save pocket"
-                accessibilityState={{ disabled: !canSubmit, busy: saving }}
-              >
-                {saving ? (
-                  <>
-                    <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
-                    <Text style={styles.confirmBtnText}>Saving...</Text>
-                  </>
-                ) : (
-                  <>
-                    <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                    <Text style={styles.confirmBtnText}>Save Pocket</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
+            {!isKeyboardVisible && (
+              <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+                <TouchableOpacity
+                  style={[styles.confirmBtn, !canSubmit && { opacity: 0.5 }]}
+                  onPress={submit}
+                  disabled={!canSubmit}
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save pocket"
+                  accessibilityState={{ disabled: !canSubmit, busy: saving }}
+                >
+                  {saving ? (
+                    <>
+                      <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                      <Text style={styles.confirmBtnText}>Saving...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                      <Text style={styles.confirmBtnText}>Save Pocket</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
 
       <AmountInputModal
         visible={!!amountModalType}

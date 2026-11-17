@@ -14,6 +14,7 @@ import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useLocalAlert } from '../../hooks/useLocalAlert';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { CurrencyType, AllocationPlan, AllocationItem } from '../../types';
 import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -69,6 +70,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
   const [title, setTitle] = useState<string>('');
   const [planCurrency, setPlanCurrency] = useState<CurrencyType>(activeCurrency);
   const [rows, setRows] = useState<DraftRow[]>([
@@ -513,73 +515,75 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
           </KeyboardSafeContainer>
 
           {/* Sticky Action Footer */}
-          <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-            <TouchableOpacity
-              style={[styles.saveBtn, !canSave && { opacity: 0.5 }]}
-              onPress={handleSave}
-              disabled={!canSave}
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              accessibilityLabel="Save plan"
-              accessibilityState={{ disabled: !canSave, busy: saving }}
-            >
-              {saving ? (
-                <>
-                  <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
-                  <Text style={styles.saveBtnText}>Saving...</Text>
-                </>
-              ) : (
-                <>
-                  <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
-                  <Text style={styles.saveBtnText}>Save Plan</Text>
-                </>
+          {!isKeyboardVisible && (
+            <View style={[styles.stickyFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+              <TouchableOpacity
+                style={[styles.saveBtn, !canSave && { opacity: 0.5 }]}
+                onPress={handleSave}
+                disabled={!canSave}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Save plan"
+                accessibilityState={{ disabled: !canSave, busy: saving }}
+              >
+                {saving ? (
+                  <>
+                    <ActivityIndicator size="small" color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.saveBtnText}>Saving...</Text>
+                  </>
+                ) : (
+                  <>
+                    <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
+                    <Text style={styles.saveBtnText}>Save Plan</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {plan && (onDuplicate || onDelete) && (
+                <View style={styles.secondaryFooterRow}>
+                  {onDuplicate && (
+                    <TouchableOpacity
+                      style={[styles.secondaryActionBtn, styles.duplicatePlanBtn, duplicating && { opacity: 0.6 }]}
+                      onPress={handleDuplicateCurrentPlan}
+                      disabled={duplicating || saving}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Duplicate this plan"
+                    >
+                      {duplicating ? (
+                        <ActivityIndicator size="small" color={Palette.ink} />
+                      ) : (
+                        <>
+                          <Copy size={15} color={Palette.ink} style={{ marginRight: 6 }} />
+                          <Text style={styles.duplicatePlanBtnText}>Duplicate Plan</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+
+                  {onDelete && (
+                    <TouchableOpacity
+                      style={[styles.secondaryActionBtn, styles.deletePlanBtn, deleting && { opacity: 0.6 }]}
+                      onPress={handleDelete}
+                      disabled={deleting || saving || duplicating}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Delete this plan"
+                    >
+                      {deleting ? (
+                        <ActivityIndicator size="small" color={Palette.error} />
+                      ) : (
+                        <>
+                          <Trash2 size={15} color={Palette.error} style={{ marginRight: 6 }} />
+                          <Text style={styles.deletePlanBtnText}>Delete Plan</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+                </View>
               )}
-            </TouchableOpacity>
-
-            {plan && (onDuplicate || onDelete) && (
-              <View style={styles.secondaryFooterRow}>
-                {onDuplicate && (
-                  <TouchableOpacity
-                    style={[styles.secondaryActionBtn, styles.duplicatePlanBtn, duplicating && { opacity: 0.6 }]}
-                    onPress={handleDuplicateCurrentPlan}
-                    disabled={duplicating || saving}
-                    activeOpacity={0.8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Duplicate this plan"
-                  >
-                    {duplicating ? (
-                      <ActivityIndicator size="small" color={Palette.ink} />
-                    ) : (
-                      <>
-                        <Copy size={15} color={Palette.ink} style={{ marginRight: 6 }} />
-                        <Text style={styles.duplicatePlanBtnText}>Duplicate Plan</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
-
-                {onDelete && (
-                  <TouchableOpacity
-                    style={[styles.secondaryActionBtn, styles.deletePlanBtn, deleting && { opacity: 0.6 }]}
-                    onPress={handleDelete}
-                    disabled={deleting || saving || duplicating}
-                    activeOpacity={0.8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Delete this plan"
-                  >
-                    {deleting ? (
-                      <ActivityIndicator size="small" color={Palette.error} />
-                    ) : (
-                      <>
-                        <Trash2 size={15} color={Palette.error} style={{ marginRight: 6 }} />
-                        <Text style={styles.deletePlanBtnText}>Delete Plan</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-          </View>
+            </View>
+          )}
 
       {/* Dedicated Numeric Keypad Modal for setting row amount (Max 9 Digits, Zero Flicker) */}
       <AmountInputModal

@@ -32,7 +32,7 @@ import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { AmountInputModal } from './AmountInputModal';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useLastDefined } from '../../hooks/useLastDefined';
-import { useFooterKeyboardOffset } from '../../hooks/useKeyboardHeight';
+import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 
 export interface RecordLentRepaymentModalProps {
   visible: boolean;
@@ -73,7 +73,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   onSubmit,
 }) => {
   const insets = useSafeAreaInsets();
-  const footerKeyboardOffset = useFooterKeyboardOffset();
+  const isKeyboardVisible = useKeyboardHeight() > 0;
   const currentTx = useLastDefined(tx);
   const [amountStr, setAmountStr] = useState<string>('');
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
@@ -417,36 +417,38 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       </KeyboardSafeContainer>
 
       {/* 5. Sticky Action Footer */}
-      <View
-        style={[
-          styles.stickyFooter,
-          {
-            paddingBottom: Math.max(insets.bottom, 14) + footerKeyboardOffset,
-          },
-        ]}
-      >
-        <TouchableOpacity
+      {!isKeyboardVisible && (
+        <View
           style={[
-            styles.submitBtn,
-            !canSubmit && styles.submitBtnDisabled,
+            styles.stickyFooter,
+            {
+              paddingBottom: Math.max(insets.bottom, 14),
+            },
           ]}
-          onPress={handleConfirm}
-          disabled={!canSubmit}
-          activeOpacity={0.85}
-          accessibilityState={{ disabled: !canSubmit, busy: isSubmitting }}
         >
-          {isSubmitting ? (
-            <ActivityIndicator color={Palette.white} size="small" />
-          ) : (
-            <View style={styles.submitBtnInner}>
-              <HandCoins size={17} color={Palette.white} style={{ marginRight: 8 }} />
-              <Text style={styles.submitBtnText}>
-                {isFullSettlement ? 'Confirm Full Settlement' : 'Confirm Repayment'}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[
+              styles.submitBtn,
+              !canSubmit && styles.submitBtnDisabled,
+            ]}
+            onPress={handleConfirm}
+            disabled={!canSubmit}
+            activeOpacity={0.85}
+            accessibilityState={{ disabled: !canSubmit, busy: isSubmitting }}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator color={Palette.white} size="small" />
+            ) : (
+              <View style={styles.submitBtnInner}>
+                <HandCoins size={17} color={Palette.white} style={{ marginRight: 8 }} />
+                <Text style={styles.submitBtnText}>
+                  {isFullSettlement ? 'Confirm Full Settlement' : 'Confirm Repayment'}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
 
       <AmountInputModal
         visible={amountModalVisible}
