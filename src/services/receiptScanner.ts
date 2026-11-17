@@ -221,7 +221,7 @@ Rules:
           errMsg.includes('resource exhausted') ||
           errMsg.includes('unavailable');
 
-        if (isTemporary && attempt === 0) {
+        if (isTemporary && attempt === 0 && !errMsg.includes('too long')) {
           await sleep(800);
         } else {
           break;

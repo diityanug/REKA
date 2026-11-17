@@ -46,7 +46,7 @@ Wrangler will print your live HTTPS URL, e.g.:
    - Type: **Secret**
    - Name: `GEMINI_API_KEY` -> Value: your Gemini API key -> **Save**.
    - *(Optional)* Secret `PROXY_ACCESS_TOKEN` -> random long string.
-   - *(Optional)* Text `GEMINI_MODELS` -> comma-separated model names to override defaults (`gemini-3.8-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite`).
+   - *(Optional)* Text `GEMINI_MODELS` -> comma-separated model names to override defaults (`gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.6-flash,gemini-3.5-flash`).
 
 ---
 

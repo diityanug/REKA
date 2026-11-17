@@ -7,9 +7,10 @@
  */
 
 const DEFAULT_CANDIDATE_MODELS = [
-  'gemini-3.8-flash',
-  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
+  'gemini-3.5-flash-lite',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
 ];
 
 const MAX_REQUEST_BYTES = 22_000_000;
@@ -285,6 +286,17 @@ async function readJsonBody(request) {
   }
 }
 
+function trimIfNeeded(str) {
+  if (typeof str !== 'string') return '';
+  if (str.length === 0) return '';
+  const first = str.charCodeAt(0);
+  const last = str.charCodeAt(str.length - 1);
+  if (first <= 32 || last <= 32) {
+    return str.trim();
+  }
+  return str;
+}
+
 function buildGeminiTask(body) {
   const rawAction = typeof body.action === 'string' ? body.action.trim().toLowerCase() : '';
   const action = rawAction || (body.base64Image ? 'receipt' : '');
@@ -294,7 +306,7 @@ function buildGeminiTask(body) {
     if (!RECEIPT_ALLOWED_MIMES.has(mimeType)) {
       return { errorResponse: jsonResponse({ error: 'Unsupported receipt image MIME type.' }, 400) };
     }
-    const base64Image = typeof body.base64Image === 'string' ? body.base64Image.trim() : '';
+    const base64Image = trimIfNeeded(body.base64Image);
     if (!base64Image) {
       return { errorResponse: jsonResponse({ error: 'Missing receipt image data.' }, 400) };
     }
@@ -307,8 +319,8 @@ function buildGeminiTask(body) {
 
     return {
       action,
-      totalBudgetMs: 26_000,
-      perAttemptMs: 22_000,
+      totalBudgetMs: 27_000,
+      modelTimeoutsMs: [9_000, 12_500],
       responseSchema: RECEIPT_SCHEMA,
       parts: [
         { text: RECEIPT_PROMPT },
@@ -328,7 +340,7 @@ function buildGeminiTask(body) {
     const textContent = typeof body.textContent === 'string'
       ? body.textContent.slice(0, MAX_STATEMENT_TEXT_CHARS).trim()
       : '';
-    const base64 = typeof body.base64 === 'string' ? body.base64.trim() : '';
+    const base64 = trimIfNeeded(body.base64);
 
     const parts = [{ text: STATEMENT_PROMPT }];
     if (textContent) {
@@ -351,8 +363,8 @@ function buildGeminiTask(body) {
 
     return {
       action,
-      totalBudgetMs: 58_000,
-      perAttemptMs: 50_000,
+      totalBudgetMs: 59_000,
+      modelTimeoutsMs: [18_000, 22_000],
       responseSchema: STATEMENT_SCHEMA,
       parts,
     };
@@ -402,6 +414,32 @@ function isTransientUpstreamFailure(status, errMessage) {
   );
 }
 
+async function fetchGeminiWithTimeout(endpoint, apiKey, requestBody, timeoutMs) {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey,
+      },
+      body: requestBody,
+      signal: controller.signal,
+    });
+    return { res, timedOut: false };
+  } catch {
+    return { res: null, timedOut };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callGeminiWithCascade(env, task) {
   const apiKey = typeof env.GEMINI_API_KEY === 'string' ? env.GEMINI_API_KEY.trim() : '';
   if (!apiKey) {
@@ -412,6 +450,7 @@ async function callGeminiWithCascade(env, task) {
   const deadline = Date.now() + task.totalBudgetMs;
   let lastStatus = 502;
   let sawRateLimit = false;
+  let sawTimeout = false;
 
   const requestBody = JSON.stringify({
     contents: [{ role: 'user', parts: task.parts }],
@@ -421,31 +460,40 @@ async function callGeminiWithCascade(env, task) {
     },
   });
 
-  for (const model of models) {
-    for (let attempt = 0; attempt < 2; attempt++) {
+  const maxAttemptsPerModel = models.length === 1 ? 2 : 1;
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    for (let attempt = 0; attempt < maxAttemptsPerModel; attempt++) {
       const remainingMs = deadline - Date.now();
       if (remainingMs <= 1_500) {
         return jsonResponse({ error: 'Scanner upstream request timed out.' }, 504);
       }
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-      let res;
-      let errMessage = '';
+      const configuredCap = task.modelTimeoutsMs?.[i];
+      const timeoutBudget =
+        models.length - i > 1 && configuredCap
+          ? Math.min(configuredCap, remainingMs)
+          : remainingMs;
 
-      try {
-        res = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-goog-api-key': apiKey,
-          },
-          body: requestBody,
-          signal: AbortSignal.timeout(Math.min(task.perAttemptMs, remainingMs)),
-        });
-      } catch (err) {
-        lastStatus = err?.name === 'TimeoutError' ? 504 : 502;
-        if (attempt === 0 && deadline - Date.now() > 2_500) {
-          await sleep(650);
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+      const { res, timedOut } = await fetchGeminiWithTimeout(
+        endpoint,
+        apiKey,
+        requestBody,
+        timeoutBudget
+      );
+
+      if (!res) {
+        if (timedOut) {
+          sawTimeout = true;
+          lastStatus = 504;
+          // Never retry a timed-out model; fail over immediately to the next candidate
+          break;
+        }
+        lastStatus = 502;
+        if (attempt + 1 < maxAttemptsPerModel && deadline - Date.now() > 2_500) {
+          await sleep(500);
           continue;
         }
         break;
@@ -472,6 +520,8 @@ async function callGeminiWithCascade(env, task) {
       if (res.status === 429) {
         sawRateLimit = true;
       }
+
+      let errMessage = '';
       try {
         const errPayload = await res.json();
         errMessage = errPayload?.error?.message || '';
@@ -479,8 +529,12 @@ async function callGeminiWithCascade(env, task) {
         errMessage = '';
       }
 
-      if (isTransientUpstreamFailure(res.status, errMessage) && attempt === 0 && deadline - Date.now() > 2_500) {
-        await sleep(650);
+      if (
+        isTransientUpstreamFailure(res.status, errMessage) &&
+        attempt + 1 < maxAttemptsPerModel &&
+        deadline - Date.now() > 2_500
+      ) {
+        await sleep(500);
         continue;
       }
       break;
@@ -493,10 +547,10 @@ async function callGeminiWithCascade(env, task) {
       429
     );
   }
-  if (lastStatus === 503 || lastStatus === 504) {
+  if (sawTimeout || lastStatus === 503 || lastStatus === 504) {
     return jsonResponse(
       { error: 'Scanning service is temporarily unavailable. Please try again shortly.' },
-      lastStatus
+      lastStatus === 503 ? 503 : 504
     );
   }
   return jsonResponse(

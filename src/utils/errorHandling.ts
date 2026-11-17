@@ -54,7 +54,12 @@ export function toUserFriendlyErrorMessage(
   }
 
   // 3. Timeout issues
-  if (lower.includes('timeout') || lower.includes('timed out') || lower.includes('took too long')) {
+  if (
+    lower.includes('timeout') ||
+    lower.includes('timed out') ||
+    lower.includes('took too long') ||
+    lower.includes('504')
+  ) {
     if (context === 'statement') {
       return 'Analysis took too long. Please make sure your internet is stable and consider uploading a smaller PDF with fewer pages.';
     }
