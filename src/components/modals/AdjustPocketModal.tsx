@@ -11,7 +11,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Pocket, Wallet, CurrencyType } from '../../types';
-import { formatCurrency, formatCurrencyInput, parseAmount } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatCurrencyNumberForInput,
+  parseAmount,
+} from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
@@ -88,7 +92,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
       return;
     }
     AppHaptics.selection();
-    const formatted = formatCurrencyInput(String(limit), pCurrency);
+    const formatted = formatCurrencyNumberForInput(limit, pCurrency);
     onChangeAmount(formatted);
   };
 

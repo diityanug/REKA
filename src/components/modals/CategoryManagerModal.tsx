@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Plus, Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Category, TransactionType } from '../../types';
+import { Category, TransactionType, filterSelectableCategories } from '../../types';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
@@ -53,7 +53,15 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
 }) => {
   const [selectedGroupKey, setSelectedGroupKey] = React.useState<string>('all');
   const [saving, setSaving] = React.useState<boolean>(false);
-  const filteredCategories = categories.filter((c) => c.type === activeType);
+  const expenseCategories = React.useMemo(
+    () => filterSelectableCategories(categories, 'expense'),
+    [categories]
+  );
+  const incomeCategories = React.useMemo(
+    () => filterSelectableCategories(categories, 'income'),
+    [categories]
+  );
+  const filteredCategories = activeType === 'expense' ? expenseCategories : incomeCategories;
   const activeTint = activeType === 'expense' ? Palette.primary : Palette.accentTeal;
 
   const canSubmit = !saving && !!newCatName.trim() && !!newCatIcon.trim();
@@ -105,7 +113,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     activeType === 'expense' && styles.segmentBtnTextActive,
                   ]}
                 >
-                  Expense ({categories.filter((c) => c.type === 'expense').length})
+                  Expense ({expenseCategories.length})
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -124,7 +132,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     activeType === 'income' && styles.segmentBtnTextActive,
                   ]}
                 >
-                  Income ({categories.filter((c) => c.type === 'income').length})
+                  Income ({incomeCategories.length})
                 </Text>
               </TouchableOpacity>
             </View>

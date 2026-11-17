@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -22,7 +22,7 @@ import {
   History,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Category, CurrencyType, Transaction, Wallet } from '../../types';
+import { Category, CurrencyType, Transaction, Wallet, filterSelectableCategories } from '../../types';
 import {
   ExtractedStatementData,
   ExtractedStatementTx,
@@ -79,8 +79,22 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
   const [editingCatItemId, setEditingCatItemId] = useState<string | null>(null);
 
+  const lastSeedRef = useRef<{ visible: boolean; data: ExtractedStatementData | null }>({
+    visible: false,
+    data: null,
+  });
+
   useSyncOnChange([visible, statementData, selectedWalletId], () => {
-    if (visible && statementData) {
+    if (!visible || !statementData) {
+      lastSeedRef.current = { visible: false, data: null };
+      return;
+    }
+
+    const isFreshOpen =
+      !lastSeedRef.current.visible || lastSeedRef.current.data !== statementData;
+    lastSeedRef.current = { visible: true, data: statementData };
+
+    if (isFreshOpen) {
       const marked = markDuplicateStatementTransactions(
         statementData.transactions,
         existingTransactions,
@@ -88,7 +102,29 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
       );
       setItems(marked);
       setEditingCatItemId(null);
+      return;
     }
+
+    // Switching target account only refreshes duplicate flags while preserving user edits
+    setItems((prev) => {
+      if (prev.length === 0) return prev;
+      const dupMarked = markDuplicateStatementTransactions(
+        prev,
+        existingTransactions,
+        selectedWalletId
+      );
+      return prev.map((it, idx) => {
+        const wasDup = Boolean(it.isDuplicate);
+        const nowDup = Boolean(dupMarked[idx]?.isDuplicate);
+        const nextSelected =
+          !wasDup && nowDup ? false : wasDup && !nowDup ? true : it.selected;
+        return {
+          ...it,
+          isDuplicate: nowDup,
+          selected: nextSelected,
+        };
+      });
+    });
   });
 
   useSyncOnChange([visible], () => {
@@ -153,7 +189,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
       prev.map((it) => {
         if (it.id !== id) return it;
         const nextType = it.type === 'expense' ? 'income' : 'expense';
-        const matchingCats = categories.filter((c) => c.type === nextType);
+        const matchingCats = filterSelectableCategories(categories, nextType);
         const nextCat = matchingCats[0]?.name || (nextType === 'income' ? 'Salary' : 'Shopping');
         return {
           ...it,
@@ -460,7 +496,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
         {/* 5. Individual Transaction Cards */}
         {items.map((item, idx) => {
           const isEditingCat = editingCatItemId === item.id;
-          const typeCategories = categories.filter((c) => c.type === item.type);
+          const typeCategories = filterSelectableCategories(categories, item.type);
           const iconName = getCategoryIconName(item.category, item.type);
 
           return (

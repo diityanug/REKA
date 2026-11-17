@@ -23,7 +23,11 @@ import {
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, Wallet } from '../../types';
-import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
+import {
+  formatCurrency,
+  parseAmount,
+  formatCurrencyNumberForInput,
+} from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -103,7 +107,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   useSyncOnChange([visible, currentTx?.id], () => {
     if (visible && currentTx) {
       const rem = Math.max(0, currentTx.amount - (currentTx.lentRepaidAmount || 0));
-      setAmountStr(rem > 0 ? formatCurrencyInput(String(rem), currentTx.currency) : '');
+      setAmountStr(rem > 0 ? formatCurrencyNumberForInput(rem, currentTx.currency) : '');
       const matchOrig = compatibleWallets.find((w) => w.id === currentTx.walletId);
       setSelectedWalletId(matchOrig ? matchOrig.id : compatibleWallets[0]?.id || '');
       setNotes('');
@@ -114,9 +118,14 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   });
 
   const parsedAmount = parseAmount(amountStr, currency);
-  const isAmountValid = !isNaN(parsedAmount) && parsedAmount > 0 && parsedAmount <= remainingDue + 0.01;
-  const isFullSettlement = isAmountValid && Math.abs(parsedAmount - remainingDue) < 0.01;
-  const isOverRemaining = !isNaN(parsedAmount) && parsedAmount > remainingDue + 0.01;
+  const tolerance = currency === 'USD' ? 0.0001 : 0;
+  const fullTolerance = currency === 'USD' ? 0.005 : 0.01;
+  const isAmountValid =
+    !isNaN(parsedAmount) && parsedAmount > 0 && parsedAmount <= remainingDue + tolerance;
+  const isFullSettlement =
+    isAmountValid && Math.abs(parsedAmount - remainingDue) <= fullTolerance;
+  const isOverRemaining =
+    !isNaN(parsedAmount) && parsedAmount > remainingDue + tolerance;
   const canSubmit = isAmountValid && !!selectedWalletId && !isSubmitting;
 
   const handleConfirm = async () => {
@@ -126,7 +135,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       AppHaptics.error();
       return;
     }
-    if (parsedAmount > remainingDue + 0.01) {
+    if (parsedAmount > remainingDue + tolerance) {
       setErrorMsg(`Amount cannot exceed the remaining balance of ${formatCurrency(remainingDue, currency, false)}.`);
       AppHaptics.error();
       return;
@@ -142,7 +151,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
     }
     if (isBorrowed) {
       const sourceWallet = compatibleWallets.find((w) => w.id === selectedWalletId);
-      if (sourceWallet && sourceWallet.balance < parsedAmount - 0.005) {
+      if (sourceWallet && sourceWallet.balance < parsedAmount - tolerance) {
         setErrorMsg(
           `Insufficient balance in ${sourceWallet.name} (${formatCurrency(sourceWallet.balance, currency, false)} available).`
         );
@@ -267,7 +276,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
               <TouchableOpacity
                 onPress={() => {
                   AppHaptics.selection();
-                  setAmountStr(formatCurrencyInput(String(remainingDue), currency));
+                  setAmountStr(formatCurrencyNumberForInput(remainingDue, currency));
                   if (errorMsg) setErrorMsg('');
                 }}
                 activeOpacity={0.7}

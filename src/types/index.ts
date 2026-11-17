@@ -11,12 +11,14 @@ import {
   AllocationPlan,
   AppExportData,
   LentStatus,
+  isReservedTransferCategory,
+  filterSelectableCategories,
 } from '../services/database';
 import { ExtractedReceiptData } from '../services/receiptScanner';
 
 export type TabType = 'overview' | 'accounts' | 'history' | 'analytics';
 export type FilterType = 'all' | 'expense' | 'income';
-export type ReturnModalType = 'none' | 'manual' | 'review' | 'accountDetail';
+export type ReturnModalType = 'none' | 'manual' | 'review' | 'statement' | 'accountDetail';
 
 export {
   CurrencyType,
@@ -32,4 +34,6 @@ export {
   ExtractedReceiptData,
   AppExportData,
   LentStatus,
+  isReservedTransferCategory,
+  filterSelectableCategories,
 };

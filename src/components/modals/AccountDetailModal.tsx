@@ -26,7 +26,7 @@ import {
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Pocket, Transaction, AccountType } from '../../types';
-import { formatCurrency } from '../../utils/formatters';
+import { formatCurrency, formatCurrencyNumberForInput } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
@@ -115,6 +115,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [pocketEditName, setPocketEditName] = useState<string>('');
   const [pocketEditIcon, setPocketEditIcon] = useState<string>('Briefcase');
   const [pocketIconGroupKey, setPocketIconGroupKey] = useState<string>('all');
+  const [showAllActivity, setShowAllActivity] = useState<boolean>(false);
   const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const displayedPocketIcons = useMemo(() => {
@@ -141,6 +142,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       setIsRenaming(false);
       setEditingPocketId(null);
       setShowAdjustAmountModal(false);
+      setShowAllActivity(false);
     }
   });
 
@@ -695,6 +697,21 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                 <Text style={styles.sectionTitle} numberOfLines={1} textBreakStrategy="simple">
                   {`Activity (${currentTransactions.length})`}
                 </Text>
+                {currentTransactions.length > 10 ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      AppHaptics.selection();
+                      setShowAllActivity((prev) => !prev);
+                    }}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                    accessibilityLabel={showAllActivity ? 'Show latest 10 transactions' : `Show all ${currentTransactions.length} transactions`}
+                  >
+                    <Text style={{ ...Typography.caption, color: Palette.primary, fontWeight: '600' }}>
+                      {showAllActivity ? 'Show Latest 10' : `Show All (${currentTransactions.length})`}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
               {currentTransactions.length === 0 ? (
@@ -706,7 +723,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                currentTransactions.slice(0, 10).map((tx) => (
+                (showAllActivity ? currentTransactions : currentTransactions.slice(0, 10)).map((tx) => (
                   <TransactionItemRow
                     key={tx.id}
                     transaction={tx}
@@ -733,11 +750,20 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         visible={showAdjustAmountModal}
         title="Adjust Account Balance"
         subtitle={`Reconcile actual balance for ${walletDisplayName}`}
-        initialAmount={String(wallet.balance)}
+        initialAmount={formatCurrencyNumberForInput(wallet.balance, wallet.currency)}
         currency={wallet.currency}
         allowZero
         onConfirm={async (_str, num) => {
           setShowAdjustAmountModal(false);
+          if (allocatedSum > 0 && num < allocatedSum - (wallet.currency === 'USD' ? 0.0001 : 0)) {
+            showAlert(
+              'Balance Below Allocated Pockets',
+              `${formatCurrency(allocatedSum, wallet.currency)} is allocated inside pockets in "${walletDisplayName}". Release funds from pockets first before setting the account balance below ${formatCurrency(allocatedSum, wallet.currency)}.`,
+              undefined,
+              'warning'
+            );
+            return;
+          }
           // Overwriting a balance is destructive: always confirm the new value
           showAlert(
             'Update Balance',
@@ -763,7 +789,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
           visible={!!adjustingPocket}
           title={`Adjust ${adjustingPocket.name}`}
           subtitle="Set real pocket balance (yield / fluctuation)"
-          initialAmount={String(adjustingPocket.balance)}
+          initialAmount={formatCurrencyNumberForInput(adjustingPocket.balance, wallet.currency)}
           currency={wallet.currency}
           allowZero
           onConfirm={async (_str, num) => {

@@ -6,6 +6,7 @@ import {
   getGeminiScannerConfig,
   parseSafeAmount,
   postToGeminiProxy,
+  sanitizeAiCategory,
   sleep,
   withTimeout,
 } from './geminiProxyClient';
@@ -68,11 +69,12 @@ function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): Extracte
     })
     .filter((it) => it.name.length > 0 && it.totalPrice > 0);
 
+  const type: 'expense' | 'income' = parsed.type === 'income' ? 'income' : 'expense';
   return {
     merchantName: parsed.merchantName || 'Unknown Merchant',
     transactionDate: parsed.transactionDate || getTodayDateStr(),
-    category: parsed.category || 'General',
-    type: parsed.type === 'income' ? 'income' : 'expense',
+    category: sanitizeAiCategory(parsed.category, type),
+    type,
     totalAmount: parseSafeAmount(parsed.totalAmount, currency),
     currency,
     paymentMethod: parsed.paymentMethod || 'QRIS',
@@ -122,7 +124,9 @@ Rules:
 1. "totalAmount": The exact final total amount / nominal paid or received (pure number, no commas or currency symbols). Prioritize grand total / amount paid.
 2. "merchantName": Official name of the store, merchant, or transfer recipient/sender.
 3. "transactionDate": Date in YYYY-MM-DD format (or ISO-8601 if timestamp is visible).
-4. "category": Choose one most accurate category from: "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnisings", "Social", "Health & Medical", "Education", "Travel", "Salary", "Allowance", "Investments", "Bonus", "Gift", or "Others".
+4. "category": Choose one most accurate category from:
+   - Expense categories (use when "type" is "expense"): "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnishings", "Social", "Health & Medical", "Education", "Travel", "Others".
+   - Income categories (use when "type" is "income"): "Salary", "Allowance", "Interest", "Investments", "Bonus", "Gift", "Others".
 5. "type": "expense" for purchases/transfers sent, or "income" for incoming funds/deposits.
 6. "currency": Detect whether the currency is "IDR" (Rupiah, Rp) or "USD" (Dollar, $).
 7. "paymentMethod": e.g. "QRIS", "Debit Card", "Credit Card", "Cash", "Bank Transfer", "E-Wallet", or "E-Money".

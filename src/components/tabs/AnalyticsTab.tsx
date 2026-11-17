@@ -110,6 +110,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
     let income = 0;
     let expense = 0;
     const categoryExpenseMap: Record<string, number> = {};
+    const activeExpenseMonths = new Set<string>();
 
     periodTransactions.forEach((tx) => {
       if (tx.category === 'Transfer' || tx.transferPairId) return;
@@ -117,6 +118,10 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       if (tx.type === 'expense') {
         expense += tx.amount;
         categoryExpenseMap[tx.category] = (categoryExpenseMap[tx.category] || 0) + tx.amount;
+        const d = new Date(tx.timestamp);
+        if (!isNaN(d.getTime())) {
+          activeExpenseMonths.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+        }
       }
     });
 
@@ -139,10 +144,14 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       burnRate = 100;
     }
 
-    // Emergency Buffer Runway = Total Liquid Balance / Month Expense (Standard: 3 - 6 months)
+    // Emergency Buffer Runway = Total Liquid Balance / Monthly Expense (average across months when viewing All Time)
+    const monthlyExpenseForRunway =
+      selectedMonth === 'all' && activeExpenseMonths.size > 1
+        ? expense / activeExpenseMonths.size
+        : expense;
     let runwayMonths: number | null = null;
-    if (expense > 0 && totalBalance > 0) {
-      runwayMonths = totalBalance / expense;
+    if (monthlyExpenseForRunway > 0 && totalBalance > 0) {
+      runwayMonths = totalBalance / monthlyExpenseForRunway;
     } else if (expense === 0 && totalBalance > 0) {
       runwayMonths = 99;
     }
@@ -243,7 +252,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       recommendations,
       hasData,
     };
-  }, [periodTransactions, totalBalance, activeCurrency, privacyMode]);
+  }, [periodTransactions, totalBalance, activeCurrency, privacyMode, selectedMonth]);
 
   // Month-over-Month (MoM) Journey Comparison with previous period
   const prevMonthKey = useMemo(() => {
@@ -552,7 +561,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                 ? financialHealth.expense > 0 && totalBalance <= 0
                   ? 'No liquidity buffer'
                   : 'No active burn'
-                : financialHealth.runwayMonths >= 99
+                : financialHealth.runwayMonths > 12
                 ? '> 12 Months'
                 : `${financialHealth.runwayMonths.toFixed(1)} Months`}
             </Text>

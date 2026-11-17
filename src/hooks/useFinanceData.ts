@@ -8,6 +8,7 @@ import {
   CurrencyType,
   AccountType,
   TransactionType,
+  isReservedTransferCategory,
 } from '../types';
 import {
   getWallets,
@@ -480,54 +481,68 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     [categories]
   );
 
-  // Available filter options extracted dynamically from real transactions
+  // Available filter options extracted dynamically from real transactions (across both currencies)
   const availableMonths = useMemo(() => {
     const set = new Set<string>();
-    transactions
-      .filter((tx) => tx.currency === activeCurrency)
-      .forEach((tx) => {
-        const d = new Date(tx.timestamp);
-        if (!isNaN(d.getTime())) {
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          set.add(key);
-        }
-      });
+    transactions.forEach((tx) => {
+      const d = new Date(tx.timestamp);
+      if (!isNaN(d.getTime())) {
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        set.add(key);
+      }
+    });
     return Array.from(set).sort().reverse();
-  }, [transactions, activeCurrency]);
+  }, [transactions]);
 
   const availableExpenseCategories = useMemo(() => {
     const set = new Set<string>();
     categories
-      .filter((c) => c.type === 'expense')
+      .filter((c) => c.type === 'expense' && !isReservedTransferCategory(c.name))
       .forEach((c) => set.add(c.name));
     transactions
-      .filter((tx) => tx.type === 'expense' && tx.currency === activeCurrency)
+      .filter(
+        (tx) =>
+          tx.type === 'expense' &&
+          !tx.transferPairId &&
+          !isReservedTransferCategory(tx.category)
+      )
       .forEach((tx) => {
         if (tx.category) set.add(tx.category);
       });
     return Array.from(set).sort();
-  }, [categories, transactions, activeCurrency]);
+  }, [categories, transactions]);
 
   const availableIncomeCategories = useMemo(() => {
     const set = new Set<string>();
     categories
-      .filter((c) => c.type === 'income')
+      .filter((c) => c.type === 'income' && !isReservedTransferCategory(c.name))
       .forEach((c) => set.add(c.name));
     transactions
-      .filter((tx) => tx.type === 'income' && tx.currency === activeCurrency)
+      .filter(
+        (tx) =>
+          tx.type === 'income' &&
+          !tx.transferPairId &&
+          !isReservedTransferCategory(tx.category)
+      )
       .forEach((tx) => {
         if (tx.category) set.add(tx.category);
       });
     return Array.from(set).sort();
-  }, [categories, transactions, activeCurrency]);
+  }, [categories, transactions]);
 
   const availableCategories = useMemo(() => {
     const set = new Set<string>([
       ...availableExpenseCategories,
       ...availableIncomeCategories,
     ]);
+    const hasTransfers = transactions.some(
+      (tx) => isReservedTransferCategory(tx.category) || Boolean(tx.transferPairId)
+    );
+    if (hasTransfers) {
+      set.add('Transfer');
+    }
     return Array.from(set).sort();
-  }, [availableExpenseCategories, availableIncomeCategories]);
+  }, [availableExpenseCategories, availableIncomeCategories, transactions]);
 
   // CRUD & Actions
   const handleSaveExchangeRate = useCallback(async (rate: number) => {
@@ -1044,9 +1059,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
   const handleDeleteTransaction = useCallback(
     (tx: Transaction, onDeleted?: () => void) => {
       const isTransfer =
-        tx.category === 'Transfer' ||
+        isReservedTransferCategory(tx.category) ||
         tx.paymentMethod === 'Transfer' ||
-        /^Transfer (to|from)\s+/i.test(tx.merchantName);
+        Boolean(tx.transferPairId);
 
       const alertTitle = isTransfer ? 'Delete Transfer' : 'Delete Transaction';
       const alertMessage = isTransfer

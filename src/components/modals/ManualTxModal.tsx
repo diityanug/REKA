@@ -15,8 +15,10 @@ import {
   Wallet,
   Pocket,
   Category,
+  Transaction,
   TransactionType,
   CurrencyType,
+  filterSelectableCategories,
 } from '../../types';
 import { PAYMENT_METHODS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
@@ -34,6 +36,7 @@ import { BottomSheetModal } from '../BottomSheetModal';
 interface ManualTxModalProps {
   visible: boolean;
   isEditing?: boolean;
+  editingTransaction?: Transaction | null;
   manMerchant: string;
   manAmount: string;
   manCategory: string;
@@ -74,6 +77,7 @@ interface ManualTxModalProps {
 export const ManualTxModal = React.memo<ManualTxModalProps>(({
   visible,
   isEditing = false,
+  editingTransaction = null,
   manMerchant,
   manAmount,
   manCategory,
@@ -125,7 +129,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
     ? stableWallets.filter((w) => w.currency === manCurrency)
     : stableWallets;
   const walletPockets = stablePockets.filter((p) => p.walletId === selectedWalletId);
-  const activeCategories = categories.filter((c) => c.type === manType);
+  const activeCategories = filterSelectableCategories(categories, manType);
 
   const selectedWallet = relevantWallets.find((w) => w.id === selectedWalletId);
   const selectedPocket = walletPockets.find((p) => p.id === selectedPocketId);
@@ -133,11 +137,48 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
     () => parseAmount(manAmount, manCurrency),
     [manAmount, manCurrency]
   );
+
+  const isEditingRepayment = Boolean(isEditing && editingTransaction?.lentParentTxId);
+  const hasRecordedRepayments = Boolean(
+    isEditing && editingTransaction && (editingTransaction.lentRepaidAmount || 0) > 0
+  );
+  const loanTypeLocked = isEditingRepayment || hasRecordedRepayments;
+
+  const revertOldDelta =
+    isEditing &&
+    editingTransaction &&
+    editingTransaction.walletId === selectedWalletId
+      ? editingTransaction.type === 'expense'
+        ? editingTransaction.amount
+        : -editingTransaction.amount
+      : 0;
+  const effectiveWalletBalance = selectedWallet
+    ? selectedWallet.balance + revertOldDelta
+    : 0;
+  const samePocketRevert =
+    isEditing &&
+    editingTransaction &&
+    selectedPocket &&
+    editingTransaction.walletId === selectedWalletId &&
+    (editingTransaction.pocketId || '') === selectedPocket.id
+      ? revertOldDelta
+      : 0;
+  const effectivePocketBalance = selectedPocket
+    ? selectedPocket.balance + samePocketRevert
+    : 0;
+
+  const eps = manCurrency === 'USD' ? 0.0001 : 0;
   const exceedsPocketBalance =
-    manType === 'expense' && !!selectedPocket && parsedAmount > selectedPocket.balance;
+    manType === 'expense' &&
+    !!selectedPocket &&
+    parsedAmount > effectivePocketBalance + eps;
   const exceedsBalance =
-    manType === 'expense' && !!selectedWallet && parsedAmount > selectedWallet.balance;
-  const categoryMissing = !activeCategories.some((c) => c.name === manCategory);
+    manType === 'expense' &&
+    !!selectedWallet &&
+    parsedAmount > effectiveWalletBalance + eps;
+  const categoryMissing = !activeCategories.some(
+    (c) => c.name.toLowerCase() === manCategory.toLowerCase()
+  );
 
   // Keep the last strictly valid HH:mm so an invalid blur can revert to it
   const lastValidTimeRef = useRef<string>(manTime || '00:00');
@@ -234,7 +275,9 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                   style={[
                     styles.segmentBtn,
                     manType === 'expense' && styles.segmentBtnActiveExpense,
+                    loanTypeLocked && manType !== 'expense' && { opacity: 0.45 },
                   ]}
+                  disabled={loanTypeLocked}
                   onPress={() => {
                     AppHaptics.selection();
                     onChangeType('expense');
@@ -253,7 +296,9 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                   style={[
                     styles.segmentBtn,
                     manType === 'income' && styles.segmentBtnActiveIncome,
+                    loanTypeLocked && manType !== 'income' && { opacity: 0.45 },
                   ]}
+                  disabled={loanTypeLocked}
                   onPress={() => {
                     AppHaptics.selection();
                     onChangeType('income');
@@ -499,7 +544,10 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                       if (w.currency !== manCurrency) {
                         onChangeCurrency(w.currency);
                       }
-                      onSelectWallet(w.id);
+                      if (w.id !== selectedWalletId) {
+                        onSelectWallet(w.id);
+                        onSelectPocket('');
+                      }
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`${w.name?.trim() || 'Account'}, balance ${formatCurrency(
@@ -617,7 +665,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               </View>
               <View style={styles.bentoGrid2Col}>
                 {activeCategories.map((cat) => {
-                  const isSelected = manCategory === cat.name;
+                  const isSelected = manCategory.toLowerCase() === cat.name.toLowerCase();
                   const tint = manType === 'expense' ? Palette.primary : Palette.accentTeal;
                   const softBg = manType === 'expense' ? '#FDF0ED' : '#EBF7F4';
                   return (
@@ -725,19 +773,29 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <View style={styles.lentHeaderRow}>
                   <View style={{ flex: 1, marginRight: 10 }}>
                     <Text style={styles.lentTitle}>
-                      {manType === 'income' ? 'Borrowed Money' : 'Lent Money'}
+                      {isEditingRepayment
+                        ? 'Loan Repayment Record'
+                        : manType === 'income'
+                          ? 'Borrowed Money'
+                          : 'Lent Money'}
                     </Text>
                     <Text style={styles.lentSubtitle}>
-                      {manType === 'income'
-                        ? 'Mark as money borrowed from someone else to repay later'
-                        : 'Mark as money lent to someone else for tracking'}
+                      {isEditingRepayment
+                        ? 'Linked to a parent loan — delete this entry instead of converting it'
+                        : hasRecordedRepayments
+                          ? 'Locked while repayment entries are linked to this record'
+                          : manType === 'income'
+                            ? 'Mark as money borrowed from someone else to repay later'
+                            : 'Mark as money lent to someone else for tracking'}
                     </Text>
                   </View>
                   <TouchableOpacity
                     style={[
                       styles.lentToggleBtn,
                       manIsLent && styles.lentToggleBtnActive,
+                      loanTypeLocked && { opacity: 0.5 },
                     ]}
+                    disabled={loanTypeLocked}
                     onPress={() => {
                       AppHaptics.selection();
                       onChangeIsLent?.(!manIsLent);

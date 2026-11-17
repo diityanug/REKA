@@ -321,6 +321,57 @@ export const parseAmount = (value: string, currency: CurrencyType = 'IDR'): numb
   return isNaN(parsed) ? 0 : Math.round(parsed * 100) / 100;
 };
 
+/**
+ * Rounds an amount cleanly to the target currency's native precision
+ * (0 decimals for IDR, 2 decimals for USD) to avoid IEEE-754 drift.
+ */
+export const roundCurrencyAmount = (
+  amount: number,
+  currency: CurrencyType = 'IDR'
+): number => {
+  if (!Number.isFinite(amount)) return 0;
+  return currency === 'USD' ? Math.round(amount * 100) / 100 : Math.round(amount);
+};
+
+/**
+ * Converts a numeric amount into formatted text suitable for currency inputs
+ * without losing USD cents to floating-point truncation.
+ */
+export const formatCurrencyNumberForInput = (
+  amount: number,
+  currency: CurrencyType = 'IDR',
+  maxDigits: number = currency === 'IDR' ? 13 : 9
+): string => {
+  const rounded = Math.max(0, roundCurrencyAmount(amount, currency));
+  if (rounded <= 0) return '';
+  if (currency === 'USD') {
+    const cleanStr = rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
+    return formatCurrencyInput(cleanStr, 'USD', maxDigits);
+  }
+  return formatCurrencyInput(String(rounded), 'IDR', maxDigits);
+};
+
+/**
+ * Re-parses and reformats an amount string when switching currencies so
+ * IDR dot-grouped values like "1.500.000" never become "$ 1.50" under USD rules.
+ */
+export const convertAmountInputForCurrency = (
+  rawInput: string,
+  prevCurrency: CurrencyType,
+  nextCurrency: CurrencyType,
+  maxDigits?: number
+): string => {
+  if (prevCurrency === nextCurrency) return rawInput;
+  if (!rawInput || !rawInput.trim()) return '';
+  const numeric = parseAmount(rawInput, prevCurrency);
+  if (!Number.isFinite(numeric) || numeric <= 0) return '';
+  return formatCurrencyNumberForInput(
+    numeric,
+    nextCurrency,
+    maxDigits ?? (nextCurrency === 'IDR' ? 13 : 9)
+  );
+};
+
 // Get today's local date string formatted as YYYY-MM-DD
 export const getTodayDateStr = (): string => {
   const now = new Date();

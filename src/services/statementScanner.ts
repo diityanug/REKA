@@ -10,6 +10,7 @@ import {
   getGeminiScannerConfig,
   parseSafeAmount,
   postToGeminiProxy,
+  sanitizeAiCategory,
   sleep,
   withTimeout,
 } from './geminiProxyClient';
@@ -107,8 +108,7 @@ function normalizeStatementResult(
       const amount = parseSafeAmount(tx?.amount, currency);
       const type: TransactionType = tx?.type === 'income' ? 'income' : 'expense';
       const merchantName = String(tx?.merchantName || 'Statement Transaction').trim();
-      const category =
-        String(tx?.category || (type === 'income' ? 'Salary' : 'Shopping')).trim();
+      const category = sanitizeAiCategory(tx?.category, type);
       const paymentMethod =
         String(tx?.paymentMethod || (accountType === 'Credit Card' ? 'Credit Card' : 'Bank Transfer')).trim();
       const notes = String(tx?.notes || '').trim();
@@ -390,8 +390,8 @@ Rules:
      * For Credit Card billing statements: Purchases / charges / fees = "expense"; Refunds / cashback = "income".
    - "amount": Positive numeric amount of the transaction (pure number, no currency symbols or thousand separators).
    - "category": Pick the single most accurate category from:
-     * Expense categories: "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnisings", "Social", "Health & Medical", "Education", "Travel", "Others"
-     * Income categories: "Salary", "Allowance", "Investments", "Bonus", "Gift", "Others"
+     * Expense categories: "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnishings", "Social", "Health & Medical", "Education", "Travel", "Others"
+     * Income categories: "Salary", "Allowance", "Interest", "Investments", "Bonus", "Gift", "Others"
    - "paymentMethod": e.g. "Bank Transfer", "QRIS", "Debit Card", "Credit Card", "E-Wallet", or "E-Money".
    - "notes": Keep the original bank description / reference code here for reference.
 `;

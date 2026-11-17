@@ -1,7 +1,7 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Transaction, Wallet, CurrencyType } from '../types';
-import { formatCurrency, formatMonthYear } from '../utils/formatters';
+import { formatCurrency, formatMonthYear, getDateStrFromTimestamp } from '../utils/formatters';
 import { clearSensitiveTempFiles } from '../utils/fileStorage';
 
 function escapeHtml(value: unknown): string {
@@ -27,18 +27,31 @@ interface StatementPdfData {
 export async function generateAndShareStatementPdf(data: StatementPdfData): Promise<string> {
   const { monthKey, currency, wallets, transactions } = data;
 
-  // Filter transactions for this month and currency
+  // Filter transactions for this local month and currency, deduplicating same-currency transfer mirror legs
   const monthTxs = transactions.filter((t) => {
-    if (monthKey !== 'all' && !t.timestamp.startsWith(monthKey)) return false;
-    return t.currency === currency;
+    const localDate = getDateStrFromTimestamp(t.timestamp);
+    if (monthKey !== 'all' && !localDate.startsWith(monthKey)) return false;
+    if (t.currency !== currency) return false;
+    if (
+      t.type === 'income' &&
+      t.transferPairId &&
+      (t.category === 'Transfer' || Boolean(t.transferPairId))
+    ) {
+      const sameCurrencyCounterpart = transactions.find(
+        (c) => c.id === t.transferPairId && c.currency === currency
+      );
+      if (sameCurrencyCounterpart) return false;
+    }
+    return true;
   });
 
-  // Calculate totals
+  // Calculate cash-flow totals (internal transfers are excluded to match Overview & Analytics)
   let totalIncome = 0;
   let totalExpense = 0;
   const categoryTotals: Record<string, number> = {};
 
   for (const tx of monthTxs) {
+    if (tx.category === 'Transfer' || tx.transferPairId) continue;
     if (tx.type === 'income') {
       totalIncome += tx.amount;
     } else if (tx.type === 'expense') {
@@ -339,16 +352,23 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
           ? `<tr><td colspan="5" style="text-align: center; padding: 16px; color: #888888;">No transactions recorded for this period.</td></tr>`
           : monthTxs
               .map((tx) => {
-                const datePart = tx.timestamp.split('T')[0] || tx.timestamp;
+                const datePart = getDateStrFromTimestamp(tx.timestamp);
+                const isInternalTransfer = tx.category === 'Transfer' || Boolean(tx.transferPairId);
                 const isIncome = tx.type === 'income';
+                const amountClass = isInternalTransfer
+                  ? 'text-muted'
+                  : isIncome
+                    ? 'type-income'
+                    : 'type-expense';
+                const amountPrefix = isInternalTransfer ? '⇄ ' : isIncome ? '+' : '-';
                 return `
             <tr>
               <td>${escapeHtml(datePart)}</td>
               <td><strong>${escapeHtml(tx.merchantName || tx.notes || 'Transaction')}</strong></td>
-              <td>${escapeHtml(tx.category)}</td>
+              <td>${escapeHtml(isInternalTransfer ? 'Transfer' : tx.category)}</td>
               <td class="text-muted">${escapeHtml(tx.paymentMethod || 'Other')}</td>
-              <td class="text-right ${isIncome ? 'type-income' : 'type-expense'}">
-                ${isIncome ? '+' : '-'}${escapeHtml(formatCurrency(tx.amount, tx.currency))}
+              <td class="text-right ${amountClass}">
+                ${amountPrefix}${escapeHtml(formatCurrency(tx.amount, tx.currency))}
               </td>
             </tr>
           `;

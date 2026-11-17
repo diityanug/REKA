@@ -10,6 +10,64 @@ export const CANDIDATE_MODELS = [
   'gemini-3.5-flash',
 ] as const;
 
+const AI_EXPENSE_CATEGORIES = new Set([
+  'Food & Beverages',
+  'Snacks',
+  'Shopping',
+  'Bills & Utilities',
+  'Subscriptions',
+  'Housing / Rent',
+  'Internet & Phone',
+  'Insurance',
+  'Fitness & Gym',
+  'Cloud & Storage',
+  'Fuel',
+  'Parking',
+  'Vehicle Services',
+  'Public Services',
+  'Personal',
+  'Home Services',
+  'Furnishings',
+  'Social',
+  'Health & Medical',
+  'Education',
+  'Travel',
+  'Others',
+]);
+
+const AI_INCOME_CATEGORIES = new Set([
+  'Salary',
+  'Allowance',
+  'Interest',
+  'Investments',
+  'Bonus',
+  'Gift',
+  'Others',
+]);
+
+/**
+ * Normalizes AI-returned category strings to valid REKA default categories matching `type`,
+ * preventing phantom/typo labels ("General", "Transfer", "Furnisings", "Bills") from leaking.
+ */
+export function sanitizeAiCategory(
+  rawCategory: unknown,
+  type: 'expense' | 'income'
+): string {
+  const cleaned = String(rawCategory || '').trim();
+  if (!cleaned) return 'Others';
+  const lower = cleaned.toLowerCase();
+  const normalized =
+    lower === 'furnisings'
+      ? 'Furnishings'
+      : lower === 'bills' && type === 'expense'
+        ? 'Bills & Utilities'
+        : lower === 'transfer' || lower === 'general'
+          ? 'Others'
+          : cleaned;
+  const allowed = type === 'income' ? AI_INCOME_CATEGORIES : AI_EXPENSE_CATEGORIES;
+  return allowed.has(normalized) ? normalized : 'Others';
+}
+
 export const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 

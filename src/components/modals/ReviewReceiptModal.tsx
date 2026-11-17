@@ -15,7 +15,8 @@ import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useLocalAlert } from '../../hooks/useLocalAlert';
-import { Wallet, Pocket, ExtractedReceiptData, CurrencyType } from '../../types';
+import { Category, Wallet, Pocket, ExtractedReceiptData, CurrencyType, TransactionType, filterSelectableCategories } from '../../types';
+import { CategoryIcon } from '../CategoryIcon';
 import { formatCurrency, formatCurrencyInput, formatDate } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
@@ -29,6 +30,7 @@ interface ReviewReceiptModalProps {
   extractedData: ExtractedReceiptData | null;
   wallets: Wallet[];
   pockets: Pocket[];
+  categories?: Category[];
   selectedWalletId: string;
   selectedPocketId: string;
   activeCurrency: CurrencyType;
@@ -39,7 +41,9 @@ interface ReviewReceiptModalProps {
   onConfirm: (
     notes?: string,
     merchant?: string,
-    amountOverride?: number
+    amountOverride?: number,
+    categoryOverride?: string,
+    typeOverride?: TransactionType
   ) => Promise<void>;
   onClose: () => void;
 }
@@ -49,6 +53,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   extractedData,
   wallets,
   pockets,
+  categories = [],
   selectedWalletId,
   selectedPocketId,
   activeCurrency,
@@ -63,12 +68,20 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   const isKeyboardVisible = useKeyboardHeight() > 0;
   const [reviewNotes, setReviewNotes] = useState<string>('');
   const [merchantName, setMerchantName] = useState<string>('');
+  const [selectedType, setSelectedType] = useState<TransactionType>('expense');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Others');
+  const [showCatPicker, setShowCatPicker] = useState<boolean>(false);
   const [amountOverride, setAmountOverride] = useState<number | null>(null);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const currentData = useLastDefined(extractedData);
+
+  const selectableCategories = useMemo(
+    () => filterSelectableCategories(categories, selectedType),
+    [categories, selectedType]
+  );
 
   // Only wallets matching the receipt currency are safe to save into
   const displayWallets = useMemo(() => {
@@ -83,6 +96,9 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   useSyncOnChange([visible], () => {
     if (visible && currentData) {
       setMerchantName(currentData.merchantName || '');
+      setSelectedType(currentData.type || 'expense');
+      setSelectedCategory(currentData.category || 'Others');
+      setShowCatPicker(false);
       setReviewNotes('');
       setAmountOverride(null);
       setSaving(false);
@@ -125,7 +141,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     const finalMerchant = merchantName.trim() || currentData.merchantName || 'Receipt Transaction';
     try {
       setSaving(true);
-      await onConfirm(reviewNotes, finalMerchant, finalAmount);
+      await onConfirm(reviewNotes, finalMerchant, finalAmount, selectedCategory, selectedType);
     } catch (err: any) {
       showAlert('Save Failed', err?.message || 'Could not save this transaction.', undefined, 'error');
     } finally {
@@ -205,9 +221,89 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                   />
                 </View>
                 <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>Category</Text>
-                  <Text style={styles.metaValue}>{currentData.category}</Text>
+                  <Text style={styles.metaLabel}>Type</Text>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {(['expense', 'income'] as TransactionType[]).map((t) => {
+                      const active = selectedType === t;
+                      return (
+                        <TouchableOpacity
+                          key={t}
+                          style={[
+                            styles.chip,
+                            { paddingHorizontal: 10, paddingVertical: 4 },
+                            active && styles.chipActive,
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            setSelectedType(t);
+                            const nextList = filterSelectableCategories(categories, t);
+                            if (
+                              nextList.length > 0 &&
+                              !nextList.some((c) => c.name.toLowerCase() === selectedCategory.toLowerCase())
+                            ) {
+                              setSelectedCategory(nextList[0].name);
+                            }
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                            {t === 'expense' ? 'Expense' : 'Income'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
                 </View>
+
+                <TouchableOpacity
+                  style={styles.metaRow}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    setShowCatPicker((prev) => !prev);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.metaLabel}>Category</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.metaValue, { color: Palette.primary, fontWeight: '600' }]}>
+                      {selectedCategory}
+                    </Text>
+                    <Pencil size={11} color={Palette.primary} />
+                  </View>
+                </TouchableOpacity>
+
+                {showCatPicker && selectableCategories.length > 0 ? (
+                  <View style={[styles.chipRow, { marginTop: 6, marginBottom: 10 }]}>
+                    {selectableCategories.map((cat) => {
+                      const active = cat.name.toLowerCase() === selectedCategory.toLowerCase();
+                      return (
+                        <TouchableOpacity
+                          key={cat.id}
+                          style={[
+                            styles.chip,
+                            { flexDirection: 'row', alignItems: 'center', gap: 5 },
+                            active && styles.chipActive,
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            setSelectedCategory(cat.name);
+                            setShowCatPicker(false);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <CategoryIcon
+                            name={cat.icon}
+                            size={12}
+                            color={active ? Palette.white : Palette.primary}
+                          />
+                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                            {cat.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ) : null}
                 <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>Date</Text>
                   <Text style={styles.metaValue}>{formatDate(currentData.transactionDate)}</Text>
@@ -259,7 +355,10 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                         ]}
                         onPress={() => {
                           AppHaptics.selection();
-                          onSelectWallet(w.id);
+                          if (w.id !== selectedWalletId) {
+                            onSelectWallet(w.id);
+                            onSelectPocket('');
+                          }
                         }}
                         accessibilityRole="button"
                         accessibilityLabel={`${w.name}, ${w.currency} account`}

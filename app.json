@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.aes.finance",
-      "versionCode": 11,
+      "versionCode": 12,
       "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [

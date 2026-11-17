@@ -16,7 +16,12 @@ import { useLastDefined } from '../../hooks/useLastDefined';
 import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { CurrencyType, AllocationPlan, AllocationItem } from '../../types';
-import { formatCurrency, parseAmount, formatCurrencyInput } from '../../utils/formatters';
+import {
+  formatCurrency,
+  parseAmount,
+  formatCurrencyInput,
+  formatCurrencyNumberForInput,
+} from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
@@ -99,7 +104,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             plan.items.map((it) => ({
               id: it.id,
               label: it.label,
-              amountStr: it.amount > 0 ? formatCurrencyInput(String(it.amount), initCurr, 9) : '',
+              amountStr: it.amount > 0 ? formatCurrencyNumberForInput(it.amount, initCurr, 9) : '',
             }))
           );
         } else {
@@ -107,7 +112,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         }
       } else {
         setTitle('');
-        setPlanCurrency('IDR');
+        setPlanCurrency(activeCurrency || 'IDR');
         setRows([
           { id: '1', label: '', amountStr: '' },
           { id: '2', label: '', amountStr: '' },
@@ -127,7 +132,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         const normalizedVal = nextCurrency === 'IDR' ? Math.round(parsed) : parsed;
         return {
           ...r,
-          amountStr: formatCurrencyInput(String(normalizedVal), nextCurrency, 9),
+          amountStr: formatCurrencyNumberForInput(normalizedVal, nextCurrency, 9),
         };
       })
     );
@@ -174,9 +179,9 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   };
 
   const handleUpdateRowAmount = (id: string, text: string) => {
-    // Specifically for Allocation Plans: strictly capped at 9 digits max
-    const digitsOnly = text.replace(/\D/g, '');
-    if (digitsOnly.length > 9) {
+    // Strictly cap integer digits at 9 so USD cents don't reduce the integer limit
+    const integerDigits = text.split('.')[0].replace(/\D/g, '');
+    if (integerDigits.length > 9) {
       return;
     }
     const formatted = formatCurrencyInput(text, planCurrency, 9);
@@ -203,7 +208,13 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         label: it.label,
         amountStr:
           base > 0
-            ? formatCurrencyInput(String(Math.round((base * it.pct) / 100)), planCurrency, 9)
+            ? formatCurrencyNumberForInput(
+                planCurrency === 'USD'
+                  ? Math.round(base * it.pct) / 100
+                  : Math.round((base * it.pct) / 100),
+                planCurrency,
+                9
+              )
             : '',
       }))
     );
@@ -218,9 +229,11 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const filledRows = rows.filter(
     (r) => r.label.trim().length > 0 || r.amountStr.trim().length > 0
   );
-  const hasValidRow = rows.some(
-    (r) => r.label.trim().length > 0 && parseAmount(r.amountStr, planCurrency) > 0
-  );
+  const validRows = filledRows.filter((r) => {
+    const amt = parseAmount(r.amountStr, planCurrency);
+    return r.label.trim().length > 0 && !isNaN(amt) && amt > 0;
+  });
+  const hasValidRow = validRows.length > 0;
   const canSave = !saving && !duplicating && !!title.trim() && !!planCurrency && hasValidRow;
 
   const handleSave = async () => {
@@ -231,14 +244,25 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
       return;
     }
 
-    const validItems: AllocationItem[] = filledRows.map((r) => {
+    const hasIncompleteRow = filledRows.some((r) => {
       const amt = parseAmount(r.amountStr, planCurrency);
-      return {
-        id: r.id,
-        label: r.label.trim() || 'Untitled Allocation',
-        amount: isNaN(amt) ? 0 : amt,
-      };
+      return !r.label.trim() || isNaN(amt) || amt <= 0;
     });
+    if (hasIncompleteRow || validRows.length === 0) {
+      showAlert(
+        'Incomplete Allocation Row',
+        'Every filled row needs both a description and an amount greater than 0. Fill in missing fields or remove extra rows.',
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    const validItems: AllocationItem[] = validRows.map((r) => ({
+      id: r.id,
+      label: r.label.trim(),
+      amount: parseAmount(r.amountStr, planCurrency),
+    }));
 
     if (validItems.length === 0) {
       showAlert('Missing Allocations', 'Please add at least one allocation row with a description.', undefined, 'warning');
@@ -292,14 +316,11 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   const handleDuplicateCurrentPlan = async () => {
     if (!plan || !onDuplicate || duplicating || saving) return;
     const trimmedTitle = title.trim() || plan.title;
-    const validItems: AllocationItem[] = filledRows.map((r) => {
-      const amt = parseAmount(r.amountStr, planCurrency);
-      return {
-        id: r.id,
-        label: r.label.trim() || 'Untitled Allocation',
-        amount: isNaN(amt) ? 0 : amt,
-      };
-    });
+    const validItems: AllocationItem[] = validRows.map((r) => ({
+      id: r.id,
+      label: r.label.trim(),
+      amount: parseAmount(r.amountStr, planCurrency),
+    }));
 
     const currentPlanSnapshot: AllocationPlan = {
       id: plan.id,

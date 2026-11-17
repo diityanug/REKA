@@ -112,11 +112,13 @@ export const ApplyAllocationPlanModal: React.FC<ApplyAllocationPlanModalProps> =
   }, [plan, pocketMappings]);
 
   const hasInsufficientFunds = currentWallet && totalToAllocate > unallocatedAmount + 0.005;
-  const mappedCount = Object.keys(pocketMappings).filter((k) => !!pocketMappings[k]).length;
+  const mappedCount = (plan?.items || []).filter(
+    (it) => Boolean(pocketMappings[it.id]) && (it.amount || 0) > 0
+  ).length;
 
   const handleConfirm = async () => {
     if (!currentWallet || !plan || applying) return;
-    if (hasInsufficientFunds || mappedCount === 0) return;
+    if (hasInsufficientFunds || mappedCount === 0 || totalToAllocate <= 0) return;
 
     const distributions = (plan.items || [])
       .map((it) => ({
@@ -124,6 +126,7 @@ export const ApplyAllocationPlanModal: React.FC<ApplyAllocationPlanModalProps> =
         amount: it.amount || 0,
       }))
       .filter((d) => d.pocketId && d.amount > 0);
+    if (distributions.length === 0) return;
 
     setApplying(true);
     try {

@@ -112,7 +112,7 @@ export function sanitizeExpressionForCurrency(expr: string, currency: CurrencyTy
         if (['+', '-', '×', '÷', '*', '/'].includes(part)) return part;
         if (!part) return '';
         const isNeg = part.startsWith('-');
-        const absPart = isNeg ? part.slice(1) : part;
+        const absPart = (isNeg ? part.slice(1) : part).replace(/,/g, '');
         const intOnly = absPart.split('.')[0] || '0';
         return (isNeg ? '-' : '') + intOnly;
       })

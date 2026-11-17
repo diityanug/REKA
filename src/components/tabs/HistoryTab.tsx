@@ -128,8 +128,18 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const isTxArchived = useCallback((tx: Transaction) => {
-    return Boolean(tx.deletedWalletName || tx.deletedPocketName || tx.pairedDeletedWalletName);
+    return Boolean(
+      tx.deletedWalletName ||
+        tx.deletedPocketName ||
+        tx.pairedDeletedWalletName ||
+        tx.pairedDeletedPocketName
+    );
   }, []);
+
+  const selectableCount = useMemo(
+    () => transactions.filter((t) => !isTxArchived(t)).length,
+    [transactions, isTxArchived]
+  );
 
   const handleToggleSelectTransaction = useCallback((tx: Transaction) => {
     if (isTxArchived(tx)) {
@@ -237,9 +247,9 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       }
       const group = map.get(key)!;
       group.transactions.push(tx);
-      // Count only transactions that feed the amounts below (transfers excluded)
+      group.count += 1;
+      // Only non-transfer rows contribute to cashflow totals
       if (tx.category !== 'Transfer' && !tx.transferPairId) {
-        group.count += 1;
         if (tx.currency === 'USD') {
           if (tx.type === 'expense') group.totalUsdExpense += tx.amount;
           if (tx.type === 'income') group.totalUsdIncome += tx.amount;
@@ -258,6 +268,9 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       count: g.count,
       totalExpense: g.totalExpense,
       totalUsdExpense: g.totalUsdExpense,
+      hasOnlyTransfers: g.transactions.every(
+        (tx) => tx.category === 'Transfer' || Boolean(tx.transferPairId)
+      ),
       monthKey: g.monthKey,
       data: g.transactions,
     }));
@@ -265,6 +278,12 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
 
   const hasUsdHistoryFlow =
     (historyFlowStats.usdIncome || 0) > 0 || (historyFlowStats.usdExpense || 0) > 0;
+  const hasAnyHistoryFlow =
+    historyFlowStats.income +
+      historyFlowStats.expense +
+      (historyFlowStats.usdIncome || 0) +
+      (historyFlowStats.usdExpense || 0) >
+    0;
 
   // Memoize as a React element (not a function component) so SectionList reconciles
   // the header in place instead of unmounting/remounting TextInput on each keystroke.
@@ -299,28 +318,42 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           </View>
         ) : null}
         <View style={styles.dualFlowTrack}>
-          <View
-            style={[
-              styles.dualFlowSegment,
-              {
-                flex: Math.max(historyFlowStats.incomePct, 4),
-                backgroundColor: Palette.success,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.dualFlowSegment,
-              {
-                flex: Math.max(historyFlowStats.expensePct, 4),
-                backgroundColor: Palette.error,
-              },
-            ]}
-          />
+          {hasAnyHistoryFlow ? (
+            <>
+              <View
+                style={[
+                  styles.dualFlowSegment,
+                  {
+                    flex: Math.max(historyFlowStats.incomePct, 4),
+                    backgroundColor: Palette.success,
+                  },
+                ]}
+              />
+              <View
+                style={[
+                  styles.dualFlowSegment,
+                  {
+                    flex: Math.max(historyFlowStats.expensePct, 4),
+                    backgroundColor: Palette.error,
+                  },
+                ]}
+              />
+            </>
+          ) : (
+            <View
+              style={[
+                styles.dualFlowSegment,
+                {
+                  flex: 1,
+                  backgroundColor: Palette.hairline,
+                },
+              ]}
+            />
+          )}
         </View>
       </View>
 
-      {/* Outstanding Lent Banner (if uncollected loans exist) */}
+      {/* Outstanding Lent Banner (if uncollected loans exist in active currency) */}
       {outstandingLentTotal > 0 && historyLentFilter !== 'outstanding' ? (
         <TouchableOpacity
           style={styles.lentBanner}
@@ -330,7 +363,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           }}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`Outstanding Lent: ${outstandingLentCount} unsettled loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`}
+          accessibilityLabel={`Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`}
         >
           <View style={styles.lentBannerIconBox}>
             <HandCoins size={16} color={Palette.accentAmber} />
@@ -338,7 +371,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           <View style={styles.lentBannerInfo}>
             <Text style={styles.lentBannerTitle}>Outstanding Lent</Text>
             <Text style={styles.lentBannerSubtitle}>
-              {outstandingLentCount} unsettled • Tap to filter
+              {outstandingLentCount} unsettled ({activeCurrency}) • Tap to filter
             </Text>
           </View>
           <Text style={styles.lentBannerAmount}>
@@ -435,7 +468,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             <Text style={styles.selectionControlBtnText}>Cancel</Text>
           </TouchableOpacity>
           <Text style={styles.selectionCountText}>
-            {selectedIds.size} of {transactions.length} selected
+            {selectedIds.size} of {selectableCount} selected
           </Text>
           <TouchableOpacity
             style={styles.selectionControlBtn}
@@ -443,7 +476,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             activeOpacity={0.7}
           >
             <Text style={styles.selectionControlBtnText}>
-              {selectedIds.size === transactions.length ? 'Deselect All' : 'Select All'}
+              {selectableCount > 0 && selectedIds.size === selectableCount ? 'Deselect All' : 'Select All'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -532,8 +565,10 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     </View>
   ), [
     transactions.length,
+    selectableCount,
     historyFlowStats,
     hasUsdHistoryFlow,
+    hasAnyHistoryFlow,
     privacyMode,
     outstandingLentTotal,
     outstandingLentCount,
@@ -608,12 +643,14 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       <Text style={styles.monthHeaderTitle}>{section.title}</Text>
       <Text style={styles.monthHeaderMeta} numberOfLines={1}>
         {section.count} tx
-        {section.totalExpense > 0 || !section.totalUsdExpense
-          ? ` • ${formatCurrency(section.totalExpense, 'IDR', privacyMode)}`
-          : ''}
-        {section.totalUsdExpense > 0
-          ? ` • ${formatCurrency(section.totalUsdExpense, 'USD', privacyMode)}`
-          : ''}
+        {section.hasOnlyTransfers
+          ? ' • Transfers'
+          : (section.totalExpense > 0 || !section.totalUsdExpense
+              ? ` • ${formatCurrency(section.totalExpense, 'IDR', privacyMode)}`
+              : '') +
+            (section.totalUsdExpense > 0
+              ? ` • ${formatCurrency(section.totalUsdExpense, 'USD', privacyMode)}`
+              : '')}
       </Text>
     </View>
   ), [privacyMode]);

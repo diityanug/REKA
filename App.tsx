@@ -30,11 +30,19 @@ import {
   ExtractedStatementTx,
 } from './src/services/statementScanner';
 import { Palette, Typography } from './src/theme/tokens';
-import { formatCurrency, parseAmount, formatCurrencyInput, getCurrentTimeStr } from './src/utils/formatters';
-import { sanitizeExpressionForCurrency } from './src/utils/calculator';
+import { formatCurrency, parseAmount, formatCurrencyInput, getCurrentTimeStr, convertAmountInputForCurrency } from './src/utils/formatters';
 import { AppHaptics } from './src/utils/haptics';
 import { toUserFriendlyErrorMessage } from './src/utils/errorHandling';
-import { TabType, FilterType, CurrencyType, Wallet, Transaction } from './src/types';
+import {
+  TabType,
+  FilterType,
+  CurrencyType,
+  TransactionType,
+  Wallet,
+  Transaction,
+  filterSelectableCategories,
+  isReservedTransferCategory,
+} from './src/types';
 
 // Custom Hooks
 import { useFinanceData } from './src/hooks/useFinanceData';
@@ -455,7 +463,10 @@ function MainApp() {
         }
       }
 
-      const matchesType = historyFilter === 'all' ? true : tx.type === historyFilter;
+      const isTransferRow =
+        isReservedTransferCategory(tx.category) || Boolean(tx.transferPairId);
+      const matchesType =
+        historyFilter === 'all' ? true : !isTransferRow && tx.type === historyFilter;
       const matchesCategory =
         historyCategory === 'all'
           ? true
@@ -509,13 +520,15 @@ function MainApp() {
       }
     });
     const total = income + expense;
+    const usdTotal = usdIncome + usdExpense;
+    const useUsdBar = total <= 0 && usdTotal > 0;
     return {
       income,
       expense,
       usdIncome,
       usdExpense,
-      incomePct: total > 0 ? (income / total) * 100 : 0,
-      expensePct: total > 0 ? (expense / total) * 100 : 0,
+      incomePct: total > 0 ? (income / total) * 100 : useUsdBar ? (usdIncome / usdTotal) * 100 : 0,
+      expensePct: total > 0 ? (expense / total) * 100 : useUsdBar ? (usdExpense / usdTotal) * 100 : 0,
     };
   }, [filteredTransactions]);
 
@@ -523,7 +536,12 @@ function MainApp() {
   const handleOpenManualTransaction = useCallback(
     (preferredCurrency?: CurrencyType) => {
       const curr = preferredCurrency || activeCurrency;
-      openManualModal(curr);
+      const selectableExpenses = filterSelectableCategories(categories, 'expense');
+      const preferredCat =
+        selectableExpenses.find((c) => c.name === 'Food & Beverages')?.name ||
+        selectableExpenses[0]?.name ||
+        'Others';
+      openManualModal(curr, preferredCat);
       const matchingWallet = wallets.find((w) => w.currency === curr);
       if (matchingWallet) {
         setSelectedWalletId(matchingWallet.id);
@@ -532,19 +550,19 @@ function MainApp() {
       }
       setSelectedPocketId('');
     },
-    [activeCurrency, openManualModal, wallets, setSelectedWalletId, setSelectedPocketId]
+    [activeCurrency, categories, openManualModal, wallets, setSelectedWalletId, setSelectedPocketId]
   );
 
   // Keep the selected category valid whenever the transaction type changes
   const handleChangeManType = useCallback(
     (nextType: 'income' | 'expense') => {
       setManType(nextType);
-      const stillValid = categories.some(
-        (c) => c.type === nextType && c.name.toLowerCase() === manCategory.toLowerCase()
+      const selectable = filterSelectableCategories(categories, nextType);
+      const stillValid = selectable.some(
+        (c) => c.name.toLowerCase() === manCategory.toLowerCase()
       );
       if (!stillValid) {
-        const firstMatch = categories.find((c) => c.type === nextType);
-        if (firstMatch) setManCategory(firstMatch.name);
+        setManCategory(selectable[0]?.name || 'Others');
       }
     },
     [categories, manCategory, setManType, setManCategory]
@@ -593,6 +611,7 @@ function MainApp() {
           // No account for this currency yet: let the review sheet offer to create one
           setSelectedWalletId('');
         }
+        setSelectedPocketId('');
 
         setReviewModalVisible(true);
       } catch (err: any) {
@@ -623,6 +642,7 @@ function MainApp() {
       wallets,
       setActiveCurrency,
       setSelectedWalletId,
+      setSelectedPocketId,
       setReviewModalVisible,
       showAlert,
       handleOpenManualTransaction,
@@ -828,7 +848,9 @@ function MainApp() {
   const handleSaveScanTransaction = async (
     notesFromModal?: string,
     editedMerchant?: string,
-    amountOverride?: number
+    amountOverride?: number,
+    categoryOverride?: string,
+    typeOverride?: TransactionType
   ) => {
     if (!modals.extractedData) return;
     const receiptCurrency = modals.extractedData.currency;
@@ -902,6 +924,13 @@ function MainApp() {
         modals.extractedData.merchantName ||
         'Receipt Transaction';
 
+      const rawFinalCategory = (categoryOverride || modals.extractedData.category || '').trim();
+      const finalCategory =
+        rawFinalCategory && !isReservedTransferCategory(rawFinalCategory)
+          ? rawFinalCategory
+          : 'Others';
+      const finalType: TransactionType = typeOverride || modals.extractedData.type;
+
       const rawItems = Array.isArray(modals.extractedData.items) ? modals.extractedData.items : [];
       const receiptItems = rawItems.map((it) => {
         const qty = Math.max(Number(it.quantity) || 1, 1);
@@ -912,7 +941,7 @@ function MainApp() {
           quantity: qty,
           unitPrice: unit > 0 ? unit : total,
           totalPrice: total,
-          category: it.category || modals.extractedData?.category || 'Shopping',
+          category: it.category || finalCategory || 'Shopping',
         };
       });
 
@@ -921,14 +950,42 @@ function MainApp() {
         (p) => p.id === modals.selectedPocketId && p.walletId === finalWalletId
       );
       const finalPocketId = validPocket ? validPocket.id : '';
+      const eps = targetWallet.currency === 'USD' ? 0.0001 : 0;
+
+      if (finalType === 'expense') {
+        if (validPocket && finalAmount > validPocket.balance + eps) {
+          modals.showAlert(
+            'Not Enough Pocket Funds',
+            `"${validPocket.name}" only has ${formatCurrency(validPocket.balance, targetWallet.currency)}. Release funds from this pocket first or choose another pocket.`,
+            undefined,
+            'warning'
+          );
+          return;
+        }
+        if (!validPocket) {
+          const allocated = finance.pockets
+            .filter((p) => p.walletId === finalWalletId)
+            .reduce((sum, p) => sum + p.balance, 0);
+          const unallocated = Math.max(targetWallet.balance - allocated, 0);
+          if (allocated > 0 && finalAmount > unallocated + eps) {
+            modals.showAlert(
+              'Not Enough Unallocated Funds',
+              `Only ${formatCurrency(unallocated, targetWallet.currency)} is unallocated in ${targetWallet.name} because ${formatCurrency(allocated, targetWallet.currency)} is reserved in pockets. Select a pocket or release pocket funds first.`,
+              undefined,
+              'warning'
+            );
+            return;
+          }
+        }
+      }
 
       await insertTransactionWithItems(
         {
           walletId: finalWalletId,
           pocketId: finalPocketId,
           merchantName: finalMerchantName,
-          category: modals.extractedData.category,
-          type: modals.extractedData.type,
+          category: finalCategory,
+          type: finalType,
           amount: finalAmount,
           currency: txCurrency,
           taxAmount: modals.extractedData.taxAmount || 0,
@@ -964,10 +1021,12 @@ function MainApp() {
       modals.showAlert('Invalid Amount', 'Please enter a valid transaction amount.', undefined, 'warning');
       return;
     }
-    // Category must belong to the selected transaction type
-    const categoryIsValid = finance.categories.some(
-      (c) => c.type === modals.manType && c.name.toLowerCase() === modals.manCategory.toLowerCase()
-    );
+    // Category must belong to the selected transaction type and never be Transfer
+    const categoryIsValid =
+      !isReservedTransferCategory(modals.manCategory) &&
+      finance.categories.some(
+        (c) => c.type === modals.manType && c.name.toLowerCase() === modals.manCategory.toLowerCase()
+      );
     if (!categoryIsValid) {
       modals.showAlert(
         'Choose a Category',
@@ -1026,11 +1085,53 @@ function MainApp() {
     );
     const finalPocketId = validPocket ? validPocket.id : '';
 
-    // A pocket can never go negative, so block this before touching the database
-    if (validPocket && modals.manType === 'expense' && parsedAmount > validPocket.balance + 0.005) {
+    const oldTx = modals.editingTransaction;
+    const eps = targetWallet.currency === 'USD' ? 0.0001 : 0;
+    const newWalletDelta = modals.manType === 'expense' ? -parsedAmount : parsedAmount;
+    const revertOldDelta = oldTx ? (oldTx.type === 'expense' ? oldTx.amount : -oldTx.amount) : 0;
+
+    // A pocket can never drop below zero (crediting back the edited tx's own delta on the same pocket)
+    if (validPocket) {
+      const samePocket = Boolean(
+        oldTx && oldTx.walletId === finalWalletId && (oldTx.pocketId || '') === validPocket.id
+      );
+      const effectivePocketBal = validPocket.balance + (samePocket ? revertOldDelta : 0);
+      const projectedPocketBal = effectivePocketBal + newWalletDelta;
+      if (projectedPocketBal < -eps) {
+        modals.showAlert(
+          'Not Enough Pocket Funds',
+          `"${validPocket.name}" only has ${formatCurrency(Math.max(0, effectivePocketBal), targetWallet.currency)} available. Release funds from this pocket first or choose another pocket.`,
+          undefined,
+          'warning'
+        );
+        return;
+      }
+    }
+
+    const sameWallet = Boolean(oldTx && oldTx.walletId === finalWalletId);
+    const effectiveWalletBeforeNew = targetWallet.balance + (sameWallet ? revertOldDelta : 0);
+    const projectedWalletBal = effectiveWalletBeforeNew + newWalletDelta;
+
+    const currentAllocated = finance.pockets
+      .filter((p) => p.walletId === finalWalletId)
+      .reduce((sum, p) => sum + p.balance, 0);
+    const oldPocketRevertForAllocated =
+      sameWallet && oldTx?.pocketId ? revertOldDelta : 0;
+    const newPocketImpactForAllocated = validPocket ? newWalletDelta : 0;
+    const projectedAllocated = Math.max(
+      0,
+      currentAllocated + oldPocketRevertForAllocated + newPocketImpactForAllocated
+    );
+
+    // Main Balance operations must leave allocated pocket funds untouched
+    if (!validPocket && projectedAllocated > 0 && projectedWalletBal < projectedAllocated - eps) {
+      const maxUnallocated = Math.max(
+        0,
+        effectiveWalletBeforeNew - Math.max(0, currentAllocated + oldPocketRevertForAllocated)
+      );
       modals.showAlert(
-        'Not Enough Pocket Funds',
-        `"${validPocket.name}" only has ${formatCurrency(validPocket.balance, targetWallet.currency)}. Release funds from this pocket first or choose another pocket.`,
+        'Not Enough Unallocated Funds',
+        `Only ${formatCurrency(maxUnallocated, targetWallet.currency)} is unallocated in ${targetWallet.name} because ${formatCurrency(projectedAllocated, targetWallet.currency)} is reserved in pockets. Select a pocket or release pocket funds first.`,
         undefined,
         'warning'
       );
@@ -1093,11 +1194,11 @@ function MainApp() {
       }
     };
 
-    // Warn (but let the user decide) when an expense exceeds the account balance
-    if (modals.manType === 'expense' && parsedAmount > targetWallet.balance + 0.005) {
+    // Warn (but let the user decide) when an expense pushes the account balance negative
+    if (modals.manType === 'expense' && projectedWalletBal < -eps) {
       modals.showAlert(
         'Balance Will Go Negative',
-        `${targetWallet.name} only has ${formatCurrency(targetWallet.balance, targetWallet.currency)}. Saving this expense will make the balance negative.`,
+        `${targetWallet.name} has ${formatCurrency(effectiveWalletBeforeNew, targetWallet.currency)} available. Saving this expense will make the balance negative.`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Save Anyway', style: 'destructive', onPress: () => { persistTransaction(); } },
@@ -1144,10 +1245,9 @@ function MainApp() {
   const handleEditFromTxDetail = useCallback(
     (tx: Transaction) => {
       const isTransfer =
-        tx.category === 'Transfer' ||
+        isReservedTransferCategory(tx.category) ||
         tx.paymentMethod === 'Transfer' ||
-        !!tx.transferPairId ||
-        /^Transfer (to|from)\s+/i.test(tx.merchantName);
+        !!tx.transferPairId;
 
       if (isTransfer) {
         const pairedTx = tx.transferPairId
@@ -1431,6 +1531,7 @@ function MainApp() {
         extractedData={modals.extractedData}
         wallets={finance.wallets}
         pockets={finance.pockets}
+        categories={finance.categories}
         selectedWalletId={modals.selectedWalletId}
         selectedPocketId={modals.selectedPocketId}
         activeCurrency={finance.activeCurrency}
@@ -1454,7 +1555,11 @@ function MainApp() {
         privacyMode={privacyMode}
         onSelectWallet={modals.setStatementTargetWalletId}
         onOpenAddAccount={(prefillName, prefillCurrency, prefillNumber) => {
-          modals.openAddAccountModal(prefillCurrency || finance.activeCurrency, 'none');
+          modals.openAddAccountModal(
+            prefillCurrency || finance.activeCurrency,
+            'statement',
+            modals.statementData?.accountType || 'Bank'
+          );
           if (prefillName) modals.setNewAccName(prefillName);
           if (prefillNumber) modals.setNewAccNumber(prefillNumber);
         }}
@@ -1538,6 +1643,7 @@ function MainApp() {
       <ManualTxModal
         visible={modals.manualTxModalVisible}
         isEditing={!!modals.editingTransaction}
+        editingTransaction={modals.editingTransaction}
         manMerchant={modals.manMerchant}
         manAmount={modals.manAmount}
         manCategory={modals.manCategory}
@@ -1569,9 +1675,10 @@ function MainApp() {
             );
             return;
           }
+          const prevCurrency = modals.manCurrency;
           modals.setManCurrency(c);
-          if (c === 'IDR' && modals.manAmount) {
-            modals.setManAmount(sanitizeExpressionForCurrency(modals.manAmount, 'IDR'));
+          if (modals.manAmount) {
+            modals.setManAmount(convertAmountInputForCurrency(modals.manAmount, prevCurrency, c));
           }
           const firstMatching = finance.wallets.find((w) => w.currency === c);
           if (firstMatching) {
@@ -1606,12 +1713,14 @@ function MainApp() {
         currency={modals.newAccCurrency}
         balance={modals.newAccBalance}
         accountNumber={modals.newAccNumber}
+        lockCurrency={modals.returnModal === 'manual' && Boolean(modals.editingTransaction)}
         onChangeName={modals.setNewAccName}
         onChangeType={modals.setNewAccType}
         onChangeCurrency={modals.setNewAccCurrency}
         onChangeBalance={modals.setNewAccBalance}
         onChangeAccountNumber={modals.setNewAccNumber}
         onCreate={async () => {
+          const retModal = modals.returnModal;
           try {
             const createdId = await finance.handleCreateAccount({
               name: modals.newAccName,
@@ -1620,8 +1729,26 @@ function MainApp() {
               currency: modals.newAccCurrency,
               accountNumber: modals.newAccNumber,
             });
-            modals.setSelectedWalletId(createdId);
-            modals.setManCurrency(modals.newAccCurrency);
+            if (retModal === 'statement') {
+              modals.setStatementTargetWalletId(createdId);
+            } else if (retModal === 'manual') {
+              if (!modals.editingTransaction) {
+                modals.setSelectedWalletId(createdId);
+                modals.setSelectedPocketId('');
+                modals.setManCurrency(modals.newAccCurrency);
+              } else if (modals.newAccCurrency === modals.manCurrency) {
+                modals.setSelectedWalletId(createdId);
+                modals.setSelectedPocketId('');
+              }
+            } else if (retModal === 'review') {
+              if (!modals.extractedData?.currency || modals.newAccCurrency === modals.extractedData.currency) {
+                modals.setSelectedWalletId(createdId);
+                modals.setSelectedPocketId('');
+              }
+            } else {
+              modals.setSelectedWalletId(createdId);
+              modals.setSelectedPocketId('');
+            }
             modals.closeAddAccountModal();
           } catch {
             // Handled inside handleCreateAccount
@@ -1651,16 +1778,16 @@ function MainApp() {
           });
           // Keep the form intact when creation failed (duplicate / empty name)
           if (!created) return;
-          if (modals.manType === modals.newCatType) {
+          if (modals.returnModal === 'manual' && modals.manType === modals.newCatType) {
             modals.setManCategory(createdName);
           }
           modals.setNewCatName('');
           modals.setShowAddCategoryForm(false);
         }}
         onSelectCategory={(cat) => {
-          modals.setManType(cat.type);
-          modals.setManCategory(cat.name);
           if (modals.returnModal === 'manual') {
+            modals.setManType(cat.type);
+            modals.setManCategory(cat.name);
             modals.closeCategoryManager();
           }
         }}
@@ -1775,7 +1902,7 @@ function MainApp() {
       <SetBudgetModal
         visible={modals.setBudgetModalVisible}
         activeCurrency={finance.activeCurrency}
-        selectedMonth={finance.selectedMonth}
+        selectedMonth={finance.budgetMonthKey}
         currentBudget={finance.monthlyBudget}
         amount={modals.budgetInputAmount}
         onChangeAmount={modals.setBudgetInputAmount}

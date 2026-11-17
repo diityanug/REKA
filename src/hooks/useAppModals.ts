@@ -20,6 +20,7 @@ import {
   getCurrentTimeStr,
   getDateStrFromTimestamp,
   getTimeStrFromTimestamp,
+  formatCurrencyNumberForInput,
 } from '../utils/formatters';
 
 export function useAppModals() {
@@ -175,13 +176,17 @@ export function useAppModals() {
   const [newAccNumber, setNewAccNumber] = useState<string>('');
 
   const openAddAccountModal = useCallback(
-    (activeCurrency: CurrencyType, fromModal: ReturnModalType = 'none') => {
+    (
+      activeCurrency: CurrencyType,
+      fromModal: ReturnModalType = 'none',
+      defaultType: AccountType = 'Bank'
+    ) => {
       AppHaptics.light();
       setReturnModal(fromModal);
       setNewAccName('');
       setNewAccBalance('');
       setNewAccNumber('');
-      setNewAccType('Bank');
+      setNewAccType(defaultType);
       setNewAccCurrency(activeCurrency);
       setNewAccountModalVisible(true);
     },
@@ -221,7 +226,7 @@ export function useAppModals() {
     setNewPocketName('');
     setNewPocketBalance('');
     setNewPocketTarget('');
-    setNewPocketIcon('FolderTree');
+    setNewPocketIcon('Briefcase');
     setReturnWalletDetail(w);
     setNewPocketModalVisible(true);
   }, []);
@@ -306,29 +311,32 @@ export function useAppModals() {
   const [manIsLent, setManIsLent] = useState<boolean>(false);
   const [manLentTo, setManLentTo] = useState<string>('');
 
-  const openManualModal = useCallback((activeCurrency: CurrencyType) => {
-    AppHaptics.light();
-    setEditingTransaction(null);
-    setManMerchant('');
-    setManAmount('');
-    setManNotes('');
-    setManIsLent(false);
-    setManLentTo('');
-    setManCategory('Food & Beverages');
-    setManType('expense');
-    setManCurrency(activeCurrency);
-    setManMethod('QRIS');
-    setManDate(getTodayDateStr());
-    setManTime(getCurrentTimeStr());
-    setManualTxModalVisible(true);
-  }, []);
+  const openManualModal = useCallback(
+    (activeCurrency: CurrencyType, defaultCategory: string = 'Food & Beverages') => {
+      AppHaptics.light();
+      setEditingTransaction(null);
+      setManMerchant('');
+      setManAmount('');
+      setManNotes('');
+      setManIsLent(false);
+      setManLentTo('');
+      setManCategory(defaultCategory || 'Others');
+      setManType('expense');
+      setManCurrency(activeCurrency);
+      setManMethod('QRIS');
+      setManDate(getTodayDateStr());
+      setManTime(getCurrentTimeStr());
+      setManualTxModalVisible(true);
+    },
+    []
+  );
 
   const handleStartEditTransaction = useCallback((tx: Transaction) => {
     AppHaptics.light();
     // Keep parent modal (selectedTx) open so ManualTxModal stacks directly on top
     setEditingTransaction(tx);
     setManMerchant(tx.merchantName);
-    setManAmount(String(tx.amount));
+    setManAmount(formatCurrencyNumberForInput(tx.amount, tx.currency));
     setManCategory(tx.category);
     setManType(tx.type);
     setManCurrency(tx.currency);
@@ -349,14 +357,14 @@ export function useAppModals() {
     // Keep parent modal (selectedTx) open so ManualTxModal stacks directly on top
     setEditingTransaction(null);
     setManMerchant(tx.merchantName);
-    setManAmount(String(tx.amount));
+    setManAmount(formatCurrencyNumberForInput(tx.amount, tx.currency));
     setManCategory(tx.category);
     setManType(tx.type);
     setManCurrency(tx.currency);
     setManMethod(tx.paymentMethod);
     setManNotes(tx.notes || '');
-    setManIsLent(Boolean(tx.isLent));
-    setManLentTo(tx.lentTo || '');
+    setManIsLent(Boolean(tx.isLent && !tx.lentParentTxId));
+    setManLentTo(tx.lentParentTxId ? '' : tx.lentTo || '');
     setSelectedWalletId(tx.walletId);
     setSelectedPocketId(tx.pocketId || '');
     setManDate(getTodayDateStr());

@@ -20,6 +20,7 @@ import { UpdateTransferFundsParams } from '../../services/database';
 import {
   formatCurrency,
   formatCurrencyInput,
+  convertAmountInputForCurrency,
   parseAmount,
 } from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
@@ -241,12 +242,19 @@ export const TransferModal = React.memo<TransferModalProps>(({
     : 0;
   const fromUnallocatedDisplay = Math.max(0, rawFromUnallocated);
 
-  // When editing an existing transfer, add back the old amount if the same source is still selected
+  // When editing an existing transfer, credit back the old outgoing amount if selecting
+  // the original source, and deduct the old incoming amount if selecting the original destination
   const isSameSourceAsEditing =
     !!editingTransfer &&
     editingTransfer.fromWalletId === fromWalletId &&
     (editingTransfer.fromPocketId || '') === (fromPocketId || '');
-  const editingRefund = isSameSourceAsEditing ? editingTransfer!.amount : 0;
+  const isOldDestAsNewSource =
+    !!editingTransfer &&
+    editingTransfer.toWalletId === fromWalletId &&
+    (editingTransfer.toPocketId || '') === (fromPocketId || '');
+  const editingRefund =
+    (isSameSourceAsEditing ? editingTransfer!.amount : 0) -
+    (isOldDestAsNewSource ? editingTransfer!.targetAmount ?? editingTransfer!.amount : 0);
 
   const effectiveSourceBalance = selectedFromPocket
     ? Math.max(0, selectedFromPocket.balance + editingRefund)
@@ -267,6 +275,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
   // Always convert and display the rate that is actually applied
   const appliedRate = rateInvalid ? DEFAULT_EXCHANGE_RATE : parsedRate;
   const appliedRateLabel = formatCurrencyInput(String(appliedRate), 'IDR');
+  const displayRateLabel = rateInvalid ? exchangeRateStr.trim() || '—' : appliedRateLabel;
   const numericAmount = parseAmount(amountStr, fromCurrency);
 
   let targetAmount = numericAmount;
@@ -321,6 +330,9 @@ export const TransferModal = React.memo<TransferModalProps>(({
   const handleSwap = () => {
     if (!fromWalletId || !toWalletId) return;
     AppHaptics.selection();
+    if (toCurrency !== fromCurrency && amountStr) {
+      setAmountStr(convertAmountInputForCurrency(amountStr, fromCurrency, toCurrency));
+    }
     const tempWallet = fromWalletId;
     const tempPocket = fromPocketId;
     setFromWalletId(toWalletId);
@@ -482,6 +494,9 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           ]}
                           onPress={() => {
                             AppHaptics.selection();
+                            if (w.currency !== fromCurrency && amountStr) {
+                              setAmountStr(convertAmountInputForCurrency(amountStr, fromCurrency, w.currency));
+                            }
                             if (fromWalletId !== w.id) {
                               setFromWalletId(w.id);
                               setFromPocketId('');
@@ -807,18 +822,24 @@ export const TransferModal = React.memo<TransferModalProps>(({
                         disabled={submitting}
                         activeOpacity={0.8}
                         accessibilityRole="button"
-                        accessibilityLabel={`Exchange rate, 1 USD equals ${appliedRateLabel} Rupiah. Tap to edit.`}
+                        accessibilityLabel={
+                          rateInvalid
+                            ? 'Exchange rate invalid. Tap to edit.'
+                            : `Exchange rate, 1 USD equals ${appliedRateLabel} Rupiah. Tap to edit.`
+                        }
                       >
                         <View style={styles.fxRatePrefixTag}>
                           <Text style={styles.fxRatePrefixText}>Rp</Text>
                         </View>
-                        <Text style={styles.fxRatePickerValue}>{appliedRateLabel}</Text>
+                        <Text style={styles.fxRatePickerValue}>{displayRateLabel}</Text>
                       </TouchableOpacity>
                     </View>
 
                     <View style={styles.fxLiveStatusRow}>
                       <Text style={styles.fxLiveStatusText} numberOfLines={1}>
-                        {exchangeRateInfo?.isLive ? 'Live Market Rate' : 'Estimated Rate'} · $ 1 = Rp {appliedRateLabel}
+                        {rateInvalid
+                          ? 'Invalid Rate · Adjust before transferring'
+                          : `${exchangeRateInfo?.isLive ? 'Live Market Rate' : 'Estimated Rate'} · $ 1 = Rp ${appliedRateLabel}`}
                       </Text>
                       {onRefreshExchangeRate ? (
                         <TouchableOpacity

@@ -121,7 +121,15 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [activeTxId, latestTx?.isLent, latestTx?.lentRepaidAmount, latestTx?.lentStatus]);
+  }, [
+    activeTxId,
+    latestTx?.isLent,
+    latestTx?.lentRepaidAmount,
+    latestTx?.lentStatus,
+    latestTx?.amount,
+    latestTx?.timestamp,
+    transactions.length,
+  ]);
 
   if (!currentTx) return null;
 
@@ -135,7 +143,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   const isTransfer =
     currentTx.category === 'Transfer' ||
     currentTx.paymentMethod === 'Transfer' ||
-    /^Transfer (to|from)\s+/i.test(currentTx.merchantName);
+    Boolean(currentTx.transferPairId);
 
   const currentWallet = wallets.find((w) => w.id === currentTx.walletId);
   const currentWalletName = currentTx.deletedWalletName
@@ -634,7 +642,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               </View>
             </View>
 
-            {currentTx.lentStatus !== 'settled' && onRecordRepayment ? (
+            {currentTx.lentStatus !== 'settled' && !isArchived && onRecordRepayment ? (
               <TouchableOpacity
                 style={styles.recordRepaymentBtn}
                 onPress={() => onRecordRepayment(currentTx)}

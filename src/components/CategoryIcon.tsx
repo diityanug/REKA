@@ -298,12 +298,27 @@ export const CATEGORY_ICON_GROUPS: IconCategoryGroup[] = [
   {
     key: 'medical',
     name: 'Medical',
-    icons: ['HeartPulse', 'Pill', 'Stethoscope', 'Activity', 'Syringe'],
+    icons: ['HeartPulse', 'Pill', 'Stethoscope', 'Activity', 'Syringe', 'Scissors'],
   },
   {
     key: 'education',
     name: 'Education',
     icons: ['GraduationCap', 'Book', 'BookOpen', 'PenTool', 'Newspaper'],
+  },
+  {
+    key: 'utilities',
+    name: 'Utilities',
+    icons: ['Zap', 'Droplet', 'Flame', 'Lightbulb', 'Trash2', 'Wifi', 'Tv', 'Smartphone'],
+  },
+  {
+    key: 'tech',
+    name: 'Work & Tech',
+    icons: ['Briefcase', 'Laptop', 'Monitor', 'Cloud', 'Calendar', 'Clock'],
+  },
+  {
+    key: 'tools',
+    name: 'Security & Tools',
+    icons: ['ShieldCheck', 'Shield', 'Key', 'Lock', 'Wrench', 'Hammer', 'Umbrella', 'Sun', 'Moon'],
   },
   {
     key: 'family',
@@ -449,5 +464,4 @@ export const AVAILABLE_ICONS = [
   'Umbrella',
   'Sun',
   'Moon',
-  'ArrowLeftRight',
 ];

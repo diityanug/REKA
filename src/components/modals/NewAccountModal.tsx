@@ -22,6 +22,7 @@ import { Palette, Typography } from '../../theme/tokens';
 import { CurrencyType, AccountType } from '../../types';
 import { ACCOUNT_PRESETS } from '../../constants/presets';
 import { AppHaptics } from '../../utils/haptics';
+import { convertAmountInputForCurrency } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -35,6 +36,7 @@ interface NewAccountModalProps {
   currency: CurrencyType;
   balance: string;
   accountNumber: string;
+  lockCurrency?: boolean;
   onChangeName: (text: string) => void;
   onChangeType: (type: AccountType) => void;
   onChangeCurrency: (currency: CurrencyType) => void;
@@ -62,6 +64,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
   currency,
   balance,
   accountNumber,
+  lockCurrency = false,
   onChangeName,
   onChangeType,
   onChangeCurrency,
@@ -76,6 +79,14 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
 
   const canSubmit = !saving && !!name.trim() && !!String(type).trim() && !!currency;
+
+  const handleCurrencySelect = (nextCurr: CurrencyType) => {
+    if (lockCurrency || nextCurr === currency) return;
+    onChangeCurrency(nextCurr);
+    if (balance) {
+      onChangeBalance(convertAmountInputForCurrency(balance, currency, nextCurr));
+    }
+  };
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -137,7 +148,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
                   onChangeName(preset);
                   if (config) {
                     onChangeType(config.type);
-                    onChangeCurrency(config.currency);
+                    handleCurrencySelect(config.currency);
                   }
                 }}
                 activeOpacity={0.75}
@@ -233,14 +244,16 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
               style={[
                 styles.segmentBtn,
                 currency === 'IDR' && styles.segmentBtnActiveExpense,
+                lockCurrency && currency !== 'IDR' && { opacity: 0.45 },
               ]}
+              disabled={lockCurrency}
               onPress={() => {
                 AppHaptics.selection();
-                onChangeCurrency('IDR');
+                handleCurrencySelect('IDR');
               }}
               accessibilityRole="button"
               accessibilityLabel="Currency IDR, Indonesian Rupiah"
-              accessibilityState={{ selected: currency === 'IDR' }}
+              accessibilityState={{ selected: currency === 'IDR', disabled: lockCurrency }}
               activeOpacity={0.8}
             >
               <Text
@@ -259,14 +272,16 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
               style={[
                 styles.segmentBtn,
                 currency === 'USD' && styles.segmentBtnActiveIncome,
+                lockCurrency && currency !== 'USD' && { opacity: 0.45 },
               ]}
+              disabled={lockCurrency}
               onPress={() => {
                 AppHaptics.selection();
-                onChangeCurrency('USD');
+                handleCurrencySelect('USD');
               }}
               accessibilityRole="button"
               accessibilityLabel="Currency USD, US Dollar"
-              accessibilityState={{ selected: currency === 'USD' }}
+              accessibilityState={{ selected: currency === 'USD', disabled: lockCurrency }}
               activeOpacity={0.8}
             >
               <Text
@@ -282,6 +297,11 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
               </Text>
             </TouchableOpacity>
           </View>
+          {lockCurrency ? (
+            <Text style={{ ...Typography.caption, color: Palette.muted, marginTop: 6 }}>
+              Currency matches the transaction you are editing.
+            </Text>
+          ) : null}
         </View>
 
         {/* Section 4: Starting Balance */}
