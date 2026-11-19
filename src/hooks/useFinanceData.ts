@@ -8,6 +8,8 @@ import {
   CurrencyType,
   AccountType,
   TransactionType,
+  CategoryBudgetsMap,
+  BillingCycleConfig,
   isReservedTransferCategory,
 } from '../types';
 import {
@@ -30,6 +32,7 @@ import {
   deleteCategory,
   deleteTransaction,
   deleteTransactionsBatch,
+  updateTransactionImageUri,
   recordLentRepayment,
   getLentRepayments,
   RecordLentRepaymentParams,
@@ -38,6 +41,10 @@ import {
   UpdateTransferFundsParams,
   getMonthlyBudget,
   setMonthlyBudget,
+  getCategoryBudgets,
+  setCategoryBudgets,
+  getBillingCycleConfig,
+  setBillingCycleConfig,
   getAllocationPlans,
   saveAllocationPlans,
   exportAllData,
@@ -54,6 +61,12 @@ import { parseAmount, formatCurrency } from '../utils/formatters';
 import { toUserFriendlyErrorMessage } from '../utils/errorHandling';
 import { getUniqueEntityColor } from '../utils/colors';
 import { useCurrentDate } from './useCurrentDate';
+import {
+  DEFAULT_BILLING_CYCLE,
+  getCurrentPeriodKey,
+  getPeriodKeyForTimestamp,
+  shiftPeriodKey,
+} from '../utils/billingCycle';
 import { getLiveExchangeRate, ExchangeRateResult } from '../services/currencyService';
 import {
   getLockSettings,
@@ -237,27 +250,43 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     IDR: 0,
     USD: 0,
   });
+  const [categoryBudgetsMap, setCategoryBudgetsMap] = useState<
+    Record<CurrencyType, CategoryBudgetsMap>
+  >({
+    IDR: {},
+    USD: {},
+  });
+  const [billingCycle, setBillingCycle] = useState<BillingCycleConfig>(DEFAULT_BILLING_CYCLE);
   const [loading, setLoading] = useState<boolean>(true);
   const [initialAppReady, setInitialAppReady] = useState<boolean>(false);
   const [activeCurrency, setActiveCurrency] = useState<CurrencyType>('IDR');
 
-  // Unified Month State across Overview & Analytics (updates live on month rollover)
-  const { currentMonthKey } = useCurrentDate();
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => currentMonthKey);
-  const prevMonthKeyRef = useRef<string>(currentMonthKey);
+  // Unified Period State across Overview & Analytics (respects Payday Cycle & live date rollover)
+  const { todayStr } = useCurrentDate();
+  const currentPeriodKey = useMemo(() => {
+    const parts = todayStr.split('-');
+    const nowDate =
+      parts.length === 3
+        ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+        : new Date();
+    return getCurrentPeriodKey(billingCycle, nowDate);
+  }, [todayStr, billingCycle]);
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => currentPeriodKey);
+  const prevPeriodKeyRef = useRef<string>(currentPeriodKey);
 
   useEffect(() => {
-    if (prevMonthKeyRef.current !== currentMonthKey) {
-      const prevKey = prevMonthKeyRef.current;
-      prevMonthKeyRef.current = currentMonthKey;
-      setSelectedMonth((curr) => (curr === prevKey ? currentMonthKey : curr));
+    if (prevPeriodKeyRef.current !== currentPeriodKey) {
+      const prevKey = prevPeriodKeyRef.current;
+      prevPeriodKeyRef.current = currentPeriodKey;
+      setSelectedMonth((curr) => (curr === prevKey ? currentPeriodKey : curr));
     }
-  }, [currentMonthKey]);
+  }, [currentPeriodKey]);
 
-  // Budgets always belong to exactly one calendar month (never "all")
+  // Budgets always belong to exactly one period (never "all")
   const budgetMonthKey = useMemo(
-    () => (selectedMonth === 'all' ? currentMonthKey : selectedMonth),
-    [selectedMonth, currentMonthKey]
+    () => (selectedMonth === 'all' ? currentPeriodKey : selectedMonth),
+    [selectedMonth, currentPeriodKey]
   );
 
   // Live exchange rate & status info for cross-currency transfers & analytics
@@ -294,13 +323,27 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     return [...idr, ...usd];
   }, [allocationPlansMap]);
 
+  const categoryBudgets = useMemo(() => {
+    return categoryBudgetsMap[activeCurrency] || {};
+  }, [categoryBudgetsMap, activeCurrency]);
+
   const monthlyBudget = useMemo(() => {
+    const catValues = Object.values(categoryBudgets);
+    if (catValues.length > 0) {
+      const sum = catValues.reduce((acc, v) => acc + (Number(v) || 0), 0);
+      if (sum > 0) return sum;
+    }
     return monthlyBudgetsMap[activeCurrency] || 0;
-  }, [monthlyBudgetsMap, activeCurrency]);
+  }, [categoryBudgets, monthlyBudgetsMap, activeCurrency]);
 
   // Load database state (pre-populating both currencies for instant switching)
   const loadData = useCallback(async () => {
     try {
+      const cycleCfg = await getBillingCycleConfig();
+      setBillingCycle(cycleCfg);
+      const activeBudgetPeriod =
+        selectedMonth === 'all' ? getCurrentPeriodKey(cycleCfg) : selectedMonth;
+
       const [
         wList,
         pList,
@@ -308,6 +351,8 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         catList,
         idrBudget,
         usdBudget,
+        idrCatBudgets,
+        usdCatBudgets,
         idrPlans,
         usdPlans,
       ] = await Promise.all([
@@ -315,8 +360,10 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         getPockets(),
         getTransactions(),
         getCategories(),
-        getMonthlyBudget('IDR', budgetMonthKey),
-        getMonthlyBudget('USD', budgetMonthKey),
+        getMonthlyBudget('IDR', activeBudgetPeriod),
+        getMonthlyBudget('USD', activeBudgetPeriod),
+        getCategoryBudgets('IDR', activeBudgetPeriod),
+        getCategoryBudgets('USD', activeBudgetPeriod),
         getAllocationPlans('IDR'),
         getAllocationPlans('USD'),
       ]);
@@ -325,6 +372,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       setTransactions(txList);
       setCategories(catList);
       setMonthlyBudgetsMap({ IDR: idrBudget, USD: usdBudget });
+      setCategoryBudgetsMap({ IDR: idrCatBudgets, USD: usdCatBudgets });
       setAllocationPlansMap({ IDR: idrPlans, USD: usdPlans });
 
       // Load cached exchange rate first for instant render, then refresh in background
@@ -347,7 +395,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       setLoading(false);
       setInitialAppReady(true);
     }
-  }, [budgetMonthKey, showAlert]);
+  }, [selectedMonth, showAlert]);
 
   const isInitialMount = useRef(true);
   useEffect(() => {
@@ -355,13 +403,16 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       isInitialMount.current = false;
       loadData();
     } else {
-      // Month changed: reload budgets for IDR & USD without touching wallets or tx
+      // Period changed: reload budgets (both global & per-category) for IDR & USD
       Promise.all([
         getMonthlyBudget('IDR', budgetMonthKey),
         getMonthlyBudget('USD', budgetMonthKey),
+        getCategoryBudgets('IDR', budgetMonthKey),
+        getCategoryBudgets('USD', budgetMonthKey),
       ])
-        .then(([idrB, usdB]) => {
+        .then(([idrB, usdB, idrCatB, usdCatB]) => {
           setMonthlyBudgetsMap({ IDR: idrB, USD: usdB });
+          setCategoryBudgetsMap({ IDR: idrCatB, USD: usdCatB });
         })
         .catch((err) => console.warn('Failed to update month budgets:', err));
     }
@@ -481,18 +532,17 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     [categories]
   );
 
-  // Available filter options extracted dynamically from real transactions (across both currencies)
+  // Available filter options extracted dynamically from real transactions (across both currencies & respecting payday cycle)
   const availableMonths = useMemo(() => {
     const set = new Set<string>();
     transactions.forEach((tx) => {
-      const d = new Date(tx.timestamp);
-      if (!isNaN(d.getTime())) {
-        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const key = getPeriodKeyForTimestamp(tx.timestamp, billingCycle);
+      if (key) {
         set.add(key);
       }
     });
     return Array.from(set).sort().reverse();
-  }, [transactions]);
+  }, [transactions, billingCycle]);
 
   const availableExpenseCategories = useMemo(() => {
     const set = new Set<string>();
@@ -783,10 +833,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     async (
       pocketId: string,
       newName: string,
-      newIcon?: string
+      newIcon?: string,
+      newTargetAmount?: number
     ) => {
       try {
-        await updatePocketName(pocketId, newName, newIcon);
+        await updatePocketName(pocketId, newName, newIcon, newTargetAmount);
         AppHaptics.success();
         await loadData();
       } catch (err: any) {
@@ -1146,7 +1197,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     async (amount: number) => {
       try {
         AppHaptics.heavy();
+        await setCategoryBudgets({}, activeCurrency, budgetMonthKey);
         await setMonthlyBudget(amount, activeCurrency, budgetMonthKey);
+        setCategoryBudgetsMap((prev) => ({ ...prev, [activeCurrency]: {} }));
         setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: amount }));
         AppHaptics.success();
       } catch (err: any) {
@@ -1156,15 +1209,68 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     [activeCurrency, budgetMonthKey, showAlert]
   );
 
+  const handleSaveCategoryBudgets = useCallback(
+    async (nextBudgets: CategoryBudgetsMap) => {
+      try {
+        AppHaptics.heavy();
+        const { categoryBudgets: saved, totalBudget } = await setCategoryBudgets(
+          nextBudgets,
+          activeCurrency,
+          budgetMonthKey
+        );
+        setCategoryBudgetsMap((prev) => ({ ...prev, [activeCurrency]: saved }));
+        setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: totalBudget }));
+        AppHaptics.success();
+      } catch (err: any) {
+        showAlert('Error', err.message || 'Failed to save category budgets.', undefined, 'error');
+      }
+    },
+    [activeCurrency, budgetMonthKey, showAlert]
+  );
+
+  const handleCopyPrevMonthBudgets = useCallback(async (): Promise<CategoryBudgetsMap> => {
+    const prevKey = shiftPeriodKey(budgetMonthKey, -1);
+    return await getCategoryBudgets(activeCurrency, prevKey);
+  }, [activeCurrency, budgetMonthKey]);
+
   const handleRemoveBudget = useCallback(async () => {
     try {
       AppHaptics.light();
+      await setCategoryBudgets({}, activeCurrency, budgetMonthKey);
       await setMonthlyBudget(0, activeCurrency, budgetMonthKey);
+      setCategoryBudgetsMap((prev) => ({ ...prev, [activeCurrency]: {} }));
       setMonthlyBudgetsMap((prev) => ({ ...prev, [activeCurrency]: 0 }));
     } catch (err: any) {
       showAlert('Error', err.message || 'Failed to remove budget.', undefined, 'error');
     }
   }, [activeCurrency, budgetMonthKey, showAlert]);
+
+  const handleSaveBillingCycle = useCallback(
+    async (nextConfig: BillingCycleConfig) => {
+      try {
+        AppHaptics.selection();
+        const saved = await setBillingCycleConfig(nextConfig);
+        setBillingCycle(saved);
+        AppHaptics.success();
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Failed to save billing cycle settings.', undefined, 'error');
+      }
+    },
+    [showAlert]
+  );
+
+  const handleUpdateTransactionImage = useCallback(
+    async (txId: string, imageUri: string) => {
+      try {
+        await updateTransactionImageUri(txId, imageUri);
+        await loadData();
+        AppHaptics.light();
+      } catch (err: any) {
+        showAlert('Error', err?.message || 'Failed to update receipt photo.', undefined, 'error');
+      }
+    },
+    [loadData, showAlert]
+  );
 
   const handleRefreshExchangeRate = useCallback(async (force = true): Promise<ExchangeRateResult | null> => {
     try {
@@ -1378,6 +1484,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     categories,
     allocationPlans,
     monthlyBudget,
+    categoryBudgets,
+    billingCycle,
+    currentPeriodKey,
     loading,
     initialAppReady,
     activeCurrency,
@@ -1418,7 +1527,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleRecordLentRepayment,
     getLentAuditTrail,
     handleSaveBudget,
+    handleSaveCategoryBudgets,
+    handleCopyPrevMonthBudgets,
     handleRemoveBudget,
+    handleSaveBillingCycle,
+    handleUpdateTransactionImage,
     handleSaveExchangeRate,
     handleRefreshExchangeRate,
     handleReloadLockSettings,
@@ -1442,6 +1555,9 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     categories,
     allocationPlans,
     monthlyBudget,
+    categoryBudgets,
+    billingCycle,
+    currentPeriodKey,
     loading,
     initialAppReady,
     activeCurrency,
@@ -1480,7 +1596,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleRecordLentRepayment,
     getLentAuditTrail,
     handleSaveBudget,
+    handleSaveCategoryBudgets,
+    handleCopyPrevMonthBudgets,
     handleRemoveBudget,
+    handleSaveBillingCycle,
+    handleUpdateTransactionImage,
     handleSaveExchangeRate,
     handleRefreshExchangeRate,
     handleReloadLockSettings,

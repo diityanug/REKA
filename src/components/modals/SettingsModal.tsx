@@ -25,9 +25,20 @@ import {
   Lock,
   KeyRound,
   ExternalLink,
+  CalendarDays,
+  Minus,
+  Plus,
+  FlaskConical,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { AppHaptics } from '../../utils/haptics';
+import { BillingCycleConfig } from '../../types';
+import {
+  DEFAULT_BILLING_CYCLE,
+  getCurrentPeriodKey,
+  formatCycleRangeShort,
+} from '../../utils/billingCycle';
+import { buildDevDummyBackupJson } from '../../utils/devDummyData';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -64,6 +75,8 @@ interface SettingsModalProps {
   onToggleLock?: () => void;
   onChangePin?: () => void;
   onToggleBiometrics?: () => void;
+  billingCycle?: BillingCycleConfig;
+  onChangeBillingCycle?: (config: BillingCycleConfig) => void | Promise<void>;
   appVersion?: string;
   onClose: () => void;
 }
@@ -86,6 +99,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onToggleLock,
   onChangePin,
   onToggleBiometrics,
+  billingCycle = DEFAULT_BILLING_CYCLE,
+  onChangeBillingCycle,
   appVersion = '1.0.0',
   onClose,
 }) => {
@@ -93,6 +108,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [exportingCSV, setExportingCSV] = useState<boolean>(false);
   const [exportingPDF, setExportingPDF] = useState<boolean>(false);
   const [importing, setImporting] = useState<boolean>(false);
+  const [seedingDummy, setSeedingDummy] = useState<boolean>(false);
   const [undoing, setUndoing] = useState<boolean>(false);
   const [wiping, setWiping] = useState<boolean>(false);
   const [refreshingRate, setRefreshingRate] = useState<boolean>(false);
@@ -283,6 +299,41 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleLoadDummyData = () => {
+    if (!__DEV__ || seedingDummy) return;
+    Keyboard.dismiss();
+    showAlert(
+      'Load Dummy Test Data',
+      'Replace current local data with 6 months of realistic test data (IDR & USD accounts, pockets, 10+ categories, category budgets, transfers, and loans)?\n\nYour previous data is saved automatically so you can use "Undo Last Restore" anytime.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Load Dummy Data',
+          onPress: async () => {
+            setSeedingDummy(true);
+            try {
+              const dummyJson = buildDevDummyBackupJson();
+              await onImportBackup(dummyJson);
+              AppHaptics.success();
+              showAlert(
+                'Dummy Data Loaded',
+                '6 months of sample data is ready to test! Try Analytics (Donut, 6-Month Trend, Category Budgets), Payday Cycle (24th), History Filters, and Pocket Transfers.',
+                [{ text: 'OK', onPress: () => onClose() }],
+                'success'
+              );
+            } catch (err: any) {
+              AppHaptics.error();
+              showAlert('Error', err?.message || 'Failed to load dummy data.', undefined, 'error');
+            } finally {
+              setSeedingDummy(false);
+            }
+          },
+        },
+      ],
+      'confirm'
+    );
+  };
+
   const handleUndoRestore = () => {
     if (!onUndoRestore || undoing) return;
     Keyboard.dismiss();
@@ -395,6 +446,237 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       />
 
       <KeyboardSafeContainer extraBottomSpace={40}>
+        {/* Billing & Payday Cycle Section */}
+        {onChangeBillingCycle ? (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <CalendarDays size={16} color={Palette.primary} />
+              <Text style={styles.sectionTitle}>Payday & Budget Cycle</Text>
+            </View>
+            <Text style={styles.sectionDesc}>
+              Align monthly Overview, Budget, and Analytics with your payday. Use Day 1 for standard calendar months (1–31), or pick your payday (e.g. 24).
+            </Text>
+
+            {/* Quick Presets */}
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              {[
+                { day: 1, label: '1st (Calendar)' },
+                { day: 24, label: '24th (Payday)' },
+                { day: 25, label: '25th' },
+                { day: 28, label: '28th' },
+              ].map((preset) => {
+                const active = billingCycle.startDay === preset.day;
+                return (
+                  <TouchableOpacity
+                    key={preset.day}
+                    style={[
+                      {
+                        paddingHorizontal: 11,
+                        paddingVertical: 7,
+                        borderRadius: 10,
+                        backgroundColor: active ? Palette.ink : Palette.surfaceSoft,
+                        borderWidth: 1,
+                        borderColor: active ? Palette.ink : Palette.hairline,
+                      },
+                    ]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      onChangeBillingCycle({
+                        ...billingCycle,
+                        startDay: preset.day,
+                      });
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text
+                      style={{
+                        ...Typography.caption,
+                        fontSize: 12,
+                        fontWeight: '600',
+                        color: active ? Palette.white : Palette.ink,
+                      }}
+                    >
+                      {preset.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Fine-grained Day Stepper (1..28) */}
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                backgroundColor: Palette.surfaceSoft,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                marginBottom: billingCycle.startDay > 1 ? 10 : 0,
+              }}
+            >
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink }}>
+                  Cycle Start Day
+                </Text>
+                <Text style={{ ...Typography.caption, fontSize: 11, color: Palette.muted }}>
+                  {billingCycle.startDay <= 1
+                    ? 'Standard calendar month (1st – end of month)'
+                    : `Current cycle: ${formatCycleRangeShort(
+                        getCurrentPeriodKey(billingCycle),
+                        billingCycle
+                      )}`}
+                </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <TouchableOpacity
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 9,
+                    backgroundColor: Palette.white,
+                    borderWidth: 1,
+                    borderColor: Palette.hairline,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: billingCycle.startDay <= 1 ? 0.4 : 1,
+                  }}
+                  disabled={billingCycle.startDay <= 1}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    onChangeBillingCycle({
+                      ...billingCycle,
+                      startDay: Math.max(1, billingCycle.startDay - 1),
+                    });
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Minus size={14} color={Palette.ink} />
+                </TouchableOpacity>
+                <Text
+                  style={{
+                    ...Typography.heading,
+                    fontSize: 15,
+                    fontWeight: '700',
+                    color: Palette.ink,
+                    minWidth: 26,
+                    textAlign: 'center',
+                  }}
+                >
+                  {billingCycle.startDay}
+                </Text>
+                <TouchableOpacity
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 9,
+                    backgroundColor: Palette.white,
+                    borderWidth: 1,
+                    borderColor: Palette.hairline,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    opacity: billingCycle.startDay >= 28 ? 0.4 : 1,
+                  }}
+                  disabled={billingCycle.startDay >= 28}
+                  onPress={() => {
+                    AppHaptics.selection();
+                    onChangeBillingCycle({
+                      ...billingCycle,
+                      startDay: Math.min(28, billingCycle.startDay + 1),
+                    });
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Plus size={14} color={Palette.ink} />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Weekend Shift to Friday Toggle */}
+            {billingCycle.startDay > 1 ? (
+              <TouchableOpacity
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  backgroundColor: Palette.surfaceSoft,
+                  borderRadius: 12,
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                }}
+                onPress={() => {
+                  AppHaptics.selection();
+                  onChangeBillingCycle({
+                    ...billingCycle,
+                    adjustWeekendToFriday: !billingCycle.adjustWeekendToFriday,
+                  });
+                }}
+                activeOpacity={0.75}
+              >
+                <View style={{ flex: 1, marginRight: 10 }}>
+                  <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink }}>
+                    Shift Weekend Payday to Friday
+                  </Text>
+                  <Text style={{ ...Typography.caption, fontSize: 11, color: Palette.muted, marginTop: 1 }}>
+                    If day {billingCycle.startDay} falls on Sat/Sun, start on Friday (day{' '}
+                    {Math.max(1, billingCycle.startDay - 1)}/{Math.max(1, billingCycle.startDay - 2)})
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 10,
+                    backgroundColor: billingCycle.adjustWeekendToFriday
+                      ? Palette.primary
+                      : Palette.hairline,
+                  }}
+                >
+                  <Text
+                    style={{
+                      ...Typography.caption,
+                      fontSize: 11,
+                      fontWeight: '700',
+                      color: billingCycle.adjustWeekendToFriday ? Palette.white : Palette.muted,
+                    }}
+                  >
+                    {billingCycle.adjustWeekendToFriday ? 'On' : 'Off'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        ) : null}
+
+        {/* Developer Testing Section (strictly hidden in release/preview APK builds) */}
+        {__DEV__ ? (
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <FlaskConical size={16} color={Palette.primary} />
+              <Text style={styles.sectionTitle}>Developer Tools (Dev Only)</Text>
+            </View>
+            <Text style={styles.sectionDesc}>
+              Quickly populate 6 months of multi-currency test data to test Category Budgets, Payday Cycle, Donut Colors, 6-Month Trend, History Filters, and Pocket Transfers. Hidden automatically in release APK builds.
+            </Text>
+            <TouchableOpacity
+              style={styles.outlineActionBtn}
+              onPress={handleLoadDummyData}
+              disabled={seedingDummy}
+              activeOpacity={0.7}
+            >
+              {seedingDummy ? (
+                <ActivityIndicator size="small" color={Palette.primary} />
+              ) : (
+                <>
+                  <FlaskConical size={16} color={Palette.primary} />
+                  <Text style={styles.outlineActionBtnText}>Load Dummy Test Data</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* Backup & Restore Section */}
         <View style={styles.sectionCard}>
           <View style={styles.sectionHeader}>

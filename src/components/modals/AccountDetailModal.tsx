@@ -6,6 +6,7 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -22,11 +23,16 @@ import {
   TrendingUp,
   Smartphone,
   FileText,
+  X,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { Wallet, Pocket, Transaction, AccountType } from '../../types';
-import { formatCurrency, formatCurrencyNumberForInput } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatCurrencyNumberForInput,
+  parseAmount,
+} from '../../utils/formatters';
 import { AppHaptics } from '../../utils/haptics';
 import { useLastDefined } from '../../hooks/useLastDefined';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
@@ -66,7 +72,8 @@ interface AccountDetailModalProps {
   onRenamePocket?: (
     pocketId: string,
     newName: string,
-    newIcon?: string
+    newIcon?: string,
+    newTargetAmount?: number
   ) => Promise<void> | void;
   onOpenAddPocket: (w: Wallet) => void;
   onAdjustPocket: (pocket: Pocket, w: Wallet) => void;
@@ -114,6 +121,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [editingPocketId, setEditingPocketId] = useState<string | null>(null);
   const [pocketEditName, setPocketEditName] = useState<string>('');
   const [pocketEditIcon, setPocketEditIcon] = useState<string>('Briefcase');
+  const [pocketEditTarget, setPocketEditTarget] = useState<string>('');
+  const [showPocketTargetModal, setShowPocketTargetModal] = useState<boolean>(false);
   const [pocketIconGroupKey, setPocketIconGroupKey] = useState<string>('all');
   const [showAllActivity, setShowAllActivity] = useState<boolean>(false);
   const { alertConfig, showAlert, hideAlert } = useLocalAlert();
@@ -142,6 +151,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       setIsRenaming(false);
       setEditingPocketId(null);
       setShowAdjustAmountModal(false);
+      setShowPocketTargetModal(false);
       setShowAllActivity(false);
     }
   });
@@ -174,8 +184,12 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       showAlert('Invalid Name', 'Pocket name cannot be empty.', undefined, 'warning');
       return;
     }
+    const parsedTarget = pocketEditTarget.trim()
+      ? parseAmount(pocketEditTarget, wallet.currency)
+      : 0;
+    const safeTarget = isNaN(parsedTarget) || parsedTarget < 0 ? 0 : parsedTarget;
     if (onRenamePocket) {
-      await onRenamePocket(pocketId, trimmed, pocketEditIcon);
+      await onRenamePocket(pocketId, trimmed, pocketEditIcon, safeTarget);
     }
     setEditingPocketId(null);
   };
@@ -459,6 +473,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                                     setEditingPocketId(p.id);
                                     setPocketEditName(p.name);
                                     setPocketEditIcon(p.icon || 'Briefcase');
+                                    setPocketEditTarget(
+                                      p.targetAmount && p.targetAmount > 0
+                                        ? formatCurrencyNumberForInput(
+                                            p.targetAmount,
+                                            wallet.currency
+                                          )
+                                        : ''
+                                    );
                                     setPocketIconGroupKey('all');
                                   }
                                 }}
@@ -495,6 +517,54 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                             returnKeyType="done"
                             maxLength={30}
                           />
+
+                          <Text style={styles.editFieldLabel}>Target Goal (Optional)</Text>
+                          <View style={styles.pocketTargetPickerRow}>
+                            <TouchableOpacity
+                              style={styles.pocketTargetPickerBox}
+                              onPress={() => {
+                                AppHaptics.light();
+                                Keyboard.dismiss();
+                                setShowPocketTargetModal(true);
+                              }}
+                              activeOpacity={0.8}
+                              accessibilityRole="button"
+                              accessibilityLabel={`Target goal, ${pocketEditTarget || 'none'} ${wallet.currency}`}
+                            >
+                              <View style={styles.pocketTargetPrefixTag}>
+                                <Text style={styles.pocketTargetPrefixText}>
+                                  {wallet.currency === 'IDR' ? 'Rp' : '$'}
+                                </Text>
+                              </View>
+                              <Text
+                                style={[
+                                  styles.pocketTargetValue,
+                                  !pocketEditTarget && styles.pocketTargetPlaceholder,
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {pocketEditTarget ||
+                                  (wallet.currency === 'IDR'
+                                    ? '0 (no target)'
+                                    : '0.00 (no target)')}
+                              </Text>
+                            </TouchableOpacity>
+                            {pocketEditTarget ? (
+                              <TouchableOpacity
+                                style={styles.pocketTargetClearBtn}
+                                onPress={() => {
+                                  AppHaptics.selection();
+                                  setPocketEditTarget('');
+                                }}
+                                activeOpacity={0.75}
+                                accessibilityRole="button"
+                                accessibilityLabel="Clear target goal"
+                                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                              >
+                                <X size={15} color={Palette.muted} />
+                              </TouchableOpacity>
+                            ) : null}
+                          </View>
 
                           <Text style={styles.editFieldLabel}>Pocket Icon <Text style={styles.requiredStar}>*</Text></Text>
                           <ScrollView
@@ -823,6 +893,23 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         />
       )}
 
+      {/* Pocket Target Goal Input Modal */}
+      <AmountInputModal
+        visible={showPocketTargetModal}
+        title="Target Goal"
+        subtitle="Set savings goal (enter 0 to remove target)"
+        initialAmount={pocketEditTarget}
+        currency={wallet.currency}
+        allowZero
+        onConfirm={(_str, num) => {
+          setPocketEditTarget(
+            num > 0 ? formatCurrencyNumberForInput(num, wallet.currency) : ''
+          );
+          setShowPocketTargetModal(false);
+        }}
+        onClose={() => setShowPocketTargetModal(false)}
+      />
+
       <CustomAlertModal
         visible={alertConfig.visible}
         alertId={alertConfig.id}
@@ -1112,6 +1199,59 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Palette.hairline,
     marginBottom: 10,
+  },
+  pocketTargetPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  pocketTargetPickerBox: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  pocketTargetPrefixTag: {
+    backgroundColor: Palette.white,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    marginRight: 8,
+  },
+  pocketTargetPrefixText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.muted,
+  },
+  pocketTargetValue: {
+    ...Typography.body,
+    fontSize: 15,
+    fontWeight: '600',
+    color: Palette.ink,
+    flex: 1,
+  },
+  pocketTargetPlaceholder: {
+    color: Palette.mutedSoft,
+    fontWeight: '400',
+  },
+  pocketTargetClearBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   editActionRow: {
     flexDirection: 'row',

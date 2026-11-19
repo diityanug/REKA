@@ -5,6 +5,8 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
+  Image,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -22,6 +24,8 @@ import {
   CheckCircle2,
   ChevronRight,
   Lock,
+  Image as ImageIcon,
+  X,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
@@ -45,6 +49,7 @@ interface TxDetailModalProps {
   onDuplicate: (tx: Transaction) => void;
   onDelete: (tx: Transaction) => void;
   onRecordRepayment?: (tx: Transaction) => void;
+  onRemoveReceiptPhoto?: (txId: string) => void | Promise<void>;
   onClose: () => void;
 }
 
@@ -74,9 +79,11 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
   onDuplicate,
   onDelete,
   onRecordRepayment,
+  onRemoveReceiptPhoto,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
+  const [photoViewerVisible, setPhotoViewerVisible] = useState<boolean>(false);
   const latestTx = tx ? (transactions.find((t) => t.id === tx.id) || tx) : null;
   const currentTx = useLastDefined(latestTx);
   // Never inherit the previously viewed transaction's icon: fall back per render.
@@ -746,6 +753,75 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
           </>
         )}
 
+        {/* 4.5 Saved Receipt Photo Attachment */}
+        {currentTx.imageUri ? (
+          <View
+            style={{
+              backgroundColor: Palette.white,
+              borderRadius: 16,
+              padding: 12,
+              marginBottom: 14,
+              borderWidth: 1,
+              borderColor: Palette.hairline,
+            }}
+          >
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 10,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <ImageIcon size={15} color={Palette.primary} />
+                <Text style={[styles.sectionTitle, { marginBottom: 0, marginTop: 0 }]}>
+                  Receipt Photo
+                </Text>
+              </View>
+              {!isArchived && onRemoveReceiptPhoto ? (
+                <TouchableOpacity
+                  onPress={() => onRemoveReceiptPhoto(currentTx.id)}
+                  activeOpacity={0.7}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Text style={{ ...Typography.caption, fontSize: 12, fontWeight: '600', color: Palette.error }}>
+                    Remove
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <TouchableOpacity
+              onPress={() => setPhotoViewerVisible(true)}
+              activeOpacity={0.85}
+              accessibilityRole="button"
+              accessibilityLabel="View full receipt photo"
+            >
+              <Image
+                source={{ uri: currentTx.imageUri }}
+                style={{
+                  width: '100%',
+                  height: 170,
+                  borderRadius: 12,
+                  backgroundColor: Palette.surfaceSoft,
+                }}
+                resizeMode="cover"
+              />
+              <Text
+                style={{
+                  ...Typography.caption,
+                  fontSize: 11,
+                  color: Palette.muted,
+                  textAlign: 'center',
+                  marginTop: 6,
+                }}
+              >
+                Tap photo to view full receipt
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* 5. Action Buttons or Archived Notice */}
         <View style={styles.actionButtonsContainer}>
           {isArchived ? (
@@ -825,6 +901,51 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
           )}
         </View>
       </ScrollView>
+
+      {currentTx.imageUri ? (
+        <Modal
+          visible={photoViewerVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPhotoViewerVisible(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: 'rgba(0,0,0,0.94)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 18,
+            }}
+          >
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: Math.max(insets.top, 20) + 10,
+                right: 18,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(255,255,255,0.18)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10,
+              }}
+              onPress={() => setPhotoViewerVisible(false)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Close receipt viewer"
+            >
+              <X size={20} color={Palette.white} />
+            </TouchableOpacity>
+            <Image
+              source={{ uri: currentTx.imageUri }}
+              style={{ width: '100%', height: '82%' }}
+              resizeMode="contain"
+            />
+          </View>
+        </Modal>
+      ) : null}
     </BottomSheetModal>
   );
 };

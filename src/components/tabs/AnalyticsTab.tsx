@@ -15,42 +15,62 @@ import {
   Plus,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Transaction, TransactionType, CurrencyType } from '../../types';
-import { formatCurrency, formatMonthYear, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
+import { Transaction, TransactionType, CurrencyType, CategoryBudgetsMap, BillingCycleConfig } from '../../types';
+import { formatCurrency, formatMonthYear, formatMonthShort, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
+import {
+  DEFAULT_BILLING_CYCLE,
+  getCurrentPeriodKey,
+  isTimestampInPeriod,
+  getBillingCycleRange,
+  getRemainingDaysInPeriod,
+  formatCycleRangeShort,
+  shiftPeriodKey,
+} from '../../utils/billingCycle';
 import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { AppHaptics } from '../../utils/haptics';
 import { CategoryIcon } from '../CategoryIcon';
 import { DonutChart } from '../DonutChart';
+import { TrendChart, TrendPoint } from '../TrendChart';
 
-const EXPENSE_PALETTE = [
-  '#E11D48', // Crimson / Rose
-  '#EA580C', // Orange / Rust
-  '#D97706', // Amber
-  '#7C3AED', // Violet
-  '#2563EB', // Royal Blue
-  '#DB2777', // Magenta
-  '#0284C7', // Sky Blue
-  '#92400E', // Earth Brown
-];
-
-const INCOME_PALETTE = [
-  '#059669', // Emerald Green
-  '#0D9488', // Teal
-  '#16A34A', // Leaf Green
-  '#0284C7', // Cyan / Sky
+// High-contrast, maximally separated category colors (ordered so adjacent donut slices never look similar)
+const DISTINCT_CATEGORY_PALETTE = [
   '#2563EB', // Cobalt Blue
-  '#65A30D', // Olive / Lime
-  '#10B981', // Mint Green
-  '#06B6D4', // Aquamarine
+  '#DC2626', // Vivid Red
+  '#10B981', // Emerald Green
+  '#F59E0B', // Golden Yellow
+  '#7C3AED', // Deep Purple
+  '#06B6D4', // Bright Cyan
+  '#EA580C', // Burnt Orange
+  '#65A30D', // Chartreuse Lime
+  '#0F766E', // Deep Teal
+  '#C026D3', // Orchid Violet
+  '#92400E', // Chocolate Brown
+  '#475569', // Slate Gray
+  '#1E3A8A', // Dark Navy
+  '#15803D', // Forest Green
+  '#A16207', // Mustard Ochre
+  '#334155', // Charcoal Slate
 ];
 
-// Simple deterministic hash so a category keeps its colour across periods and sorts
-const hashCategoryName = (name: string): number => {
-  let hash = 0;
-  for (let i = 0; i < name.length; i += 1) {
-    hash = (hash * 31 + name.charCodeAt(i)) % 100000;
+const hslToHex = (h: number, s: number, l: number): string => {
+  const sat = s / 100;
+  const light = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sat * Math.min(light, 1 - light);
+  const f = (n: number) =>
+    Math.round(255 * (light - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)))));
+  return `#${[f(0), f(8), f(4)].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
+};
+
+// Guarantees every category slice in the breakdown gets a strictly unique, high-contrast hex color
+const getDistinctCategoryColor = (index: number): string => {
+  if (index < DISTINCT_CATEGORY_PALETTE.length) {
+    return DISTINCT_CATEGORY_PALETTE[index];
   }
-  return hash;
+  // Golden-angle hue stepping for any categories beyond the curated 16-color palette
+  const hue = Math.round(((index - DISTINCT_CATEGORY_PALETTE.length + 1) * 137.508 + 25) % 360);
+  const lightness = index % 2 === 0 ? 42 : 56;
+  return hslToHex(hue, 72, lightness);
 };
 
 interface AnalyticsTabProps {
@@ -61,6 +81,8 @@ interface AnalyticsTabProps {
   selectedMonth: string;
   budgetMonthKey: string;
   monthlyBudget?: number;
+  categoryBudgets?: CategoryBudgetsMap;
+  billingCycle?: BillingCycleConfig;
   onSelectMonth: (month: string) => void;
   onOpenMonthPicker: () => void;
   onOpenCategoryManager: (type?: TransactionType) => void;
@@ -77,6 +99,8 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   selectedMonth,
   budgetMonthKey,
   monthlyBudget = 0,
+  categoryBudgets = {},
+  billingCycle = DEFAULT_BILLING_CYCLE,
   onSelectMonth,
   onOpenMonthPicker,
   onOpenCategoryManager,
@@ -85,25 +109,32 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   getCategoryIconName,
 }) => {
   const [analyticsType, setAnalyticsType] = useState<TransactionType>('expense');
+  const [selectedBreakdownCategory, setSelectedBreakdownCategory] = useState<string | null>(null);
+  const [showAllBreakdown, setShowAllBreakdown] = useState<boolean>(false);
 
-  // Same month-key rule the finance hook uses, so the stepper cannot go into the future
-  const { currentMonthKey, currentDayOfMonth } = useCurrentDate();
+  // Same period-key rule the finance hook uses (respects Payday Cycle)
+  const { todayStr } = useCurrentDate();
+  const currentPeriodKey = useMemo(() => {
+    const parts = todayStr.split('-');
+    const nowDate =
+      parts.length === 3
+        ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+        : new Date();
+    return getCurrentPeriodKey(billingCycle, nowDate);
+  }, [todayStr, billingCycle]);
 
   // Filter transactions matching active currency
   const currencyTransactions = useMemo(() => {
     return transactions.filter((tx) => tx.currency === activeCurrency);
   }, [transactions, activeCurrency]);
 
-  // Filter transactions for the selected month or all time
+  // Filter transactions for the selected period or all time
   const periodTransactions = useMemo(() => {
     if (selectedMonth === 'all') return currencyTransactions;
-    return currencyTransactions.filter((tx) => {
-      const d = new Date(tx.timestamp);
-      if (isNaN(d.getTime())) return false;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return key === selectedMonth;
-    });
-  }, [currencyTransactions, selectedMonth]);
+    return currencyTransactions.filter((tx) =>
+      isTimestampInPeriod(tx.timestamp, selectedMonth, billingCycle)
+    );
+  }, [currencyTransactions, selectedMonth, billingCycle]);
 
   // Comprehensive  Intelligence (Best Practice Benchmarks)
   const financialHealth = useMemo(() => {
@@ -269,10 +300,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
     let prevIncome = 0;
 
     currencyTransactions.forEach((tx) => {
-      const d = new Date(tx.timestamp);
-      if (isNaN(d.getTime())) return;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      if (key === prevMonthKey) {
+      if (isTimestampInPeriod(tx.timestamp, prevMonthKey, billingCycle)) {
         if (tx.category === 'Transfer' || tx.transferPairId) return;
         if (tx.type === 'expense') prevExpense += tx.amount;
         if (tx.type === 'income') prevIncome += tx.amount;
@@ -304,19 +332,74 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       expenseDeltaPct,
       incomeDeltaPct,
     };
-  }, [currencyTransactions, prevMonthKey, selectedMonth, periodTransactions.length, financialHealth.expense, financialHealth.income]);
+  }, [currencyTransactions, prevMonthKey, selectedMonth, periodTransactions.length, financialHealth.expense, financialHealth.income, billingCycle]);
 
-  // Budget is always evaluated for one concrete calendar month (budgetMonthKey), never all-time
-  const budgetSpent = useMemo(() => {
-    return currencyTransactions.reduce((sum, tx) => {
-      if (tx.type !== 'expense') return sum;
-      if (tx.category === 'Transfer' || tx.transferPairId) return sum;
-      const d = new Date(tx.timestamp);
-      if (isNaN(d.getTime())) return sum;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return key === budgetMonthKey ? sum + tx.amount : sum;
-    }, 0);
-  }, [currencyTransactions, budgetMonthKey]);
+  // 6-Month Cash Flow Trend Data (ending at active budget period, respecting Payday Cycle)
+  const trendData = useMemo<TrendPoint[]>(() => {
+    const keys: string[] = [];
+    for (let i = 5; i >= 0; i -= 1) {
+      keys.push(shiftPeriodKey(budgetMonthKey, -i));
+    }
+    return keys.map((key) => {
+      let inc = 0;
+      let exp = 0;
+      currencyTransactions.forEach((tx) => {
+        if (tx.category === 'Transfer' || tx.transferPairId) return;
+        if (isTimestampInPeriod(tx.timestamp, key, billingCycle)) {
+          if (tx.type === 'income') inc += tx.amount;
+          if (tx.type === 'expense') exp += tx.amount;
+        }
+      });
+      const shortLbl = formatMonthShort(key).split(' ')[0] || key;
+      const rangeSuffix = formatCycleRangeShort(key, billingCycle);
+      return {
+        periodKey: key,
+        label: shortLbl,
+        fullLabel: rangeSuffix ? `${formatMonthYear(key)} (${rangeSuffix})` : formatMonthYear(key),
+        income: inc,
+        expense: exp,
+        net: inc - exp,
+      };
+    });
+  }, [currencyTransactions, budgetMonthKey, billingCycle]);
+
+  // Monthly Budget Computation (always uses the exact period the budget belongs to)
+  const { budgetSpent, budgetSpentByCategory } = useMemo(() => {
+    let total = 0;
+    const byCat: Record<string, number> = {};
+    currencyTransactions.forEach((tx) => {
+      if (tx.type !== 'expense' || tx.category === 'Transfer' || tx.transferPairId) return;
+      if (isTimestampInPeriod(tx.timestamp, budgetMonthKey, billingCycle)) {
+        total += tx.amount;
+        const catKey = (tx.category || 'Others').trim();
+        byCat[catKey] = (byCat[catKey] || 0) + tx.amount;
+      }
+    });
+    return { budgetSpent: total, budgetSpentByCategory: byCat };
+  }, [currencyTransactions, budgetMonthKey, billingCycle]);
+
+  const categoryBudgetRows = useMemo(() => {
+    const entries = Object.entries(categoryBudgets || {}).filter(([, limit]) => Number(limit) > 0);
+    return entries
+      .map(([catName, limit]) => {
+        const spent = Object.entries(budgetSpentByCategory).reduce(
+          (acc, [k, v]) => (k.toLowerCase() === catName.toLowerCase() ? acc + v : acc),
+          0
+        );
+        const pct = limit > 0 ? (spent / limit) * 100 : 0;
+        return { category: catName, limit, spent, pct, remaining: limit - spent };
+      })
+      .sort((a, b) => b.pct - a.pct);
+  }, [categoryBudgets, budgetSpentByCategory]);
+
+  const unbudgetedSpent = useMemo(() => {
+    if (categoryBudgetRows.length === 0) return 0;
+    const budgetedSet = new Set(categoryBudgetRows.map((r) => r.category.toLowerCase()));
+    return Object.entries(budgetSpentByCategory).reduce(
+      (acc, [k, v]) => (budgetedSet.has(k.toLowerCase()) ? acc : acc + v),
+      0
+    );
+  }, [categoryBudgetRows, budgetSpentByCategory]);
 
   const budgetPercentage = monthlyBudget > 0 ? (budgetSpent / monthlyBudget) * 100 : 0;
   const remainingBudget = monthlyBudget - budgetSpent;
@@ -339,29 +422,24 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       ? '#FFFBEB'
       : '#EBF7F4';
 
-  const isPastBudgetMonth = budgetMonthKey < currentMonthKey;
+  const isPastBudgetMonth = budgetMonthKey < currentPeriodKey;
 
-  // Safe daily spend only makes sense for the current month; past months show realized average
+  // Safe daily spend only makes sense for the current cycle; past cycles show realized average
   const pacing = useMemo(() => {
     if (monthlyBudget <= 0) return null;
-    const parts = budgetMonthKey.split('-');
-    const y = parseInt(parts[0], 10);
-    const m = parseInt(parts[1], 10);
-    const daysInMonth =
-      isFinite(y) && isFinite(m) && m >= 1 && m <= 12 ? new Date(y, m, 0).getDate() : 30;
-
+    const range = getBillingCycleRange(budgetMonthKey, billingCycle);
     if (isPastBudgetMonth) {
       return {
         kind: 'average' as const,
-        value: Math.round(budgetSpent / Math.max(daysInMonth, 1)),
+        value: Math.round(budgetSpent / Math.max(range.totalDays, 1)),
       };
     }
 
-    const daysRemaining = Math.max(1, daysInMonth - currentDayOfMonth);
+    const daysRemaining = getRemainingDaysInPeriod(budgetMonthKey, billingCycle);
     const remaining = monthlyBudget - budgetSpent;
     if (remaining <= 0) return { kind: 'exhausted' as const, value: 0 };
     return { kind: 'safe' as const, value: Math.round(remaining / daysRemaining) };
-  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth, currentDayOfMonth]);
+  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth, billingCycle]);
 
   // Category breakdown for selected period & type
   const categoryBreakdown = useMemo(() => {
@@ -379,17 +457,15 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
         total += tx.amount;
       });
 
-    const palette = analyticsType === 'expense' ? EXPENSE_PALETTE : INCOME_PALETTE;
-
     return Object.entries(map)
       .sort((a, b) => b[1].amount - a[1].amount)
-      .map(([cat, data]) => ({
+      .map(([cat, data], index) => ({
         category: cat,
         amount: data.amount,
         count: data.count,
         percentage: total > 0 ? (data.amount / total) * 100 : 0,
-        // Stable per category name, independent of its rank in the list
-        color: palette[hashCategoryName(cat) % palette.length],
+        // Strictly unique, high-contrast color per category slice
+        color: getDistinctCategoryColor(index),
       }));
   }, [periodTransactions, analyticsType]);
 
@@ -410,8 +486,9 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
     }));
   }, [categoryBreakdown]);
 
-  // Stepper navigation logic (Clean calendar month math, no skipping or jumping)
-  const isNextDisabled = selectedMonth === 'all' || selectedMonth >= currentMonthKey;
+  // Stepper navigation logic (bounded to active Payday Cycle)
+  const isNextDisabled = selectedMonth === 'all' || selectedMonth >= currentPeriodKey;
+  const cycleRangeSubtitle = formatCycleRangeShort(selectedMonth, billingCycle);
 
   const handlePrevMonth = () => {
     AppHaptics.selection();
@@ -503,7 +580,9 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           <Text style={styles.periodSubtitleText}>
             {selectedMonth === 'all'
               ? 'Showing all-time flow • Tap to change'
-              : 'Tap to pick month'}
+              : cycleRangeSubtitle
+                ? `${cycleRangeSubtitle} • Payday cycle`
+                : 'Tap to pick month'}
           </Text>
         </TouchableOpacity>
 
@@ -666,6 +745,13 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           </View>
         )}
       </View>
+
+      {/* 2.5 Multi-Month Trend Chart */}
+      <TrendChart
+        data={trendData}
+        currency={activeCurrency}
+        privacyMode={privacyMode}
+      />
 
       {/* Health Assessment Status & Fixed Meter Card */}
       <View style={styles.healthStatusCard}>
@@ -1007,6 +1093,121 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
               </View>
             </View>
 
+            {/* Category Budget Detail Breakdown */}
+            {categoryBudgetRows.length > 0 ? (
+              <View style={{ marginTop: 16, marginBottom: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: Palette.hairline }}>
+                <Text style={{ ...Typography.caption, fontSize: 11, fontWeight: '700', color: Palette.muted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>
+                  Budget by Category ({categoryBudgetRows.length})
+                </Text>
+                <View style={{ gap: 10 }}>
+                  {categoryBudgetRows.map((row) => {
+                    const rowColor =
+                      row.pct > 100
+                        ? Palette.error
+                        : row.pct >= 75
+                        ? Palette.accentAmber
+                        : Palette.success;
+                    return (
+                      <View
+                        key={row.category}
+                        style={{
+                          backgroundColor: Palette.surfaceSoft,
+                          borderRadius: 14,
+                          padding: 12,
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                            <View
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 9,
+                                backgroundColor: `${rowColor}18`,
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginRight: 8,
+                              }}
+                            >
+                              <CategoryIcon
+                                name={getCategoryIconName(row.category, 'expense')}
+                                size={14}
+                                color={rowColor}
+                              />
+                            </View>
+                            <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink }} numberOfLines={1}>
+                              {row.category}
+                            </Text>
+                          </View>
+                          <View style={{ backgroundColor: `${rowColor}18`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
+                            <Text style={{ ...Typography.caption, fontSize: 11, fontWeight: '700', color: rowColor }}>
+                              {row.pct.toFixed(0)}%
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={{ height: 6, backgroundColor: Palette.white, borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
+                          <View style={{ height: '100%', width: `${Math.min(row.pct, 100)}%`, backgroundColor: rowColor, borderRadius: 4 }} />
+                        </View>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ ...Typography.caption, fontSize: 11, color: Palette.muted }}>
+                            {formatCurrency(row.spent, activeCurrency, privacyMode)} / {formatCurrency(row.limit, activeCurrency, privacyMode)}
+                          </Text>
+                          <Text style={{ ...Typography.caption, fontSize: 11, fontWeight: '600', color: row.remaining >= 0 ? Palette.ink : Palette.error }}>
+                            {row.remaining >= 0
+                              ? `${formatCurrency(row.remaining, activeCurrency, privacyMode)} left`
+                              : `Over ${formatCurrency(Math.abs(row.remaining), activeCurrency, privacyMode)}`}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                  {unbudgetedSpent > 0 ? (
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        backgroundColor: Palette.white,
+                        borderRadius: 14,
+                        paddingHorizontal: 12,
+                        paddingVertical: 11,
+                        borderWidth: 1,
+                        borderStyle: 'dashed',
+                        borderColor: Palette.hairline,
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 10 }}>
+                        <View
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 9,
+                            backgroundColor: Palette.surfaceSoft,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginRight: 8,
+                          }}
+                        >
+                          <CategoryIcon name="CircleEllipsis" size={14} color={Palette.muted} />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink }}>
+                            Unbudgeted
+                          </Text>
+                          <Text style={{ ...Typography.caption, fontSize: 11, color: Palette.muted }}>
+                            Categories without a limit
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '700', color: Palette.muted }}>
+                        {formatCurrency(unbudgetedSpent, activeCurrency, privacyMode)}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
             <TouchableOpacity
               style={styles.editBudgetBtn}
               onPress={() => {
@@ -1016,7 +1217,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
               activeOpacity={0.8}
             >
               <Target size={14} color={Palette.ink} style={{ marginRight: 6 }} />
-              <Text style={styles.editBudgetBtnText}>Adjust Monthly Budget</Text>
+              <Text style={styles.editBudgetBtnText}>Manage Category Budgets</Text>
             </TouchableOpacity>
           </>
         ) : (
@@ -1067,6 +1268,8 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           onPress={() => {
             AppHaptics.selection();
             setAnalyticsType('expense');
+            setSelectedBreakdownCategory(null);
+            setShowAllBreakdown(false);
           }}
           activeOpacity={0.8}
         >
@@ -1087,6 +1290,8 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           onPress={() => {
             AppHaptics.selection();
             setAnalyticsType('income');
+            setSelectedBreakdownCategory(null);
+            setShowAllBreakdown(false);
           }}
           activeOpacity={0.8}
         >
@@ -1101,63 +1306,144 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
         </TouchableOpacity>
       </View>
 
-      {/* Category Breakdown Section */}
+      {/* Category Breakdown Section (Airy Card Layout + Tap-to-Focus Donut) */}
       <View style={styles.breakdownContainer}>
         {categoryBreakdown.length > 0 ? (
-          <>
-            {/* Donut Chart Presentation */}
-            <View style={styles.donutCard}>
-              <DonutChart
-                data={donutData}
-                size={190}
-                strokeWidth={20}
-                centerTitle={`Total ${analyticsType === 'expense' ? 'Expense' : 'Income'}`}
-                centerValue={formatCurrency(totalBreakdownAmount, activeCurrency, privacyMode)}
-                centerSubtitle={`${categoryBreakdown.length} Categories`}
-              />
-            </View>
-
-            {/* Category Rows */}
-            {categoryBreakdown.map((item) => (
-              <View key={item.category} style={styles.categoryRow}>
-                <View style={styles.categoryLeft}>
-                  <View
-                    style={[
-                      styles.categoryIconBox,
-                      {
-                        backgroundColor:
-                          analyticsType === 'expense' ? '#FFF1F2' : '#ECFDF5',
-                      },
-                    ]}
-                  >
-                    <CategoryIcon
-                      name={getCategoryIconName(item.category, analyticsType)}
-                      size={16}
-                      color={item.color}
-                    />
-                  </View>
-                  <View style={styles.categoryNameCol}>
-                    <Text style={styles.categoryNameText}>{item.category}</Text>
-                    <Text style={styles.categoryMetaText}>
-                      {item.count} transaction{item.count > 1 ? 's' : ''}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.categoryRight}>
-                  <Text style={styles.categoryAmountText}>
-                    {formatCurrency(item.amount, activeCurrency, privacyMode)}
+          (() => {
+            const focusedItem = selectedBreakdownCategory
+              ? categoryBreakdown.find((it) => it.category === selectedBreakdownCategory) || null
+              : null;
+            const visibleItems = showAllBreakdown
+              ? categoryBreakdown
+              : categoryBreakdown.slice(0, 5);
+            return (
+              <>
+                {/* Donut Chart Presentation */}
+                <View style={styles.donutCard}>
+                  <DonutChart
+                    data={donutData}
+                    size={200}
+                    strokeWidth={22}
+                    centerTitle={
+                      focusedItem
+                        ? focusedItem.category
+                        : `Total ${analyticsType === 'expense' ? 'Expense' : 'Income'}`
+                    }
+                    centerValue={formatCurrency(
+                      focusedItem ? focusedItem.amount : totalBreakdownAmount,
+                      activeCurrency,
+                      privacyMode
+                    )}
+                    centerSubtitle={
+                      focusedItem
+                        ? `${focusedItem.percentage.toFixed(1)}% of total`
+                        : `${categoryBreakdown.length} ${categoryBreakdown.length === 1 ? 'Category' : 'Categories'}`
+                    }
+                  />
+                  <Text style={styles.donutHintText}>
+                    {focusedItem ? 'Tap card again to view total' : 'Tap any category to focus'}
                   </Text>
-                  <View style={styles.shareBadge}>
-                    <View style={[styles.shareDot, { backgroundColor: item.color }]} />
-                    <Text style={styles.categoryShareText}>
-                      {item.percentage.toFixed(1)}%
-                    </Text>
-                  </View>
                 </View>
-              </View>
-            ))}
-          </>
+
+                {/* Spacious Individual Category Cards */}
+                <View style={styles.breakdownCardsList}>
+                  {visibleItems.map((item) => {
+                    const isFocused = focusedItem?.category === item.category;
+                    return (
+                      <TouchableOpacity
+                        key={item.category}
+                        style={[
+                          styles.categoryCardItem,
+                          isFocused && {
+                            borderColor: item.color,
+                            backgroundColor: `${item.color}0D`,
+                          },
+                        ]}
+                        onPress={() => {
+                          AppHaptics.selection();
+                          setSelectedBreakdownCategory((prev) =>
+                            prev === item.category ? null : item.category
+                          );
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.categoryCardTop}>
+                          <View
+                            style={[
+                              styles.categoryIconBox,
+                              { backgroundColor: `${item.color}18` },
+                            ]}
+                          >
+                            <CategoryIcon
+                              name={getCategoryIconName(item.category, analyticsType)}
+                              size={18}
+                              color={item.color}
+                            />
+                          </View>
+                          <View style={styles.categoryNameCol}>
+                            <View style={styles.categoryTitleAmountRow}>
+                              <Text style={styles.categoryNameText} numberOfLines={1}>
+                                {item.category}
+                              </Text>
+                              <Text style={styles.categoryAmountText} numberOfLines={1}>
+                                {formatCurrency(item.amount, activeCurrency, privacyMode)}
+                              </Text>
+                            </View>
+
+                            <View style={styles.categoryProgressTrack}>
+                              <View
+                                style={[
+                                  styles.categoryProgressFill,
+                                  {
+                                    width: `${Math.max(Math.min(item.percentage, 100), 3)}%`,
+                                    backgroundColor: item.color,
+                                  },
+                                ]}
+                              />
+                            </View>
+
+                            <View style={styles.categoryBottomMetaRow}>
+                              <Text style={styles.categoryMetaText}>
+                                {item.count} transaction{item.count > 1 ? 's' : ''}
+                              </Text>
+                              <View
+                                style={[
+                                  styles.sharePill,
+                                  { backgroundColor: `${item.color}18` },
+                                ]}
+                              >
+                                <View style={[styles.shareDot, { backgroundColor: item.color }]} />
+                                <Text style={[styles.categoryShareText, { color: item.color }]}>
+                                  {item.percentage.toFixed(1)}%
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {categoryBreakdown.length > 5 ? (
+                  <TouchableOpacity
+                    style={styles.expandBreakdownBtn}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      setShowAllBreakdown((prev) => !prev);
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={styles.expandBreakdownBtnText}>
+                      {showAllBreakdown
+                        ? 'Show Top 5 Categories'
+                        : `Show All ${categoryBreakdown.length} Categories`}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            );
+          })()
         ) : (
           <View style={styles.emptyCard}>
             <Receipt size={26} color={Palette.muted} />
@@ -1810,8 +2096,8 @@ const styles = StyleSheet.create({
   },
   breakdownContainer: {
     backgroundColor: Palette.white,
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 20,
+    padding: 18,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -1819,57 +2105,56 @@ const styles = StyleSheet.create({
   donutCard: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
-    marginBottom: 8,
-  },
-  shareBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    marginTop: 2,
-  },
-  shareDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  categoryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingTop: 12,
+    paddingBottom: 18,
+    marginBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: Palette.surfaceSoft,
   },
-  categoryLeft: {
+  donutHintText: {
+    ...Typography.caption,
+    fontSize: 11,
+    color: Palette.muted,
+    marginTop: 12,
+  },
+  breakdownCardsList: {
+    gap: 10,
+  },
+  categoryCardItem: {
+    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  categoryCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   categoryIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 12,
   },
   categoryNameCol: {
     flex: 1,
+  },
+  categoryTitleAmountRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginBottom: 7,
   },
   categoryNameText: {
     ...Typography.body,
     fontSize: 14,
     fontWeight: '600',
     color: Palette.ink,
-  },
-  categoryMetaText: {
-    ...Typography.caption,
-    fontSize: 11,
-    color: Palette.muted,
-  },
-  categoryRight: {
-    alignItems: 'flex-end',
+    flex: 1,
   },
   categoryAmountText: {
     ...Typography.body,
@@ -1877,11 +2162,59 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Palette.ink,
   },
-  categoryShareText: {
+  categoryProgressTrack: {
+    height: 5,
+    backgroundColor: Palette.white,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 7,
+  },
+  categoryProgressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  categoryBottomMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  categoryMetaText: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
-    marginTop: 1,
+  },
+  sharePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  shareDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  categoryShareText: {
+    ...Typography.caption,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  expandBreakdownBtn: {
+    marginTop: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  expandBreakdownBtnText: {
+    ...Typography.caption,
+    fontSize: 12,
+    fontWeight: '700',
+    color: Palette.primary,
   },
   emptyCard: {
     alignItems: 'center',

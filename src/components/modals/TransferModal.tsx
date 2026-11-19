@@ -218,10 +218,17 @@ export const TransferModal = React.memo<TransferModalProps>(({
           setToPocketId('');
         }
       } else if (eligibleWallets.length === 1) {
-        setFromWalletId(eligibleWallets[0].id);
+        const onlyWallet = eligibleWallets[0];
+        const onlyPockets = eligiblePockets.filter((p) => p.walletId === onlyWallet.id);
+        setFromWalletId(onlyWallet.id);
         setFromPocketId('');
-        setToWalletId('');
-        setToPocketId('');
+        if (onlyPockets.length > 0) {
+          setToWalletId(onlyWallet.id);
+          setToPocketId(onlyPockets[0].id);
+        } else {
+          setToWalletId('');
+          setToPocketId('');
+        }
       }
     }
   });
@@ -298,12 +305,18 @@ export const TransferModal = React.memo<TransferModalProps>(({
     targetAmount > 0 &&
     (targetAmount > numericAmount * 100 || numericAmount > targetAmount * 100);
 
+  const hasSameAccountPockets = eligibleWallets.some((w) =>
+    eligiblePockets.some((p) => p.walletId === w.id)
+  );
+  const isSameWallet = Boolean(fromWalletId && toWalletId && fromWalletId === toWalletId);
+  const isSameEndpoint = isSameWallet && (fromPocketId || '') === (toPocketId || '');
+
   const quickPercentUnavailable = !selectedFromWallet || effectiveSourceBalance <= 0;
   const submitDisabled =
     submitting ||
     !fromWalletId ||
     !toWalletId ||
-    fromWalletId === toWalletId ||
+    isSameEndpoint ||
     !(numericAmount > 0) ||
     (isCrossCurrency && rateInvalid);
 
@@ -349,8 +362,15 @@ export const TransferModal = React.memo<TransferModalProps>(({
       return;
     }
 
-    if (fromWalletId === toWalletId) {
-      showAlert('Invalid Selection', 'Source and destination accounts must be different.', undefined, 'warning');
+    if (isSameEndpoint) {
+      showAlert(
+        'Invalid Selection',
+        isSameWallet
+          ? 'Please choose a different destination pocket or Main Account.'
+          : 'Source and destination accounts must be different.',
+        undefined,
+        'warning'
+      );
       return;
     }
 
@@ -447,17 +467,19 @@ export const TransferModal = React.memo<TransferModalProps>(({
         subtitle={
           isCrossCurrency
             ? `Cross - Currency Transfer (${fromCurrency} → ${toCurrency})`
-            : `Move money across accounts (${fromCurrency})`
+            : isSameWallet
+              ? `Move funds between pockets (${fromCurrency})`
+              : `Move money across accounts (${fromCurrency})`
         }
         onClose={handleModalClose}
       />
 
           <KeyboardSafeContainer extraBottomSpace={32}>
-            {eligibleWallets.length < 2 ? (
+            {eligibleWallets.length < 2 && !hasSameAccountPockets ? (
               <View style={styles.noticeCard}>
-                <Text style={styles.noticeTitle}>At least two accounts needed</Text>
+                <Text style={styles.noticeTitle}>Another account or pocket needed</Text>
                 <Text style={styles.noticeDesc}>
-                  You need at least two accounts to perform a transfer.
+                  Add another account or create a pocket inside your account to transfer funds.
                 </Text>
                 {onOpenAddAccount ? (
                   <TouchableOpacity
@@ -500,12 +522,17 @@ export const TransferModal = React.memo<TransferModalProps>(({
                             if (fromWalletId !== w.id) {
                               setFromWalletId(w.id);
                               setFromPocketId('');
-                            }
-                            if (toWalletId === w.id) {
-                              const other = eligibleWallets.find((ow) => ow.id !== w.id);
-                              if (other) {
-                                setToWalletId(other.id);
-                                setToPocketId('');
+                              if (toWalletId === w.id) {
+                                const wPockets = eligiblePockets.filter((p) => p.walletId === w.id);
+                                if (wPockets.length > 0) {
+                                  setToPocketId(wPockets[0].id);
+                                } else {
+                                  const other = eligibleWallets.find((ow) => ow.id !== w.id);
+                                  if (other) {
+                                    setToWalletId(other.id);
+                                    setToPocketId('');
+                                  }
+                                }
                               }
                             }
                           }}
@@ -566,6 +593,9 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           onPress={() => {
                             AppHaptics.selection();
                             setFromPocketId('');
+                            if (isSameWallet && !toPocketId && fromWalletPockets.length > 0) {
+                              setToPocketId(fromWalletPockets[0].id);
+                            }
                           }}
                           activeOpacity={0.8}
                           accessibilityRole="button"
@@ -604,6 +634,10 @@ export const TransferModal = React.memo<TransferModalProps>(({
                               onPress={() => {
                                 AppHaptics.selection();
                                 setFromPocketId(p.id);
+                                if (isSameWallet && toPocketId === p.id) {
+                                  const altPocket = fromWalletPockets.find((op) => op.id !== p.id);
+                                  setToPocketId(altPocket ? altPocket.id : '');
+                                }
                               }}
                               activeOpacity={0.8}
                               accessibilityRole="button"
@@ -658,33 +692,46 @@ export const TransferModal = React.memo<TransferModalProps>(({
                     {eligibleWallets.map((w) => {
                       const isSelected = w.id === toWalletId;
                       const isSource = w.id === fromWalletId;
+                      const canPickSameWallet =
+                        isSource && eligiblePockets.some((p) => p.walletId === w.id);
+                      const isDisabled = isSource && !canPickSameWallet;
                       return (
                         <TouchableOpacity
                           key={`to_${w.id}`}
                           style={[
                             styles.accountChip,
                             isSelected && styles.accountChipActiveTo,
-                            isSource && styles.accountChipDisabled,
+                            isDisabled && styles.accountChipDisabled,
                           ]}
-                          disabled={isSource}
+                          disabled={isDisabled}
                           onPress={() => {
                             AppHaptics.selection();
                             if (toWalletId !== w.id) {
                               setToWalletId(w.id);
-                              setToPocketId('');
+                              if (w.id === fromWalletId) {
+                                const wPockets = eligiblePockets.filter((p) => p.walletId === w.id);
+                                if (!fromPocketId) {
+                                  setToPocketId(wPockets[0]?.id || '');
+                                } else {
+                                  const otherPocket = wPockets.find((p) => p.id !== fromPocketId);
+                                  setToPocketId(otherPocket ? otherPocket.id : '');
+                                }
+                              } else {
+                                setToPocketId('');
+                              }
                             }
                           }}
                           activeOpacity={0.8}
                           accessibilityRole="button"
                           accessibilityLabel={`To account ${w.name}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
-                          accessibilityState={{ selected: isSelected, disabled: isSource }}
+                          accessibilityState={{ selected: isSelected, disabled: isDisabled }}
                         >
                           <View style={styles.chipTopRow}>
                             <Text
                               style={[
                                 styles.accountChipName,
                                 isSelected && styles.accountChipTextActive,
-                                isSource && styles.accountChipTextDisabled,
+                                isDisabled && styles.accountChipTextDisabled,
                               ]}
                               numberOfLines={1}
                             >
@@ -710,7 +757,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
                             style={[
                               styles.accountChipBalance,
                               isSelected && styles.accountChipTextActive,
-                              isSource && styles.accountChipTextDisabled,
+                              isDisabled && styles.accountChipTextDisabled,
                             ]}
                           >
                             {formatCurrency(w.balance, w.currency, privacyMode)}
@@ -729,7 +776,9 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           style={[
                             styles.pocketChip,
                             !toPocketId && styles.pocketChipActiveTo,
+                            isSameWallet && !fromPocketId && { opacity: 0.4 },
                           ]}
+                          disabled={isSameWallet && !fromPocketId}
                           onPress={() => {
                             AppHaptics.selection();
                             setToPocketId('');
@@ -737,7 +786,10 @@ export const TransferModal = React.memo<TransferModalProps>(({
                           activeOpacity={0.8}
                           accessibilityRole="button"
                           accessibilityLabel={`To Main Account, unallocated balance ${formatCurrency(toUnallocatedDisplay, selectedToWallet.currency, privacyMode)}`}
-                          accessibilityState={{ selected: !toPocketId }}
+                          accessibilityState={{
+                            selected: !toPocketId,
+                            disabled: isSameWallet && !fromPocketId,
+                          }}
                         >
                           <Text
                             style={[
@@ -746,7 +798,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
                             ]}
                             numberOfLines={1}
                           >
-                            Main Account
+                            {isSameWallet && !fromPocketId ? 'Main (Source)' : 'Main Account'}
                           </Text>
                           <Text
                             style={[
@@ -761,13 +813,16 @@ export const TransferModal = React.memo<TransferModalProps>(({
 
                         {toWalletPockets.map((p) => {
                           const isSelected = p.id === toPocketId;
+                          const isSamePocketSource = isSameWallet && p.id === fromPocketId;
                           return (
                             <TouchableOpacity
                               key={`to_pocket_${p.id}`}
                               style={[
                                 styles.pocketChip,
                                 isSelected && styles.pocketChipActiveTo,
+                                isSamePocketSource && { opacity: 0.4 },
                               ]}
+                              disabled={isSamePocketSource}
                               onPress={() => {
                                 AppHaptics.selection();
                                 setToPocketId(p.id);

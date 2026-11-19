@@ -30,7 +30,17 @@ import {
   ExtractedStatementTx,
 } from './src/services/statementScanner';
 import { Palette, Typography } from './src/theme/tokens';
-import { formatCurrency, parseAmount, formatCurrencyInput, getCurrentTimeStr, convertAmountInputForCurrency } from './src/utils/formatters';
+import {
+  formatCurrency,
+  parseAmount,
+  formatCurrencyInput,
+  getCurrentTimeStr,
+  getDateStrFromTimestamp,
+  convertAmountInputForCurrency,
+} from './src/utils/formatters';
+import { isTimestampInPeriod } from './src/utils/billingCycle';
+import { saveReceiptImage } from './src/utils/receiptStorage';
+import { PAYMENT_METHODS } from './src/constants/presets';
 import { AppHaptics } from './src/utils/haptics';
 import { toUserFriendlyErrorMessage } from './src/utils/errorHandling';
 import {
@@ -166,6 +176,8 @@ function MainApp() {
     setTransferModalVisible,
     setEditingTransfer,
     setExtractedData,
+    setScannedReceiptImageUri,
+    setScannedReceiptBase64,
     setReviewModalVisible,
     setSelectedTx,
     openMonthPicker,
@@ -312,6 +324,20 @@ function MainApp() {
   const [historyCategory, setHistoryCategory] = useState<string>('all');
   const [historyMonth, setHistoryMonth] = useState<string>('all');
   const [historyLentFilter, setHistoryLentFilter] = useState<'all' | 'outstanding' | 'settled'>('all');
+  const [historyWalletId, setHistoryWalletId] = useState<string>('all');
+  const [historyPocketId, setHistoryPocketId] = useState<string>('all');
+  const [historyPaymentMethod, setHistoryPaymentMethod] = useState<string>('all');
+  const [historyDateFrom, setHistoryDateFrom] = useState<string>('');
+  const [historyDateTo, setHistoryDateTo] = useState<string>('');
+
+  const availablePaymentMethods = useMemo(() => {
+    const set = new Set<string>(PAYMENT_METHODS);
+    transactions.forEach((tx) => {
+      const m = (tx.paymentMethod || '').trim();
+      if (m && m.toLowerCase() !== 'transfer') set.add(m);
+    });
+    return Array.from(set);
+  }, [transactions]);
 
   const handleChangeLentFilter = useCallback((newFilter: 'all' | 'outstanding' | 'settled') => {
     setHistoryLentFilter(newFilter);
@@ -474,13 +500,7 @@ function MainApp() {
 
       let matchesMonth = true;
       if (historyMonth !== 'all') {
-        const d = new Date(tx.timestamp);
-        if (!isNaN(d.getTime())) {
-          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-          matchesMonth = key === historyMonth;
-        } else {
-          matchesMonth = false;
-        }
+        matchesMonth = isTimestampInPeriod(tx.timestamp, historyMonth, finance.billingCycle);
       }
 
       let matchesLent = true;
@@ -490,7 +510,53 @@ function MainApp() {
         matchesLent = Boolean(tx.isLent && tx.lentStatus === 'settled');
       }
 
-      return matchesSearch && matchesType && matchesCategory && matchesMonth && matchesLent;
+      let matchesWallet = true;
+      if (historyWalletId !== 'all') {
+        matchesWallet = tx.walletId === historyWalletId;
+        if (!matchesWallet && tx.transferPairId) {
+          const counterpart = transactions.find((c) => c.id === tx.transferPairId);
+          if (counterpart && counterpart.walletId === historyWalletId) {
+            matchesWallet = true;
+          }
+        }
+      }
+
+      let matchesPocket = true;
+      if (historyPocketId === '__main__') {
+        matchesPocket = !tx.pocketId;
+      } else if (historyPocketId !== 'all') {
+        matchesPocket = tx.pocketId === historyPocketId;
+        if (!matchesPocket && tx.transferPairId) {
+          const counterpart = transactions.find((c) => c.id === tx.transferPairId);
+          if (counterpart && counterpart.pocketId === historyPocketId) {
+            matchesPocket = true;
+          }
+        }
+      }
+
+      const matchesPaymentMethod =
+        historyPaymentMethod === 'all'
+          ? true
+          : (tx.paymentMethod || '').toLowerCase() === historyPaymentMethod.toLowerCase();
+
+      let matchesDateRange = true;
+      if (historyDateFrom || historyDateTo) {
+        const txDateStr = getDateStrFromTimestamp(tx.timestamp);
+        if (historyDateFrom && txDateStr < historyDateFrom) matchesDateRange = false;
+        if (historyDateTo && txDateStr > historyDateTo) matchesDateRange = false;
+      }
+
+      return (
+        matchesSearch &&
+        matchesType &&
+        matchesCategory &&
+        matchesMonth &&
+        matchesLent &&
+        matchesWallet &&
+        matchesPocket &&
+        matchesPaymentMethod &&
+        matchesDateRange
+      );
     });
   }, [
     transactions,
@@ -501,6 +567,12 @@ function MainApp() {
     historyCategory,
     historyMonth,
     historyLentFilter,
+    historyWalletId,
+    historyPocketId,
+    historyPaymentMethod,
+    historyDateFrom,
+    historyDateTo,
+    finance.billingCycle,
   ]);
 
   // Aggregate stats for filtered history view (keeping IDR and USD native totals separate)
@@ -592,7 +664,7 @@ function MainApp() {
 
   // Process receipt through Gemini API
   const processReceiptImage = useCallback(
-    async (base64: string) => {
+    async (base64: string, sourceUri?: string) => {
       const controller = new AbortController();
       scanAbortRef.current = controller;
       setScanningMode('receipt');
@@ -601,6 +673,8 @@ function MainApp() {
         const data = await extractReceiptFromBase64(base64, 'image/jpeg', controller.signal);
         AppHaptics.success();
         setExtractedData(data);
+        setScannedReceiptImageUri(sourceUri || '');
+        setScannedReceiptBase64(base64);
 
         const detectedCurrency = data.currency || activeCurrency;
         const matchingWallet = wallets.find((w) => w.currency === detectedCurrency);
@@ -638,6 +712,8 @@ function MainApp() {
     },
     [
       setExtractedData,
+      setScannedReceiptImageUri,
+      setScannedReceiptBase64,
       activeCurrency,
       wallets,
       setActiveCurrency,
@@ -700,7 +776,7 @@ function MainApp() {
         });
 
         if (!result.canceled && result.assets && result.assets[0]?.base64) {
-          processReceiptImage(result.assets[0].base64);
+          processReceiptImage(result.assets[0].base64, result.assets[0].uri);
         }
       } catch (err: any) {
         showAlert('Scanner Notice', toUserFriendlyErrorMessage(err, 'receipt'), undefined, 'error');
@@ -721,7 +797,7 @@ function MainApp() {
         });
 
         if (!result.canceled && result.assets && result.assets[0]?.base64) {
-          processReceiptImage(result.assets[0].base64);
+          processReceiptImage(result.assets[0].base64, result.assets[0].uri);
         }
       } catch (err: any) {
         showAlert('Upload Notice', toUserFriendlyErrorMessage(err, 'file'), undefined, 'error');
@@ -850,7 +926,8 @@ function MainApp() {
     editedMerchant?: string,
     amountOverride?: number,
     categoryOverride?: string,
-    typeOverride?: TransactionType
+    typeOverride?: TransactionType,
+    saveReceiptPhoto: boolean = true
   ) => {
     if (!modals.extractedData) return;
     const receiptCurrency = modals.extractedData.currency;
@@ -979,6 +1056,11 @@ function MainApp() {
         }
       }
 
+      const persistedImageUri =
+        saveReceiptPhoto && (modals.scannedReceiptImageUri || modals.scannedReceiptBase64)
+          ? await saveReceiptImage(modals.scannedReceiptImageUri, modals.scannedReceiptBase64)
+          : '';
+
       await insertTransactionWithItems(
         {
           walletId: finalWalletId,
@@ -993,6 +1075,7 @@ function MainApp() {
           timestamp: txTimestamp,
           paymentMethod: modals.extractedData.paymentMethod || 'QRIS',
           notes: (notesFromModal || '').trim(),
+          imageUri: persistedImageUri,
         },
         receiptItems
       );
@@ -1339,6 +1422,11 @@ function MainApp() {
     setHistoryCategory('all');
     setHistoryMonth('all');
     setHistoryLentFilter('all');
+    setHistoryWalletId('all');
+    setHistoryPocketId('all');
+    setHistoryPaymentMethod('all');
+    setHistoryDateFrom('');
+    setHistoryDateTo('');
   }, []);
 
   useEffect(() => {
@@ -1387,6 +1475,7 @@ function MainApp() {
                   activeCurrency={finance.activeCurrency}
                   privacyMode={privacyMode}
                   selectedMonth={finance.selectedMonth}
+                  billingCycle={finance.billingCycle}
                   availableMonths={finance.availableMonths}
                   scanning={scanning}
                   onNavigateToAccounts={handleNavigateToAccounts}
@@ -1453,6 +1542,15 @@ function MainApp() {
                 historyCategory={historyCategory}
                 historyMonth={historyMonth}
                 historyLentFilter={historyLentFilter}
+                historyWalletId={historyWalletId}
+                historyPocketId={historyPocketId}
+                historyPaymentMethod={historyPaymentMethod}
+                historyDateFrom={historyDateFrom}
+                historyDateTo={historyDateTo}
+                wallets={finance.wallets}
+                pockets={finance.pockets}
+                billingCycle={finance.billingCycle}
+                availablePaymentMethods={availablePaymentMethods}
                 outstandingLentCount={finance.outstandingLentSummary.count}
                 outstandingLentTotal={finance.outstandingLentSummary.totalOutstanding}
                 availableCategories={finance.availableCategories}
@@ -1466,6 +1564,11 @@ function MainApp() {
                 onChangeCategory={setHistoryCategory}
                 onChangeMonth={setHistoryMonth}
                 onChangeLentFilter={handleChangeLentFilter}
+                onChangeWalletId={setHistoryWalletId}
+                onChangePocketId={setHistoryPocketId}
+                onChangePaymentMethod={setHistoryPaymentMethod}
+                onChangeDateFrom={setHistoryDateFrom}
+                onChangeDateTo={setHistoryDateTo}
                 onOpenMonthPicker={handleOpenHistoryMonthPicker}
                 onResetAllFilters={handleResetAllHistoryFilters}
                 onOpenManualModal={handleOpenManualTransaction}
@@ -1497,6 +1600,8 @@ function MainApp() {
                   selectedMonth={finance.selectedMonth}
                   budgetMonthKey={finance.budgetMonthKey}
                   monthlyBudget={finance.monthlyBudget}
+                  categoryBudgets={finance.categoryBudgets}
+                  billingCycle={finance.billingCycle}
                   onSelectMonth={setSelectedMonth}
                   onOpenMonthPicker={handleOpenAnalyticsMonthPicker}
                   onOpenCategoryManager={handleOpenCategoryManagerAnalytics}
@@ -1529,6 +1634,7 @@ function MainApp() {
       <ReviewReceiptModal
         visible={modals.reviewModalVisible}
         extractedData={modals.extractedData}
+        receiptImageUri={modals.scannedReceiptImageUri}
         wallets={finance.wallets}
         pockets={finance.pockets}
         categories={finance.categories}
@@ -1607,6 +1713,7 @@ function MainApp() {
         onDuplicate={modals.handleDuplicateTransaction}
         onDelete={(tx) => finance.handleDeleteTransaction(tx, () => modals.setSelectedTx(null))}
         onRecordRepayment={modals.openRecordRepayment}
+        onRemoveReceiptPhoto={(txId) => finance.handleUpdateTransactionImage(txId, '')}
         onClose={() => modals.setSelectedTx(null)}
       />
 
@@ -1878,6 +1985,8 @@ function MainApp() {
         onToggleLock={handleToggleLock}
         onChangePin={handleChangePin}
         onToggleBiometrics={() => finance.handleToggleBiometrics(!finance.lockSettings.isBiometricsEnabled)}
+        billingCycle={finance.billingCycle}
+        onChangeBillingCycle={finance.handleSaveBillingCycle}
         appVersion={APP_VERSION}
         onClose={handleCloseSettingsModal}
       />
@@ -1891,6 +2000,8 @@ function MainApp() {
         onSelectMonth={(monthKey) => {
           if (modals.monthPickerTarget === 'history') {
             setHistoryMonth(monthKey);
+            setHistoryDateFrom('');
+            setHistoryDateTo('');
           } else {
             finance.setSelectedMonth(monthKey);
           }
@@ -1898,23 +2009,17 @@ function MainApp() {
         onClose={modals.closeMonthPicker}
       />
 
-      {/* Modal 12: Monthly Budget Limit */}
+      {/* Modal 12: Monthly Budget Limit (Category Budgets with Auto-Total) */}
       <SetBudgetModal
         visible={modals.setBudgetModalVisible}
         activeCurrency={finance.activeCurrency}
         selectedMonth={finance.budgetMonthKey}
+        billingCycle={finance.billingCycle}
         currentBudget={finance.monthlyBudget}
-        amount={modals.budgetInputAmount}
-        onChangeAmount={modals.setBudgetInputAmount}
-        onSave={async () => {
-          const parsed = parseAmount(modals.budgetInputAmount, finance.activeCurrency);
-          if (isNaN(parsed) || parsed < 0) {
-            modals.showAlert('Invalid Amount', 'Please enter a valid budget amount.', undefined, 'warning');
-            return;
-          }
-          await finance.handleSaveBudget(parsed);
-          modals.closeSetBudget();
-        }}
+        categoryBudgets={finance.categoryBudgets}
+        categories={finance.categories}
+        onSaveCategoryBudgets={finance.handleSaveCategoryBudgets}
+        onCopyPrevMonth={finance.handleCopyPrevMonthBudgets}
         onRemove={async () => {
           await finance.handleRemoveBudget();
           modals.closeSetBudget();

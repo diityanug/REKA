@@ -11,10 +11,12 @@ import {
   AllocationPlan,
   AppExportData,
   LentStatus,
+  CategoryBudgetsMap,
   isReservedTransferCategory,
   filterSelectableCategories,
 } from '../services/database';
 import { ExtractedReceiptData } from '../services/receiptScanner';
+import { BillingCycleConfig } from '../utils/billingCycle';
 
 export type TabType = 'overview' | 'accounts' | 'history' | 'analytics';
 export type FilterType = 'all' | 'expense' | 'income';
@@ -34,6 +36,8 @@ export {
   ExtractedReceiptData,
   AppExportData,
   LentStatus,
+  CategoryBudgetsMap,
+  BillingCycleConfig,
   isReservedTransferCategory,
   filterSelectableCategories,
 };

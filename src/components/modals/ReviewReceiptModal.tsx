@@ -7,9 +7,11 @@ import {
   StyleSheet,
   Keyboard,
   ActivityIndicator,
+  Image,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Check, Pencil } from 'lucide-react-native';
+import { Plus, Check, Pencil, Camera, X } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
@@ -28,6 +30,7 @@ import { CustomAlertModal } from '../CustomAlertModal';
 interface ReviewReceiptModalProps {
   visible: boolean;
   extractedData: ExtractedReceiptData | null;
+  receiptImageUri?: string;
   wallets: Wallet[];
   pockets: Pocket[];
   categories?: Category[];
@@ -43,7 +46,8 @@ interface ReviewReceiptModalProps {
     merchant?: string,
     amountOverride?: number,
     categoryOverride?: string,
-    typeOverride?: TransactionType
+    typeOverride?: TransactionType,
+    saveReceiptPhoto?: boolean
   ) => Promise<void>;
   onClose: () => void;
 }
@@ -51,6 +55,7 @@ interface ReviewReceiptModalProps {
 export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   visible,
   extractedData,
+  receiptImageUri = '',
   wallets,
   pockets,
   categories = [],
@@ -71,6 +76,8 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   const [selectedType, setSelectedType] = useState<TransactionType>('expense');
   const [selectedCategory, setSelectedCategory] = useState<string>('Others');
   const [showCatPicker, setShowCatPicker] = useState<boolean>(false);
+  const [saveReceiptPhoto, setSaveReceiptPhoto] = useState<boolean>(true);
+  const [photoPreviewVisible, setPhotoPreviewVisible] = useState<boolean>(false);
   const [amountOverride, setAmountOverride] = useState<number | null>(null);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -99,6 +106,8 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
       setSelectedType(currentData.type || 'expense');
       setSelectedCategory(currentData.category || 'Others');
       setShowCatPicker(false);
+      setSaveReceiptPhoto(true);
+      setPhotoPreviewVisible(false);
       setReviewNotes('');
       setAmountOverride(null);
       setSaving(false);
@@ -141,7 +150,14 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     const finalMerchant = merchantName.trim() || currentData.merchantName || 'Receipt Transaction';
     try {
       setSaving(true);
-      await onConfirm(reviewNotes, finalMerchant, finalAmount, selectedCategory, selectedType);
+      await onConfirm(
+        reviewNotes,
+        finalMerchant,
+        finalAmount,
+        selectedCategory,
+        selectedType,
+        saveReceiptPhoto
+      );
     } catch (err: any) {
       showAlert('Save Failed', err?.message || 'Could not save this transaction.', undefined, 'error');
     } finally {
@@ -164,6 +180,69 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
       />
 
             <KeyboardSafeContainer>
+              {receiptImageUri ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    backgroundColor: Palette.surfaceSoft,
+                    borderRadius: 14,
+                    padding: 10,
+                    marginBottom: 12,
+                    borderWidth: 1,
+                    borderColor: Palette.hairline,
+                  }}
+                >
+                  <TouchableOpacity
+                    onPress={() => {
+                      AppHaptics.light();
+                      setPhotoPreviewVisible(true);
+                    }}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Preview scanned receipt photo"
+                  >
+                    <Image
+                      source={{ uri: receiptImageUri }}
+                      style={{
+                        width: 48,
+                        height: 48,
+                        borderRadius: 10,
+                        backgroundColor: Palette.hairline,
+                      }}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                  <View style={{ flex: 1, marginLeft: 10, marginRight: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                      <Camera size={13} color={Palette.primary} />
+                      <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink }}>
+                        Receipt Photo
+                      </Text>
+                    </View>
+                    <Text style={{ ...Typography.caption, fontSize: 11, color: Palette.muted, marginTop: 2 }}>
+                      {saveReceiptPhoto ? 'Will be saved locally with this record' : 'Photo will not be stored'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.chip,
+                      { paddingHorizontal: 10, paddingVertical: 6 },
+                      saveReceiptPhoto && styles.chipActive,
+                    ]}
+                    onPress={() => {
+                      AppHaptics.selection();
+                      setSaveReceiptPhoto((prev) => !prev);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.chipText, saveReceiptPhoto && styles.chipTextActive]}>
+                      {saveReceiptPhoto ? 'Saved' : 'Skip'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               <View style={styles.summaryCard}>
                 <View style={styles.amountLabelRow}>
                   <Text style={styles.summaryLabel}>Nominal Amount</Text>
@@ -541,6 +620,51 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
         type={alertConfig.type}
         onClose={hideAlert}
       />
+
+      {receiptImageUri ? (
+        <Modal
+          visible={photoPreviewVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPhotoPreviewVisible(false)}
+        >
+          <View
+            style={{
+              flex: 1,
+              backgroundColor: 'rgba(0,0,0,0.92)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              padding: 20,
+            }}
+          >
+            <TouchableOpacity
+              style={{
+                position: 'absolute',
+                top: Math.max(insets.top, 20) + 10,
+                right: 20,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: 'rgba(255,255,255,0.18)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 10,
+              }}
+              onPress={() => setPhotoPreviewVisible(false)}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo preview"
+            >
+              <X size={20} color={Palette.white} />
+            </TouchableOpacity>
+            <Image
+              source={{ uri: receiptImageUri }}
+              style={{ width: '100%', height: '80%' }}
+              resizeMode="contain"
+            />
+          </View>
+        </Modal>
+      ) : null}
     </BottomSheetModal>
   );
 };

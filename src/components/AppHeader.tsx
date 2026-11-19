@@ -1,5 +1,9 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
+import {
+  useFonts,
+  PlayfairDisplay_600SemiBold,
+} from '@expo-google-fonts/playfair-display';
 import { Eye, EyeOff, Settings } from 'lucide-react-native';
 import { Palette } from '../theme/tokens';
 import { AppHaptics } from '../utils/haptics';
@@ -15,6 +19,10 @@ export const AppHeader = React.memo<AppHeaderProps>(({
   onTogglePrivacy,
   onOpenSettings,
 }) => {
+  const [fontsLoaded] = useFonts({
+    PlayfairDisplay_600SemiBold,
+  });
+
   return (
     <View style={styles.appBar}>
       <View style={styles.brandBox}>
@@ -26,8 +34,20 @@ export const AppHeader = React.memo<AppHeaderProps>(({
               resizeMode="contain"
             />
           </View>
-          <View style={styles.titleColumn}>
-            <Text style={styles.brandTitle}>REKA</Text>
+          <View
+            style={styles.titleColumn}
+            accessible={true}
+            accessibilityRole="header"
+            accessibilityLabel="Reka"
+          >
+            <Text
+              style={[
+                styles.brandTitle,
+                fontsLoaded && styles.brandTitleEditorial,
+              ]}
+            >
+              Reka<Text style={styles.brandDot}>.</Text>
+            </Text>
           </View>
         </View>
       </View>
@@ -87,7 +107,7 @@ const styles = StyleSheet.create({
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 10,
   },
   logoBadgeContainer: {
     width: 34,
@@ -110,12 +130,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brandTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Helvetica Neue' : 'sans-serif-medium',
-    fontSize: 18,
+    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+    fontSize: 24,
     fontWeight: '600',
-    color: Palette.ink,
-    letterSpacing: 1.4,
-    lineHeight: 22,
+    color: '#11473B',
+    letterSpacing: 0.3,
+    lineHeight: 28,
+    includeFontPadding: false,
+  },
+  brandTitleEditorial: {
+    fontFamily: 'PlayfairDisplay_600SemiBold',
+    fontWeight: '400',
+  },
+  brandDot: {
+    color: Palette.primary,
   },
   actionsBox: {
     flexDirection: 'row',

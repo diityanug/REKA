@@ -1,4 +1,15 @@
 import * as SQLite from 'expo-sqlite';
+import {
+  BillingCycleConfig,
+  DEFAULT_BILLING_CYCLE,
+  normalizeBillingCycleConfig,
+} from '../utils/billingCycle';
+import {
+  deleteReceiptImageIfLocal,
+  clearAllReceiptImages,
+} from '../utils/receiptStorage';
+
+export type CategoryBudgetsMap = Record<string, number>;
 
 export type CurrencyType = 'IDR' | 'USD';
 export type TransactionType = 'expense' | 'income';
@@ -1080,16 +1091,54 @@ export async function applyAllocationPlanToWallet(
 export async function updatePocketName(
   id: string,
   newName: string,
-  newIcon?: string
+  newIcon?: string,
+  newTargetAmount?: number
 ): Promise<void> {
   const db = await getDatabase();
   const trimmed = newName.trim();
   if (!trimmed) throw new Error('Pocket name cannot be empty.');
-  if (newIcon !== undefined && newIcon.trim()) {
+
+  const hasIcon = newIcon !== undefined && newIcon.trim().length > 0;
+  const hasTarget = newTargetAmount !== undefined;
+
+  if (hasTarget) {
+    const pocketRow = await db.getFirstAsync<{ currency: CurrencyType }>(
+      `SELECT w.currency
+       FROM pockets p
+       LEFT JOIN wallets w ON w.id = p.wallet_id
+       WHERE p.id = ?`,
+      id
+    );
+    const currency: CurrencyType = pocketRow?.currency === 'USD' ? 'USD' : 'IDR';
+    const safeTarget = roundForCurrency(
+      isNaN(newTargetAmount) || newTargetAmount < 0 ? 0 : newTargetAmount,
+      currency
+    );
+
+    if (hasIcon) {
+      await db.runAsync(
+        'UPDATE pockets SET name = ?, icon = ?, target_amount = ? WHERE id = ?',
+        trimmed,
+        newIcon!.trim(),
+        safeTarget,
+        id
+      );
+    } else {
+      await db.runAsync(
+        'UPDATE pockets SET name = ?, target_amount = ? WHERE id = ?',
+        trimmed,
+        safeTarget,
+        id
+      );
+    }
+    return;
+  }
+
+  if (hasIcon) {
     await db.runAsync(
       'UPDATE pockets SET name = ?, icon = ? WHERE id = ?',
       trimmed,
-      newIcon.trim(),
+      newIcon!.trim(),
       id
     );
   } else {
@@ -1344,6 +1393,7 @@ export async function insertStatementTransactionsBatch(
 
 export async function deleteTransaction(id: string): Promise<void> {
   const db = await getDatabase();
+  const imagesToDelete: string[] = [];
   await db.withTransactionAsync(async () => {
     const tx = await db.getFirstAsync<{
       id: string;
@@ -1354,13 +1404,14 @@ export async function deleteTransaction(id: string): Promise<void> {
       category: string;
       payment_method: string;
       merchant_name: string;
+      image_uri?: string;
       transfer_pair_id?: string;
       is_lent?: number;
       lent_parent_tx_id?: string;
       deleted_wallet_name?: string;
       deleted_pocket_name?: string;
     }>(
-      'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
+      'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, image_uri, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
       id
     );
 
@@ -1375,6 +1426,7 @@ export async function deleteTransaction(id: string): Promise<void> {
       pocket_id: string;
       type: TransactionType;
       amount: number;
+      image_uri?: string;
     }) => {
       const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
       await applyTransactionBalanceDelta(
@@ -1385,6 +1437,9 @@ export async function deleteTransaction(id: string): Promise<void> {
       );
       await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
       await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
+      if (targetTx.image_uri) {
+        imagesToDelete.push(targetTx.image_uri);
+      }
     };
 
     // If this repayment belongs to an archived loan on a deleted account, keep both immutable
@@ -1409,10 +1464,11 @@ export async function deleteTransaction(id: string): Promise<void> {
         pocket_id: string;
         type: TransactionType;
         amount: number;
+        image_uri?: string;
         deleted_wallet_name?: string;
         deleted_pocket_name?: string;
       }>(
-        'SELECT id, wallet_id, pocket_id, type, amount, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE lent_parent_tx_id = ?',
+        'SELECT id, wallet_id, pocket_id, type, amount, image_uri, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE lent_parent_tx_id = ?',
         tx.id
       );
       const hasArchivedChild = childRepayments.some(
@@ -1431,7 +1487,7 @@ export async function deleteTransaction(id: string): Promise<void> {
     let pairedTx: typeof tx | null = null;
     if (tx.transfer_pair_id) {
       pairedTx = await db.getFirstAsync<typeof tx>(
-        'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
+        'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, image_uri, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
         tx.transfer_pair_id
       );
       if (pairedTx && (pairedTx.deleted_wallet_name || pairedTx.deleted_pocket_name)) {
@@ -1439,12 +1495,15 @@ export async function deleteTransaction(id: string): Promise<void> {
       }
     }
 
-    // Revert target transaction
-    await revertTxBalance(tx);
-
-    // If paired transfer transaction exists, revert it atomically as well
+    // Revert outgoing (expense) leg before incoming (income) leg so same-wallet/pocket transfers
+    // add funds back before subtracting them
     if (pairedTx && pairedTx.id !== tx.id) {
-      await revertTxBalance(pairedTx);
+      const firstLeg = tx.type === 'expense' ? tx : pairedTx;
+      const secondLeg = firstLeg.id === tx.id ? pairedTx : tx;
+      await revertTxBalance(firstLeg);
+      await revertTxBalance(secondLeg);
+    } else {
+      await revertTxBalance(tx);
     }
 
     // If this deleted transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
@@ -1452,11 +1511,31 @@ export async function deleteTransaction(id: string): Promise<void> {
       await syncLentParentLoan(db, tx.lent_parent_tx_id);
     }
   });
+
+  for (const uri of imagesToDelete) {
+    await deleteReceiptImageIfLocal(uri);
+  }
+}
+
+export async function updateTransactionImageUri(
+  id: string,
+  imageUri: string
+): Promise<void> {
+  const db = await getDatabase();
+  const prev = await db.getFirstAsync<{ image_uri?: string }>(
+    'SELECT image_uri FROM transactions WHERE id = ?',
+    id
+  );
+  await db.runAsync('UPDATE transactions SET image_uri = ? WHERE id = ?', imageUri || '', id);
+  if (prev?.image_uri && prev.image_uri !== imageUri) {
+    await deleteReceiptImageIfLocal(prev.image_uri);
+  }
 }
 
 export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
   if (!ids || ids.length === 0) return;
   const db = await getDatabase();
+  const imagesToDelete: string[] = [];
   await db.withTransactionAsync(async () => {
     const processedIds = new Set<string>();
     const parentsToSync = new Set<string>();
@@ -1468,6 +1547,7 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
       pocket_id: string;
       type: TransactionType;
       amount: number;
+      image_uri?: string;
       transfer_pair_id?: string;
       is_lent?: number;
       lent_parent_tx_id?: string;
@@ -1477,7 +1557,7 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
 
     for (const id of ids) {
       const tx = await db.getFirstAsync<typeof candidateRows[number]>(
-        'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
+        'SELECT id, wallet_id, pocket_id, type, amount, image_uri, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
         id
       );
       if (tx && !tx.deleted_wallet_name && !tx.deleted_pocket_name) {
@@ -1497,7 +1577,7 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
       let pairedTx: typeof tx | null = null;
       if (tx.transfer_pair_id) {
         pairedTx = await db.getFirstAsync<typeof tx>(
-          'SELECT id, wallet_id, pocket_id, type, amount, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
+          'SELECT id, wallet_id, pocket_id, type, amount, image_uri, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
           tx.transfer_pair_id
         );
         if (pairedTx && (pairedTx.deleted_wallet_name || pairedTx.deleted_pocket_name)) {
@@ -1525,6 +1605,7 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         pocket_id: string;
         type: TransactionType;
         amount: number;
+        image_uri?: string;
       }) => {
         const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
         await applyTransactionBalanceDelta(
@@ -1536,6 +1617,9 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
         await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
         processedIds.add(targetTx.id);
+        if (targetTx.image_uri) {
+          imagesToDelete.push(targetTx.image_uri);
+        }
       };
 
       // If target transaction is a lent transaction, verify and delete child repayments
@@ -1546,10 +1630,11 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
           pocket_id: string;
           type: TransactionType;
           amount: number;
+          image_uri?: string;
           deleted_wallet_name?: string;
           deleted_pocket_name?: string;
         }>(
-          'SELECT id, wallet_id, pocket_id, type, amount, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE lent_parent_tx_id = ?',
+          'SELECT id, wallet_id, pocket_id, type, amount, image_uri, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE lent_parent_tx_id = ?',
           tx.id
         );
         if (childRepayments.some((c) => Boolean(c.deleted_wallet_name || c.deleted_pocket_name))) {
@@ -1562,10 +1647,15 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         }
       }
 
-      await revertTxBalance(tx);
-
       if (pairedTx && !processedIds.has(pairedTx.id)) {
-        await revertTxBalance(pairedTx);
+        const firstLeg = tx.type === 'expense' ? tx : pairedTx;
+        const secondLeg = firstLeg.id === tx.id ? pairedTx : tx;
+        await revertTxBalance(firstLeg);
+        if (!processedIds.has(secondLeg.id)) {
+          await revertTxBalance(secondLeg);
+        }
+      } else {
+        await revertTxBalance(tx);
       }
     }
 
@@ -1574,6 +1664,10 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
       await syncLentParentLoan(db, parentId);
     }
   });
+
+  for (const uri of imagesToDelete) {
+    await deleteReceiptImageIfLocal(uri);
+  }
 }
 
 export interface UpdateTransactionParams {
@@ -1971,8 +2065,9 @@ export async function transferFunds(
   if (!fromWalletId || !toWalletId) {
     throw new Error('Both source and destination accounts are required.');
   }
-  if (fromWalletId === toWalletId) {
-    throw new Error('Source and destination accounts must be different.');
+  const isSameWallet = fromWalletId === toWalletId;
+  if (isSameWallet && (fromPocketId || '') === (toPocketId || '')) {
+    throw new Error('Source and destination must be different.');
   }
   if (!amount || isNaN(amount) || amount <= 0) {
     throw new Error('Transfer amount must be greater than zero.');
@@ -2091,7 +2186,11 @@ export async function transferFunds(
     }
 
     const cleanUserNote = notes ? notes.trim() : '';
-    const transferTitle = `${fromWallet.name} to ${toWallet.name}`;
+    const transferTitle = isSameWallet
+      ? `${fromWallet.name}: ${sourcePocket ? sourcePocket.name : 'Main Balance'} to ${
+          targetPocket ? targetPocket.name : 'Main Balance'
+        }`
+      : `${fromWallet.name} to ${toWallet.name}`;
 
     // Record outgoing transaction
     await db.runAsync(
@@ -2150,8 +2249,9 @@ export async function updateTransferFunds(params: UpdateTransferFundsParams): Pr
   if (!fromWalletId || !toWalletId) {
     throw new Error('Both source and destination accounts are required.');
   }
-  if (fromWalletId === toWalletId) {
-    throw new Error('Source and destination accounts must be different.');
+  const isSameWallet = fromWalletId === toWalletId;
+  if (isSameWallet && (fromPocketId || '') === (toPocketId || '')) {
+    throw new Error('Source and destination must be different.');
   }
   if (!amount || isNaN(amount) || amount <= 0) {
     throw new Error('Transfer amount must be greater than zero.');
@@ -2299,7 +2399,11 @@ export async function updateTransferFunds(params: UpdateTransferFundsParams): Pr
     }
 
     const cleanUserNote = notes ? notes.trim() : '';
-    const transferTitle = `${fromWallet.name} to ${toWallet.name}`;
+    const transferTitle = isSameWallet
+      ? `${fromWallet.name}: ${sourcePocket ? sourcePocket.name : 'Main Balance'} to ${
+          targetPocket ? targetPocket.name : 'Main Balance'
+        }`
+      : `${fromWallet.name} to ${toWallet.name}`;
 
     // 4. Update both transaction legs
     await db.runAsync(
@@ -2393,6 +2497,12 @@ export async function getMonthlyBudget(
     const now = new Date();
     monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
+  const catBudgets = await getCategoryBudgets(currency, monthKey);
+  const catSum = Object.values(catBudgets).reduce((sum, val) => sum + (Number(val) || 0), 0);
+  if (catSum > 0) {
+    return roundForCurrency(catSum, currency);
+  }
+
   const row = await db.getFirstAsync<{ value: string }>(
     'SELECT value FROM app_settings WHERE key = ?',
     `monthly_budget_${monthKey}_${currency}`
@@ -2418,6 +2528,87 @@ export async function setMonthlyBudget(
     monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   }
   await setSetting(`monthly_budget_${monthKey}_${currency}`, String(amount));
+}
+
+export async function getCategoryBudgets(
+  currency: CurrencyType,
+  month?: string
+): Promise<CategoryBudgetsMap> {
+  let monthKey = month;
+  if (!monthKey || monthKey === 'all') {
+    const now = new Date();
+    monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const raw = await getSetting(`category_budgets_${monthKey}_${currency}`, '');
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    const cleaned: CategoryBudgetsMap = {};
+    for (const [k, v] of Object.entries(parsed)) {
+      const num = roundForCurrency(Number(v) || 0, currency);
+      if (k.trim() && num > 0 && !isReservedTransferCategory(k)) {
+        cleaned[k.trim()] = num;
+      }
+    }
+    return cleaned;
+  } catch {
+    return {};
+  }
+}
+
+export async function setCategoryBudgets(
+  budgets: CategoryBudgetsMap,
+  currency: CurrencyType,
+  month?: string
+): Promise<{ categoryBudgets: CategoryBudgetsMap; totalBudget: number }> {
+  let monthKey = month;
+  if (!monthKey || monthKey === 'all') {
+    const now = new Date();
+    monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const cleaned: CategoryBudgetsMap = {};
+  let total = 0;
+  for (const [catName, rawVal] of Object.entries(budgets)) {
+    const trimmed = catName.trim();
+    const val = roundForCurrency(Number(rawVal) || 0, currency);
+    if (trimmed && val > 0 && !isReservedTransferCategory(trimmed)) {
+      cleaned[trimmed] = val;
+      total += val;
+    }
+  }
+  const roundedTotal = roundForCurrency(total, currency);
+  await setSetting(`category_budgets_${monthKey}_${currency}`, JSON.stringify(cleaned));
+  await setSetting(`monthly_budget_${monthKey}_${currency}`, String(roundedTotal));
+  return { categoryBudgets: cleaned, totalBudget: roundedTotal };
+}
+
+export async function getBillingCycleConfig(): Promise<BillingCycleConfig> {
+  const [dayStr, adjustStr] = await Promise.all([
+    getSetting('budget_cycle_day', String(DEFAULT_BILLING_CYCLE.startDay)),
+    getSetting(
+      'budget_cycle_weekend_adjust',
+      DEFAULT_BILLING_CYCLE.adjustWeekendToFriday ? '1' : '0'
+    ),
+  ]);
+  return normalizeBillingCycleConfig({
+    startDay: parseInt(dayStr, 10),
+    adjustWeekendToFriday: adjustStr !== '0',
+  });
+}
+
+export async function setBillingCycleConfig(
+  config: BillingCycleConfig
+): Promise<BillingCycleConfig> {
+  const normalized = normalizeBillingCycleConfig(config);
+  await Promise.all([
+    setSetting('budget_cycle_day', String(normalized.startDay)),
+    setSetting(
+      'budget_cycle_weekend_adjust',
+      normalized.adjustWeekendToFriday ? '1' : '0'
+    ),
+  ]);
+  return normalized;
 }
 
 // Liquidity & Asset Allocation Plans & Notes
@@ -2851,6 +3042,7 @@ export async function wipeAllData(): Promise<void> {
       defaultWalletId
     );
   });
+  await clearAllReceiptImages();
 }
 
 // ---------------------------------------------------------------

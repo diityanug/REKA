@@ -380,9 +380,13 @@ export function useAppModals() {
   // Review Scanned Receipt Modal
   const [reviewModalVisible, setReviewModalVisible] = useState<boolean>(false);
   const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null);
+  const [scannedReceiptImageUri, setScannedReceiptImageUri] = useState<string>('');
+  const [scannedReceiptBase64, setScannedReceiptBase64] = useState<string>('');
 
   const closeReviewModal = useCallback(() => {
     setReviewModalVisible(false);
+    setScannedReceiptImageUri('');
+    setScannedReceiptBase64('');
   }, []);
 
   // Review e-Statement Modal
@@ -544,6 +548,10 @@ export function useAppModals() {
     setReviewModalVisible,
     extractedData,
     setExtractedData,
+    scannedReceiptImageUri,
+    setScannedReceiptImageUri,
+    scannedReceiptBase64,
+    setScannedReceiptBase64,
     closeReviewModal,
     reviewStatementModalVisible,
     setReviewStatementModalVisible,
@@ -643,6 +651,8 @@ export function useAppModals() {
     handleCloseManualModal,
     reviewModalVisible,
     extractedData,
+    scannedReceiptImageUri,
+    scannedReceiptBase64,
     closeReviewModal,
     reviewStatementModalVisible,
     statementData,

@@ -21,8 +21,13 @@ import {
   HandCoins,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Transaction, CurrencyType, FilterType } from '../../types';
-import { formatCurrency, formatMonthYear, formatMonthShort } from '../../utils/formatters';
+import { Transaction, CurrencyType, FilterType, Wallet, Pocket, BillingCycleConfig } from '../../types';
+import { formatCurrency, formatMonthYear, formatMonthShort, formatDate } from '../../utils/formatters';
+import {
+  DEFAULT_BILLING_CYCLE,
+  getPeriodKeyForTimestamp,
+  formatCycleRangeShort,
+} from '../../utils/billingCycle';
 import { AppHaptics } from '../../utils/haptics';
 import { TransactionItemRow } from '../TransactionItemRow';
 import { HistoryFilterModal } from '../modals/HistoryFilterModal';
@@ -36,6 +41,15 @@ interface HistoryTabProps {
   historyCategory: string;
   historyMonth: string;
   historyLentFilter?: 'all' | 'outstanding' | 'settled';
+  historyWalletId?: string;
+  historyPocketId?: string;
+  historyPaymentMethod?: string;
+  historyDateFrom?: string;
+  historyDateTo?: string;
+  wallets?: Wallet[];
+  pockets?: Pocket[];
+  billingCycle?: BillingCycleConfig;
+  availablePaymentMethods?: string[];
   outstandingLentCount?: number;
   outstandingLentTotal?: number;
   availableCategories: string[];
@@ -56,6 +70,11 @@ interface HistoryTabProps {
   onChangeCategory: (category: string) => void;
   onChangeMonth: (month: string) => void;
   onChangeLentFilter?: (filter: 'all' | 'outstanding' | 'settled') => void;
+  onChangeWalletId?: (walletId: string) => void;
+  onChangePocketId?: (pocketId: string) => void;
+  onChangePaymentMethod?: (method: string) => void;
+  onChangeDateFrom?: (dateStr: string) => void;
+  onChangeDateTo?: (dateStr: string) => void;
   onOpenMonthPicker: () => void;
   onResetAllFilters: () => void;
   onOpenManualModal?: () => void;
@@ -74,6 +93,15 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   historyCategory,
   historyMonth,
   historyLentFilter = 'all',
+  historyWalletId = 'all',
+  historyPocketId = 'all',
+  historyPaymentMethod = 'all',
+  historyDateFrom = '',
+  historyDateTo = '',
+  wallets = [],
+  pockets = [],
+  billingCycle = DEFAULT_BILLING_CYCLE,
+  availablePaymentMethods = [],
   outstandingLentCount = 0,
   outstandingLentTotal = 0,
   availableCategories,
@@ -87,6 +115,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   onChangeCategory,
   onChangeMonth,
   onChangeLentFilter,
+  onChangeWalletId,
+  onChangePocketId,
+  onChangePaymentMethod,
+  onChangeDateFrom,
+  onChangeDateTo,
   onOpenMonthPicker,
   onResetAllFilters,
   onOpenManualModal,
@@ -206,11 +239,15 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     (historyFilter !== 'all' ? 1 : 0) +
     (historyCategory !== 'all' ? 1 : 0) +
     (historyMonth !== 'all' ? 1 : 0) +
-    (historyLentFilter !== 'all' ? 1 : 0);
+    (historyLentFilter !== 'all' ? 1 : 0) +
+    (historyWalletId !== 'all' ? 1 : 0) +
+    (historyPocketId !== 'all' ? 1 : 0) +
+    (historyPaymentMethod !== 'all' ? 1 : 0) +
+    (historyDateFrom || historyDateTo ? 1 : 0);
 
   const isFilterActive = activeFilterCount > 0 || searchQuery.trim().length > 0;
 
-  // Group transactions chronologically by month (keeping IDR and USD native totals separate)
+  // Group transactions chronologically by period (respects Payday Cycle when configured)
   const monthGroups = useMemo(() => {
     const groups: {
       monthKey: string;
@@ -225,11 +262,14 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     const map = new Map<string, (typeof groups)[0]>();
 
     for (const tx of transactions) {
-      const d = new Date(tx.timestamp);
-      const key = !isNaN(d.getTime())
-        ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const resolvedKey = getPeriodKeyForTimestamp(tx.timestamp, billingCycle);
+      const key = resolvedKey || 'Other';
+      const rangeBadge = resolvedKey ? formatCycleRangeShort(resolvedKey, billingCycle) : '';
+      const title = resolvedKey
+        ? rangeBadge
+          ? `${formatMonthYear(resolvedKey)} (${rangeBadge})`
+          : formatMonthYear(resolvedKey)
         : 'Other';
-      const title = !isNaN(d.getTime()) ? formatMonthYear(key) : 'Other';
 
       if (!map.has(key)) {
         const g = {
@@ -260,7 +300,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       }
     }
     return groups;
-  }, [transactions]);
+  }, [transactions, billingCycle]);
 
   const sections = useMemo(() => {
     return monthGroups.map((g) => ({
@@ -549,6 +589,75 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             </TouchableOpacity>
           ) : null}
 
+          {historyWalletId !== 'all' ? (
+            <TouchableOpacity
+              style={styles.activeTag}
+              onPress={() => {
+                AppHaptics.selection();
+                onChangeWalletId?.('all');
+                onChangePocketId?.('all');
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.activeTagText} numberOfLines={1}>
+                {wallets.find((w) => w.id === historyWalletId)?.name || 'Account'}
+              </Text>
+              <X size={11} color={Palette.primary} />
+            </TouchableOpacity>
+          ) : null}
+
+          {historyPocketId !== 'all' ? (
+            <TouchableOpacity
+              style={styles.activeTag}
+              onPress={() => {
+                AppHaptics.selection();
+                onChangePocketId?.('all');
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.activeTagText} numberOfLines={1}>
+                {historyPocketId === '__main__'
+                  ? 'Main Balance'
+                  : pockets.find((p) => p.id === historyPocketId)?.name || 'Pocket'}
+              </Text>
+              <X size={11} color={Palette.primary} />
+            </TouchableOpacity>
+          ) : null}
+
+          {historyPaymentMethod !== 'all' ? (
+            <TouchableOpacity
+              style={styles.activeTag}
+              onPress={() => {
+                AppHaptics.selection();
+                onChangePaymentMethod?.('all');
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.activeTagText} numberOfLines={1}>
+                {historyPaymentMethod}
+              </Text>
+              <X size={11} color={Palette.primary} />
+            </TouchableOpacity>
+          ) : null}
+
+          {historyDateFrom || historyDateTo ? (
+            <TouchableOpacity
+              style={styles.activeTag}
+              onPress={() => {
+                AppHaptics.selection();
+                onChangeDateFrom?.('');
+                onChangeDateTo?.('');
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.activeTagText} numberOfLines={1}>
+                {historyDateFrom ? formatDate(historyDateFrom) : '…'} –{' '}
+                {historyDateTo ? formatDate(historyDateTo) : '…'}
+              </Text>
+              <X size={11} color={Palette.primary} />
+            </TouchableOpacity>
+          ) : null}
+
           <TouchableOpacity
             style={styles.clearAllBtn}
             onPress={() => {
@@ -574,6 +683,18 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     outstandingLentCount,
     historyLentFilter,
     onChangeLentFilter,
+    historyWalletId,
+    onChangeWalletId,
+    historyPocketId,
+    onChangePocketId,
+    historyPaymentMethod,
+    onChangePaymentMethod,
+    historyDateFrom,
+    historyDateTo,
+    onChangeDateFrom,
+    onChangeDateTo,
+    wallets,
+    pockets,
     activeCurrency,
     localSearch,
     handleClearSearch,
@@ -725,6 +846,14 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         category={historyCategory}
         month={historyMonth}
         lentFilter={historyLentFilter}
+        walletId={historyWalletId}
+        pocketId={historyPocketId}
+        paymentMethod={historyPaymentMethod}
+        dateFrom={historyDateFrom}
+        dateTo={historyDateTo}
+        wallets={wallets}
+        pockets={pockets}
+        availablePaymentMethods={availablePaymentMethods}
         availableCategories={availableCategories}
         availableExpenseCategories={availableExpenseCategories}
         availableIncomeCategories={availableIncomeCategories}
@@ -733,6 +862,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         onChangeCategory={onChangeCategory}
         onChangeMonth={onChangeMonth}
         onChangeLentFilter={onChangeLentFilter}
+        onChangeWalletId={onChangeWalletId}
+        onChangePocketId={onChangePocketId}
+        onChangePaymentMethod={onChangePaymentMethod}
+        onChangeDateFrom={onChangeDateFrom}
+        onChangeDateTo={onChangeDateTo}
         onReset={onResetAllFilters}
         onClose={() => setFilterModalVisible(false)}
       />

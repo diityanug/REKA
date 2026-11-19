@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "com.aes.finance",
-      "versionCode": 12,
+      "versionCode": 13,
       "allowBackup": false,
       "softwareKeyboardLayoutMode": "resize",
       "blockedPermissions": [
@@ -57,7 +57,8 @@
         {
           "configureAndroidBackup": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "owner": "descend12s-team",
     "extra": {

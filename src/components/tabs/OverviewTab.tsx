@@ -21,8 +21,14 @@ import {
   FileText,
 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
-import { Wallet, Transaction, CurrencyType } from '../../types';
+import { Wallet, Transaction, CurrencyType, BillingCycleConfig } from '../../types';
 import { formatCurrency, formatMonthYear, getPrevMonthKey, getNextMonthKey } from '../../utils/formatters';
+import {
+  DEFAULT_BILLING_CYCLE,
+  getCurrentPeriodKey,
+  isTimestampInPeriod,
+  formatCycleRangeShort,
+} from '../../utils/billingCycle';
 import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { AppHaptics } from '../../utils/haptics';
 import { AccountCardItem } from '../AccountCardItem';
@@ -34,6 +40,7 @@ interface OverviewTabProps {
   activeCurrency: CurrencyType;
   privacyMode: boolean;
   selectedMonth: string; // 'YYYY-MM' or 'all'
+  billingCycle?: BillingCycleConfig;
   availableMonths?: string[];
   scanning: boolean;
   onNavigateToAccounts?: () => void;
@@ -59,6 +66,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
   activeCurrency,
   privacyMode,
   selectedMonth,
+  billingCycle = DEFAULT_BILLING_CYCLE,
   availableMonths = [],
   scanning,
   onNavigateToAccounts,
@@ -96,8 +104,16 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
   const activeTotalBalance =
     activeCurrency === 'USD' ? usdTotalBalance : idrTotalBalance;
 
-  // Same month-key rule the finance hook uses, updated live so the stepper can be bounded
-  const { currentMonthKey } = useCurrentDate();
+  // Same period-key rule the finance hook uses, updated live so the stepper can be bounded
+  const { todayStr } = useCurrentDate();
+  const currentPeriodKey = useMemo(() => {
+    const parts = todayStr.split('-');
+    const nowDate =
+      parts.length === 3
+        ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10))
+        : new Date();
+    return getCurrentPeriodKey(billingCycle, nowDate);
+  }, [todayStr, billingCycle]);
 
   // Oldest month with recorded activity (availableMonths is sorted newest first)
   const oldestMonthKey = availableMonths.length > 0
@@ -121,16 +137,13 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     });
   }, [transactions]);
 
-  // Filter unified transactions for the selected month
+  // Filter unified transactions for the selected period (respecting Payday Cycle)
   const monthTransactions = useMemo(() => {
     if (selectedMonth === 'all') return unifiedTransactions;
-    return unifiedTransactions.filter((tx) => {
-      const d = new Date(tx.timestamp);
-      if (isNaN(d.getTime())) return false;
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return key === selectedMonth;
-    });
-  }, [unifiedTransactions, selectedMonth]);
+    return unifiedTransactions.filter((tx) =>
+      isTimestampInPeriod(tx.timestamp, selectedMonth, billingCycle)
+    );
+  }, [unifiedTransactions, selectedMonth, billingCycle]);
 
   // Monthly stats for the active currency in the Hero Card (excluding internal transfers from In vs Out)
   const currentMonthlyStats = useMemo(() => {
@@ -163,8 +176,8 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     return monthTransactions.slice(0, 10);
   }, [monthTransactions]);
 
-  // Stepper navigation logic (Clean calendar month math, no skipping or jumping)
-  const isNextDisabled = selectedMonth === 'all' || selectedMonth >= currentMonthKey;
+  // Stepper navigation logic (Clean period math, bounded to active payday cycle)
+  const isNextDisabled = selectedMonth === 'all' || selectedMonth >= currentPeriodKey;
   const isPrevDisabled =
     selectedMonth !== 'all' && oldestMonthKey !== null && selectedMonth <= oldestMonthKey;
 
@@ -184,6 +197,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     selectedMonth === 'all'
       ? 'All Time'
       : formatMonthYear(selectedMonth);
+  const cycleRangeSubtitle = formatCycleRangeShort(selectedMonth, billingCycle);
 
   return (
     <View style={styles.container}>
@@ -260,7 +274,11 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
               <Text style={styles.periodTitleText}>{periodTitle}</Text>
             </View>
             <Text style={styles.periodSubtitleText}>
-              {selectedMonth === 'all' ? 'All-Time Flow' : 'Tap to change month'}
+              {selectedMonth === 'all'
+                ? 'All-Time Flow'
+                : cycleRangeSubtitle
+                  ? `${cycleRangeSubtitle} • Payday cycle`
+                  : 'Tap to change month'}
             </Text>
           </TouchableOpacity>
 
