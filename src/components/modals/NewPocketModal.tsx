@@ -328,7 +328,8 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                 placeholderTextColor={Palette.mutedSoft}
                 value={name}
                 onChangeText={onChangeName}
-                returnKeyType="next"
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
                 maxLength={30}
               />
 
@@ -458,6 +459,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 style={styles.categoryChipsScroll}
                 contentContainerStyle={styles.categoryChipsContent}
               >
@@ -524,6 +526,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                   style={styles.iconScrollView}
                   contentContainerStyle={styles.iconGridContent}
                   nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
                   showsVerticalScrollIndicator={false}
                 >
                   {iconRows.map((row, rowIndex) => (

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -125,6 +125,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [showPocketTargetModal, setShowPocketTargetModal] = useState<boolean>(false);
   const [pocketIconGroupKey, setPocketIconGroupKey] = useState<string>('all');
   const [showAllActivity, setShowAllActivity] = useState<boolean>(false);
+  const accountNumberInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
   const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const displayedPocketIcons = useMemo(() => {
@@ -174,6 +175,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       showAlert('Invalid Name', 'Account name cannot be empty.', undefined, 'warning');
       return;
     }
+    Keyboard.dismiss();
     await onRenameWallet(wallet.id, trimmed, editType, editAccountNumber.trim());
     setIsRenaming(false);
   };
@@ -184,6 +186,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       showAlert('Invalid Name', 'Pocket name cannot be empty.', undefined, 'warning');
       return;
     }
+    Keyboard.dismiss();
     const parsedTarget = pocketEditTarget.trim()
       ? parseAmount(pocketEditTarget, wallet.currency)
       : 0;
@@ -210,7 +213,6 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       <KeyboardSafeContainer
         contentContainerStyle={styles.scrollContent}
         extraBottomSpace={Math.max(insets.bottom, 20) + 20}
-        keyboardDismissMode="on-drag"
       >
               {/* Master Account Balance Breakdown Card */}
               <View style={styles.summaryCard}>
@@ -249,7 +251,9 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   style={[styles.accountActionBtn, isRenaming && styles.accountActionBtnActive]}
                   onPress={() => {
                     AppHaptics.light();
-                    if (!isRenaming) {
+                    if (isRenaming) {
+                      Keyboard.dismiss();
+                    } else {
                       setEditName(wallet.name);
                       setEditType(normalizeAccountType(wallet.type));
                       setEditAccountNumber(wallet.accountNumber || '');
@@ -322,17 +326,21 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     placeholder="Enter account name"
                     placeholderTextColor={Palette.mutedSoft}
                     returnKeyType="next"
+                    submitBehavior="submit"
+                    onSubmitEditing={() => accountNumberInputRef.current?.focus()}
                     maxLength={30}
                   />
 
                   <Text style={styles.editFieldLabel}>Note / Account Number</Text>
                   <TextInput
+                    ref={accountNumberInputRef}
                     style={styles.editInput}
                     value={editAccountNumber}
                     onChangeText={setEditAccountNumber}
                     placeholder="e.g. 1234 5678 or short note"
                     placeholderTextColor={Palette.mutedSoft}
                     returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                     maxLength={30}
                   />
 
@@ -394,7 +402,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   <View style={styles.editActionRow}>
                     <TouchableOpacity
                       style={styles.cancelEditBtn}
-                      onPress={() => setIsRenaming(false)}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setIsRenaming(false);
+                      }}
                       activeOpacity={0.7}
                     >
                       <Text style={styles.cancelEditBtnText}>Cancel</Text>
@@ -515,6 +526,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                             placeholder="Enter pocket name"
                             placeholderTextColor={Palette.mutedSoft}
                             returnKeyType="done"
+                            onSubmitEditing={Keyboard.dismiss}
                             maxLength={30}
                           />
 
@@ -570,6 +582,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                           <ScrollView
                             horizontal
                             showsHorizontalScrollIndicator={false}
+                            keyboardShouldPersistTaps="handled"
                             style={styles.pocketIconFilterScroll}
                             contentContainerStyle={styles.pocketIconFilterContent}
                           >
@@ -627,6 +640,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                               style={styles.pocketIconScrollView}
                               contentContainerStyle={styles.pocketIconGridContent}
                               nestedScrollEnabled={true}
+                              keyboardShouldPersistTaps="handled"
                               showsVerticalScrollIndicator={false}
                             >
                               {pocketIconRows.map((row, rowIdx) => (
@@ -669,7 +683,10 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                           <View style={[styles.editActionRow, { marginTop: 10 }]}>
                             <TouchableOpacity
                               style={styles.cancelEditBtn}
-                              onPress={() => setEditingPocketId(null)}
+                              onPress={() => {
+                                Keyboard.dismiss();
+                                setEditingPocketId(null);
+                              }}
                               activeOpacity={0.7}
                             >
                               <Text style={styles.cancelEditBtnText}>Cancel</Text>

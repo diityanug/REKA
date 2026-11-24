@@ -326,7 +326,8 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 value={manMerchant}
                 onChangeText={onChangeMerchant}
                 maxLength={50}
-                returnKeyType="next"
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
               />
 
               {/* Currency Selector */}
@@ -512,6 +513,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                     maxLength={5}
                     keyboardType="numbers-and-punctuation"
                     returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                   />
                 </View>
               </View>

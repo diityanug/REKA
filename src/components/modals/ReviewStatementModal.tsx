@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -249,7 +250,6 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
       <KeyboardSafeContainer
         contentContainerStyle={styles.scrollContent}
         extraBottomSpace={28}
-        keyboardDismissMode="on-drag"
       >
         {/* 1. Target Account & Auto-Match Card */}
         <View style={styles.sectionCard}>
@@ -295,6 +295,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.walletChipsRow}
             >
               {eligibleWallets.map((w) => {
@@ -551,6 +552,8 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
                     onChangeText={(txt) => updateItemMerchant(item.id, txt)}
                     placeholder="Transaction Name"
                     placeholderTextColor={Palette.mutedSoft}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                   />
                   <Text style={styles.txDateText}>
                     #{idx + 1} • {formatDate(item.transactionDate)}
@@ -646,6 +649,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
                   <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
                     contentContainerStyle={styles.inlineCatList}
                   >
                     {typeCategories.map((cat) => {

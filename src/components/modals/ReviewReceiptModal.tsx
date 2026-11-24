@@ -295,6 +295,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                     placeholder="Merchant / store name"
                     placeholderTextColor={Palette.mutedSoft}
                     returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                     autoCapitalize="words"
                     maxLength={50}
                   />

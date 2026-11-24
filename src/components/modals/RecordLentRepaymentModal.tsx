@@ -413,6 +413,8 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
             onChangeText={setNotes}
             placeholder="e.g. Paid in cash, bank transfer ref..."
             placeholderTextColor={Palette.mutedSoft}
+            returnKeyType="done"
+            onSubmitEditing={Keyboard.dismiss}
           />
         </View>
 

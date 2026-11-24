@@ -177,6 +177,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   <ScrollView
                     horizontal={true}
                     showsHorizontalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
                     contentContainerStyle={styles.groupChipsRow}
                   >
                     <TouchableOpacity
@@ -233,6 +234,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       style={styles.iconScrollView}
                       contentContainerStyle={styles.iconGrid}
                       nestedScrollEnabled={true}
+                      keyboardShouldPersistTaps="handled"
                       showsVerticalScrollIndicator={false}
                     >
                       {displayedIcons.map((ic) => {
