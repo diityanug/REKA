@@ -133,18 +133,10 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
 
   const isAnyFilterActive = activeFilterCount > 0;
 
-  // Determine which categories to show depending on transaction type
+  // Determine which categories to show depending on transaction type (only those with transactions)
   const displayedCategories = useMemo(() => {
-    if (filter === 'expense') {
-      return availableExpenseCategories.length > 0
-        ? availableExpenseCategories
-        : availableCategories;
-    }
-    if (filter === 'income') {
-      return availableIncomeCategories.length > 0
-        ? availableIncomeCategories
-        : availableCategories;
-    }
+    if (filter === 'expense') return availableExpenseCategories;
+    if (filter === 'income') return availableIncomeCategories;
     return availableCategories;
   }, [filter, availableCategories, availableExpenseCategories, availableIncomeCategories]);
 
@@ -227,12 +219,12 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
     onChangeFilter(newFilter);
 
     if (category !== 'all') {
-      let allowedList = availableCategories;
-      if (newFilter === 'expense' && availableExpenseCategories.length > 0) {
-        allowedList = availableExpenseCategories;
-      } else if (newFilter === 'income' && availableIncomeCategories.length > 0) {
-        allowedList = availableIncomeCategories;
-      }
+      const allowedList =
+        newFilter === 'expense'
+          ? availableExpenseCategories
+          : newFilter === 'income'
+            ? availableIncomeCategories
+            : availableCategories;
       const isStillAllowed = allowedList.some(
         (c) => c.toLowerCase() === category.toLowerCase()
       );

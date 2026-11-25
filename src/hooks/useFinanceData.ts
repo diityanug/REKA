@@ -565,9 +565,6 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
 
   const availableExpenseCategories = useMemo(() => {
     const set = new Set<string>();
-    categories
-      .filter((c) => c.type === 'expense' && !isReservedTransferCategory(c.name))
-      .forEach((c) => set.add(c.name));
     transactions
       .filter(
         (tx) =>
@@ -576,16 +573,14 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
           !isReservedTransferCategory(tx.category)
       )
       .forEach((tx) => {
-        if (tx.category) set.add(tx.category);
+        const cat = (tx.category || '').trim();
+        if (cat) set.add(cat);
       });
     return Array.from(set).sort();
-  }, [categories, transactions]);
+  }, [transactions]);
 
   const availableIncomeCategories = useMemo(() => {
     const set = new Set<string>();
-    categories
-      .filter((c) => c.type === 'income' && !isReservedTransferCategory(c.name))
-      .forEach((c) => set.add(c.name));
     transactions
       .filter(
         (tx) =>
@@ -594,10 +589,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
           !isReservedTransferCategory(tx.category)
       )
       .forEach((tx) => {
-        if (tx.category) set.add(tx.category);
+        const cat = (tx.category || '').trim();
+        if (cat) set.add(cat);
       });
     return Array.from(set).sort();
-  }, [categories, transactions]);
+  }, [transactions]);
 
   const availableCategories = useMemo(() => {
     const set = new Set<string>([

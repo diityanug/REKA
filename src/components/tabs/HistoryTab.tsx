@@ -49,6 +49,8 @@ interface HistoryTabProps {
   historyDateTo?: string;
   wallets?: Wallet[];
   pockets?: Pocket[];
+  filterWallets?: Wallet[];
+  filterPockets?: Pocket[];
   billingCycle?: BillingCycleConfig;
   availablePaymentMethods?: string[];
   outstandingLentCount?: number;
@@ -101,6 +103,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   historyDateTo = '',
   wallets = [],
   pockets = [],
+  filterWallets,
+  filterPockets,
   billingCycle = DEFAULT_BILLING_CYCLE,
   availablePaymentMethods = [],
   outstandingLentCount = 0,
@@ -916,8 +920,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         paymentMethod={historyPaymentMethod}
         dateFrom={historyDateFrom}
         dateTo={historyDateTo}
-        wallets={wallets}
-        pockets={pockets}
+        wallets={filterWallets ?? wallets}
+        pockets={filterPockets ?? pockets}
         availablePaymentMethods={availablePaymentMethods}
         availableCategories={availableCategories}
         availableExpenseCategories={availableExpenseCategories}

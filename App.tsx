@@ -393,13 +393,42 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
   const [historyDateTo, setHistoryDateTo] = useState<string>('');
 
   const availablePaymentMethods = useMemo(() => {
-    const set = new Set<string>(PAYMENT_METHODS);
+    const used = new Map<string, string>();
     transactions.forEach((tx) => {
       const m = (tx.paymentMethod || '').trim();
-      if (m && m.toLowerCase() !== 'transfer') set.add(m);
+      if (m && m.toLowerCase() !== 'transfer') {
+        const key = m.toLowerCase();
+        if (!used.has(key)) used.set(key, m);
+      }
     });
-    return Array.from(set);
+    const order = new Map(PAYMENT_METHODS.map((m, idx) => [m.toLowerCase(), idx]));
+    return Array.from(used.values()).sort((a, b) => {
+      const ia = order.get(a.toLowerCase()) ?? 999;
+      const ib = order.get(b.toLowerCase()) ?? 999;
+      return ia !== ib ? ia - ib : a.localeCompare(b);
+    });
   }, [transactions]);
+
+  // Only show accounts & pockets in History Filter that actually have recorded transactions
+  const historyFilterWallets = useMemo(() => {
+    const usedIds = new Set<string>();
+    transactions.forEach((tx) => {
+      if (tx.walletId) usedIds.add(tx.walletId);
+    });
+    if (historyWalletId !== 'all') usedIds.add(historyWalletId);
+    return wallets.filter((w) => usedIds.has(w.id));
+  }, [transactions, wallets, historyWalletId]);
+
+  const historyFilterPockets = useMemo(() => {
+    const usedIds = new Set<string>();
+    transactions.forEach((tx) => {
+      if (tx.pocketId) usedIds.add(tx.pocketId);
+    });
+    if (historyPocketId !== 'all' && historyPocketId !== '__main__') {
+      usedIds.add(historyPocketId);
+    }
+    return finance.pockets.filter((p) => usedIds.has(p.id));
+  }, [transactions, finance.pockets, historyPocketId]);
 
   const handleChangeLentFilter = useCallback((newFilter: 'all' | 'outstanding' | 'settled') => {
     setHistoryLentFilter(newFilter);
@@ -471,12 +500,12 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
     (newFilter: FilterType) => {
       setHistoryFilter(newFilter);
       if (historyCategory !== 'all') {
-        let allowedList = availableCategories;
-        if (newFilter === 'expense' && availableExpenseCategories.length > 0) {
-          allowedList = availableExpenseCategories;
-        } else if (newFilter === 'income' && availableIncomeCategories.length > 0) {
-          allowedList = availableIncomeCategories;
-        }
+        const allowedList =
+          newFilter === 'expense'
+            ? availableExpenseCategories
+            : newFilter === 'income'
+              ? availableIncomeCategories
+              : availableCategories;
         const isStillAllowed = allowedList.some(
           (c) => c.toLowerCase() === historyCategory.toLowerCase()
         );
@@ -1597,6 +1626,8 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
                 historyDateTo={historyDateTo}
                 wallets={finance.wallets}
                 pockets={finance.pockets}
+                filterWallets={historyFilterWallets}
+                filterPockets={historyFilterPockets}
                 billingCycle={finance.billingCycle}
                 availablePaymentMethods={availablePaymentMethods}
                 outstandingLentCount={finance.outstandingLentSummary.count}
