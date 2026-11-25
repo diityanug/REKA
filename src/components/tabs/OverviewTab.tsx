@@ -33,6 +33,7 @@ import { useCurrentDate } from '../../hooks/useCurrentDate';
 import { AppHaptics } from '../../utils/haptics';
 import { AccountCardItem } from '../AccountCardItem';
 import { TransactionItemRow } from '../TransactionItemRow';
+import { ScalePressable } from '../MotionPrimitives';
 
 interface OverviewTabProps {
   wallets: Wallet[];
@@ -89,6 +90,11 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
     () => wallets.filter((w) => w.currency === 'IDR'),
     [wallets]
   );
+  const walletById = useMemo(() => {
+    const map = new Map<string, Wallet>();
+    wallets.forEach((w) => map.set(w.id, w));
+    return map;
+  }, [wallets]);
   const usdWallets = useMemo(
     () => wallets.filter((w) => w.currency === 'USD'),
     [wallets]
@@ -271,13 +277,18 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           >
             <View style={styles.periodCenterRow}>
               <Calendar size={13} color={Palette.primary} />
-              <Text style={styles.periodTitleText}>{periodTitle}</Text>
+              <Text style={styles.periodTitleText} numberOfLines={1}>{periodTitle}</Text>
             </View>
-            <Text style={styles.periodSubtitleText}>
+            <Text
+              style={styles.periodSubtitleText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.85}
+            >
               {selectedMonth === 'all'
                 ? 'All-Time Flow'
                 : cycleRangeSubtitle
-                  ? `${cycleRangeSubtitle} • Payday cycle`
+                  ? `${cycleRangeSubtitle}  •  Payday cycle`
                   : 'Tap to change month'}
             </Text>
           </TouchableOpacity>
@@ -301,12 +312,13 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
             <View style={[styles.flowIndicator, { backgroundColor: '#D1F4D9' }]}>
               <TrendingUp size={14} color={Palette.success} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.flowLabel}>Inflow</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.flowLabel} numberOfLines={1}>Inflow</Text>
               <Text
                 style={[styles.flowValue, { color: Palette.success }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
+                minimumFontScale={0.72}
               >
                 {formatCurrency(currentMonthlyStats.income, activeCurrency, privacyMode)}
               </Text>
@@ -317,12 +329,13 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
             <View style={[styles.flowIndicator, { backgroundColor: '#FCD8D8' }]}>
               <TrendingDown size={14} color={Palette.error} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.flowLabel}>Outflow</Text>
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={styles.flowLabel} numberOfLines={1}>Outflow</Text>
               <Text
                 style={[styles.flowValue, { color: Palette.error }]}
                 numberOfLines={1}
                 adjustsFontSizeToFit
+                minimumFontScale={0.72}
               >
                 {formatCurrency(currentMonthlyStats.expense, activeCurrency, privacyMode)}
               </Text>
@@ -363,8 +376,13 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
             )}
           </View>
           <View style={styles.flowRatioMetaRow}>
-            <Text style={styles.flowRatioMetaText}>
-              Net Flow:{' '}
+            <Text
+              style={[styles.flowRatioMetaText, styles.flowRatioNetText]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.8}
+            >
+              Net:{' '}
               <Text
                 style={{
                   fontWeight: '700',
@@ -374,7 +392,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
                 {formatCurrency(currentMonthlyStats.net, activeCurrency, privacyMode)}
               </Text>
             </Text>
-            <Text style={styles.flowRatioMetaText}>
+            <Text style={[styles.flowRatioMetaText, styles.flowRatioPctText]} numberOfLines={1}>
               {currentMonthlyStats.totalVolume > 0
                 ? `${currentMonthlyStats.incomePct.toFixed(0)}% In / ${currentMonthlyStats.expensePct.toFixed(0)}% Out`
                 : 'No monthly flow'}
@@ -383,97 +401,102 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
         </View>
       </View>
 
-      {/* Quick Actions (4-Column Layout) */}
+      {/* Quick Actions */}
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Quick Actions</Text>
       </View>
 
       <View style={styles.actionRow4Col}>
         {/* Transfer Button */}
-        <TouchableOpacity
-          style={styles.actionTile}
+        <ScalePressable
+          style={styles.actionTileOuter}
+          contentStyle={styles.actionTile}
+          scaleTo={0.93}
           onPress={() => {
             AppHaptics.light();
             onOpenTransferModal();
           }}
-          activeOpacity={0.8}
         >
           <View style={[styles.actionIconBadge, { backgroundColor: Palette.surfaceDark }]}>
             <ArrowLeftRight size={17} color={Palette.white} />
           </View>
-          <Text style={styles.actionTileTitle}>Transfer</Text>
-          <Text style={styles.actionTileSub}>Move</Text>
-        </TouchableOpacity>
+          <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Transfer</Text>
+          <Text style={styles.actionTileSub} numberOfLines={1}>Move</Text>
+        </ScalePressable>
 
         {/* Manual Entry Button */}
-        <TouchableOpacity
-          style={styles.actionTile}
+        <ScalePressable
+          style={styles.actionTileOuter}
+          contentStyle={styles.actionTile}
+          scaleTo={0.93}
           onPress={() => {
             AppHaptics.light();
             onOpenManualModal();
           }}
-          activeOpacity={0.8}
         >
           <View style={[styles.actionIconBadge, { backgroundColor: Palette.primary }]}>
             <Edit3 size={17} color={Palette.white} />
           </View>
-          <Text style={styles.actionTileTitle}>Manual</Text>
-          <Text style={styles.actionTileSub}>Entry</Text>
-        </TouchableOpacity>
+          <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Manual</Text>
+          <Text style={styles.actionTileSub} numberOfLines={1}>Entry</Text>
+        </ScalePressable>
 
         {/* Scan Slip Button */}
-        <TouchableOpacity
-          style={styles.actionTile}
+        <ScalePressable
+          style={styles.actionTileOuter}
+          contentStyle={styles.actionTile}
+          scaleTo={0.93}
           onPress={() => {
             AppHaptics.light();
             onScanReceipt();
           }}
           disabled={scanning}
-          activeOpacity={0.8}
         >
           <View style={[styles.actionIconBadge, { backgroundColor: Palette.accentTeal }]}>
             <Camera size={17} color={Palette.white} />
           </View>
-          <Text style={styles.actionTileTitle}>Scan Slip</Text>
-          <Text style={styles.actionTileSub}>Camera</Text>
-        </TouchableOpacity>
+          <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Scan</Text>
+          <Text style={styles.actionTileSub} numberOfLines={1}>Camera</Text>
+        </ScalePressable>
 
         {/* Upload Button */}
-        <TouchableOpacity
-          style={styles.actionTile}
+        <ScalePressable
+          style={styles.actionTileOuter}
+          contentStyle={styles.actionTile}
+          scaleTo={0.93}
           onPress={() => {
             AppHaptics.light();
             onPickFromGallery();
           }}
           disabled={scanning}
-          activeOpacity={0.8}
         >
           <View style={[styles.actionIconBadge, { backgroundColor: '#7B61FF' }]}>
             <ImageIcon size={17} color={Palette.white} />
           </View>
-          <Text style={styles.actionTileTitle}>Upload</Text>
-          <Text style={styles.actionTileSub}>Gallery</Text>
-        </TouchableOpacity>
+          <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Upload</Text>
+          <Text style={styles.actionTileSub} numberOfLines={1}>Gallery</Text>
+        </ScalePressable>
 
         {/* e-Statement Button */}
         {onImportStatement ? (
-          <TouchableOpacity
-            style={styles.actionTile}
+          <ScalePressable
+            style={styles.actionTileOuter}
+            contentStyle={styles.actionTile}
+            scaleTo={0.93}
             onPress={() => {
               AppHaptics.light();
               onImportStatement();
             }}
             disabled={scanning}
-            activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Import e-Statement PDF or mutation"
           >
             <View style={[styles.actionIconBadge, { backgroundColor: '#D97706' }]}>
               <FileText size={17} color={Palette.white} />
             </View>
-            <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit>Statement</Text>
-            <Text style={styles.actionTileSub}>e-Bank</Text>
-          </TouchableOpacity>
+            <Text style={styles.actionTileTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>Import</Text>
+            <Text style={styles.actionTileSub} numberOfLines={1}>e-Bank</Text>
+          </ScalePressable>
         ) : null}
       </View>
 
@@ -515,6 +538,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.accountsScroll}
+          contentContainerStyle={styles.accountsScrollContent}
         >
           {wallets.map((w) => (
             <AccountCardItem
@@ -531,21 +555,24 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
             onPress={onOpenAddAccount}
             activeOpacity={0.8}
           >
-            <View style={styles.emptyAddIconCircle}>
+            <View style={styles.addAccountIconCircle}>
               <Plus size={20} color={Palette.primary} />
             </View>
-            <Text style={styles.addAccountCardTitle}>Add Account</Text>
+            <Text style={styles.addAccountCardTitle} numberOfLines={1}>
+              Add Account
+            </Text>
           </TouchableOpacity>
         </ScrollView>
       )}
 
       {/* Monthly Transactions */}
-      <View style={[styles.sectionTitleRow, { marginTop: 16, marginBottom: 8 }]}>
-        <Text style={styles.sectionTitle}>
-          {selectedMonth === 'all'
-            ? 'Recent Transactions'
-            : `Transactions • ${periodTitle}`}
-        </Text>
+      <View style={styles.txSectionHeader}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={styles.sectionTitle}>Recent Transactions</Text>
+          <Text style={styles.txSectionPeriod}>
+            {selectedMonth === 'all' ? 'All Time' : periodTitle}
+          </Text>
+        </View>
         {onNavigateToHistory ? (
           <TouchableOpacity
             onPress={() => {
@@ -557,7 +584,7 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
             accessibilityRole="button"
             accessibilityLabel="See all transactions in history"
           >
-            <Text style={styles.viewAllPlansLink}>See all ›</Text>
+            <Text style={styles.viewAllPlansLink}>See all</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -589,16 +616,21 @@ export const OverviewTab = React.memo<OverviewTabProps>(({
         </View>
       ) : (
         <>
-          {recentTransactions.map((tx) => (
-            <TransactionItemRow
-              key={tx.id}
-              transaction={tx}
-              categoryIcon={getCategoryIconName(tx.category, tx.type)}
-              pocketName={getPocketName(tx.pocketId)}
-              privacyMode={privacyMode}
-              onPress={onSelectTransaction}
-            />
-          ))}
+          {recentTransactions.map((tx) => {
+            const w = tx.walletId ? walletById.get(tx.walletId) : undefined;
+            return (
+              <TransactionItemRow
+                key={tx.id}
+                transaction={tx}
+                categoryIcon={getCategoryIconName(tx.category, tx.type)}
+                walletName={w ? w.name?.trim() || w.type : undefined}
+                walletType={w?.type}
+                pocketName={getPocketName(tx.pocketId)}
+                privacyMode={privacyMode}
+                onPress={onSelectTransaction}
+              />
+            );
+          })}
 
           {monthTransactions.length > recentTransactions.length && onNavigateToHistory ? (
             <TouchableOpacity
@@ -639,7 +671,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    height: 24,
+    minHeight: 32,
   },
   heroLabel: {
     ...Typography.caption,
@@ -651,39 +683,47 @@ const styles = StyleSheet.create({
   },
   currencyBadge: {
     backgroundColor: Palette.surfaceSoft,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   currencyBadgeText: {
     ...Typography.caption,
     fontSize: 11,
+    lineHeight: 14,
     fontWeight: '700',
     color: Palette.ink,
+    includeFontPadding: false,
   },
   heroAmount: {
     ...Typography.display,
-    fontSize: 30,
-    lineHeight: 36,
-    height: 40,
+    fontSize: 28,
+    lineHeight: 34,
+    minHeight: 36,
     fontWeight: '700',
     color: Palette.ink,
     marginTop: 10,
     marginBottom: 6,
-    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   heroCurrencySwitch: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 10,
-    padding: 2,
+    padding: 3,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
   heroCurrencyBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    minHeight: 26,
     borderRadius: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   heroCurrencyBtnActive: {
     backgroundColor: Palette.white,
@@ -691,8 +731,10 @@ const styles = StyleSheet.create({
   heroCurrencyBtnText: {
     ...Typography.caption,
     fontSize: 11,
+    lineHeight: 14,
     fontWeight: '600',
     color: Palette.muted,
+    includeFontPadding: false,
   },
   heroCurrencyBtnTextActive: {
     color: Palette.ink,
@@ -709,26 +751,29 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
-    paddingHorizontal: 8,
-    height: 44,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    minHeight: 56,
     marginBottom: 12,
   },
   stepperBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 34,
+    height: 34,
+    borderRadius: 9,
     backgroundColor: Palette.white,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   stepperBtnDisabled: {
     opacity: 0.35,
   },
   periodCenterBtn: {
     flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 36,
+    paddingHorizontal: 10,
   },
   periodCenterRow: {
     flexDirection: 'row',
@@ -738,27 +783,33 @@ const styles = StyleSheet.create({
   periodTitleText: {
     ...Typography.heading,
     fontSize: 14,
+    lineHeight: 18,
     fontWeight: '700',
     color: Palette.ink,
+    includeFontPadding: false,
   },
   periodSubtitleText: {
     ...Typography.caption,
-    fontSize: 10,
+    fontSize: 10.5,
+    lineHeight: 14,
     color: Palette.muted,
-    marginTop: 1,
+    marginTop: 4,
+    textAlign: 'center',
   },
   flowMetricsRow: {
     flexDirection: 'row',
     gap: 10,
-    height: 56,
+    minHeight: 56,
     marginBottom: 12,
   },
   flowPill: {
     flex: 1,
-    height: 56,
+    minWidth: 0,
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
+    paddingVertical: 8,
     borderRadius: 14,
     gap: 8,
   },
@@ -768,6 +819,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   flowLabel: {
     ...Typography.caption,
@@ -780,12 +832,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     marginTop: 1,
-    height: 18,
     lineHeight: 18,
   },
   flowRatioSection: {
     marginTop: 2,
-    height: 28,
   },
   dualFlowTrack: {
     height: 6,
@@ -807,12 +857,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 6,
-    height: 16,
+    gap: 8,
   },
   flowRatioMetaText: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
+  },
+  flowRatioNetText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  flowRatioPctText: {
+    flexShrink: 0,
   },
   sectionHeader: {
     marginBottom: 10,
@@ -824,6 +881,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4,
     marginBottom: 10,
+  },
+  txSectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: 16,
+    marginBottom: 10,
+    gap: 10,
+  },
+  txSectionPeriod: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    color: Palette.muted,
+    marginTop: 1,
   },
   sectionTitle: {
     ...Typography.subheading,
@@ -840,61 +911,85 @@ const styles = StyleSheet.create({
   actionRow4Col: {
     flexDirection: 'row',
     gap: 6,
-    height: 84,
+    minHeight: 82,
     marginBottom: 14,
   },
-  actionTile: {
+  actionTileOuter: {
     flex: 1,
+    minWidth: 0,
+  },
+  actionTile: {
+    width: '100%',
+    minWidth: 0,
     backgroundColor: Palette.white,
     borderRadius: 14,
     paddingVertical: 10,
-    paddingHorizontal: 2,
+    paddingHorizontal: 3,
     alignItems: 'center',
     justifyContent: 'center',
-    height: 84,
+    minHeight: 82,
+    overflow: 'hidden',
   },
   actionIconBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
+    width: 34,
+    height: 34,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
   },
   actionTileTitle: {
     ...Typography.caption,
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 10.5,
+    fontWeight: '600',
     color: Palette.ink,
+    textAlign: 'center',
+    width: '100%',
   },
   actionTileSub: {
     ...Typography.caption,
     fontSize: 9,
     color: Palette.muted,
     marginTop: 1,
+    textAlign: 'center',
   },
   accountsScroll: {
     marginHorizontal: -20,
-    paddingHorizontal: 20,
-    height: 134,
+    height: 142,
     marginBottom: 6,
   },
+  accountsScrollContent: {
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
   addAccountCardHorizontal: {
-    width: 130,
-    height: 130,
+    width: 144,
+    height: 136,
     backgroundColor: Palette.white,
     borderRadius: 16,
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+  },
+  addAccountIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: Palette.tintExpense,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
   },
   addAccountCardTitle: {
     ...Typography.caption,
-    fontSize: 12,
+    fontSize: 12.5,
+    lineHeight: 16,
     fontWeight: '600',
     color: Palette.primary,
-    marginTop: 8,
+    textAlign: 'center',
   },
   emptyAddCard: {
     backgroundColor: Palette.white,

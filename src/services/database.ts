@@ -136,36 +136,55 @@ const DEFAULT_CATEGORIES: {
   icon: string;
   color: string;
 }[] = [
+  // Expense (18 — symmetrical 6x3 grid)
+  { name: 'Food & Dining', type: 'expense', icon: 'Utensils', color: '#CC785C' },
+  { name: 'Coffee & Snacks', type: 'expense', icon: 'Coffee', color: '#D97706' },
+  { name: 'Transport', type: 'expense', icon: 'Car', color: '#0284C7' },
+  { name: 'Vehicle & Fuel', type: 'expense', icon: 'Fuel', color: '#EF4444' },
+  { name: 'Shopping', type: 'expense', icon: 'ShoppingCart', color: '#EC4899' },
+  { name: 'Housing & KPR', type: 'expense', icon: 'mci:home-percent-outline', color: '#0EA5E9' },
   { name: 'Bills & Utilities', type: 'expense', icon: 'Zap', color: '#C64545' },
   { name: 'Subscriptions', type: 'expense', icon: 'Film', color: '#6366F1' },
-  { name: 'Housing / Rent', type: 'expense', icon: 'Home', color: '#0EA5E9' },
-  { name: 'Internet & Phone', type: 'expense', icon: 'Wifi', color: '#3B82F6' },
-  { name: 'Insurance', type: 'expense', icon: 'ShieldCheck', color: '#10B981' },
-  { name: 'Fitness & Gym', type: 'expense', icon: 'Dumbbell', color: '#F97316' },
-  { name: 'Cloud & Storage', type: 'expense', icon: 'Cloud', color: '#8B5CF6' },
-  { name: 'Food & Beverages', type: 'expense', icon: 'Utensils', color: '#CC785C' },
-  { name: 'Snacks', type: 'expense', icon: 'Cookie', color: '#D97706' },
-  { name: 'Shopping', type: 'expense', icon: 'ShoppingCart', color: '#EC4899' },
-  { name: 'Fuel', type: 'expense', icon: 'Fuel', color: '#EF4444' },
-  { name: 'Parking', type: 'expense', icon: 'CircleParking', color: '#64748B' },
-  { name: 'Vehicle Services', type: 'expense', icon: 'Wrench', color: '#F59E0B' },
-  { name: 'Public Services', type: 'expense', icon: 'Landmark', color: '#0284C7' },
-  { name: 'Personal', type: 'expense', icon: 'User', color: '#A855F7' },
-  { name: 'Home Services', type: 'expense', icon: 'Hammer', color: '#14B8A6' },
-  { name: 'Furnishings', type: 'expense', icon: 'Armchair', color: '#84CC16' },
-  { name: 'Social', type: 'expense', icon: 'Users', color: '#E11D48' },
   { name: 'Health & Medical', type: 'expense', icon: 'HeartPulse', color: '#06B6D4' },
+  { name: 'Fitness & Gym', type: 'expense', icon: 'Dumbbell', color: '#F97316' },
+  { name: 'Personal', type: 'expense', icon: 'mci:account-heart-outline', color: '#A855F7' },
+  { name: 'Family', type: 'expense', icon: 'mci:human-male-female-child', color: '#E11D48' },
+  { name: 'Charity & Gifts', type: 'expense', icon: 'mci:hand-heart-outline', color: '#14B8A6' },
+  { name: 'Entertainment', type: 'expense', icon: 'Gamepad2', color: '#8B5CF6' },
+  { name: 'Travel', type: 'expense', icon: 'Plane', color: '#F59E0B' },
   { name: 'Education', type: 'expense', icon: 'GraduationCap', color: '#3B82F6' },
-  { name: 'Travel', type: 'expense', icon: 'Plane', color: '#F97316' },
+  { name: 'Insurance & Tax', type: 'expense', icon: 'mci:scale-balance', color: '#10B981' },
   { name: 'Others', type: 'expense', icon: 'CircleEllipsis', color: '#78716C' },
+
+  // Income (8)
   { name: 'Salary', type: 'income', icon: 'DollarSign', color: '#059669' },
-  { name: 'Allowance', type: 'income', icon: 'HandCoins', color: '#10B981' },
-  { name: 'Interest', type: 'income', icon: 'Percent', color: '#14B8A6' },
-  { name: 'Investments', type: 'income', icon: 'TrendingUp', color: '#0284C7' },
+  { name: 'Freelance / Business', type: 'income', icon: 'Briefcase', color: '#0EA5E9' },
   { name: 'Bonus', type: 'income', icon: 'Award', color: '#F59E0B' },
+  { name: 'Investments', type: 'income', icon: 'TrendingUp', color: '#0284C7' },
+  { name: 'Interest', type: 'income', icon: 'Percent', color: '#14B8A6' },
+  { name: 'Allowance', type: 'income', icon: 'HandCoins', color: '#10B981' },
   { name: 'Gift', type: 'income', icon: 'Gift', color: '#EC4899' },
   { name: 'Others', type: 'income', icon: 'CircleEllipsis', color: '#059669' },
 ];
+
+const LEGACY_EXPENSE_CATEGORY_MAP: Record<string, string> = {
+  'food & beverages': 'Food & Dining',
+  snacks: 'Coffee & Snacks',
+  snack: 'Coffee & Snacks',
+  'housing / rent': 'Housing & KPR',
+  'home services': 'Housing & KPR',
+  furnishings: 'Housing & KPR',
+  furnisings: 'Housing & KPR',
+  fuel: 'Vehicle & Fuel',
+  parking: 'Vehicle & Fuel',
+  'vehicle services': 'Vehicle & Fuel',
+  'internet & phone': 'Bills & Utilities',
+  bills: 'Bills & Utilities',
+  'cloud & storage': 'Subscriptions',
+  insurance: 'Insurance & Tax',
+  'public services': 'Insurance & Tax',
+  social: 'Entertainment',
+};
 
 // Remove legacy system 'Transfer' tag from selectable categories; internal transfers
 // use executeTransferFunds() directly and are excluded from transaction categories.
@@ -195,22 +214,138 @@ async function migrateCategoryIcons(db: SQLite.SQLiteDatabase): Promise<void> {
     );
     await db.runAsync(
       `UPDATE categories
-       SET icon = 'Cookie'
-       WHERE LOWER(TRIM(name)) IN ('snacks', 'snack') AND (icon = 'Coffee' OR icon = 'HelpCircle')`
-    );
-    // Repair legacy typo "Furnisings" -> "Furnishings" across categories, transactions, and line items
-    await db.runAsync(
-      "UPDATE categories SET name = 'Furnishings' WHERE LOWER(TRIM(name)) = 'furnisings'"
+       SET icon = 'mci:account-heart-outline'
+       WHERE LOWER(TRIM(name)) = 'personal' AND is_default = 1 AND icon = 'User'`
     );
     await db.runAsync(
-      "UPDATE transactions SET category = 'Furnishings' WHERE LOWER(TRIM(category)) = 'furnisings'"
-    );
-    await db.runAsync(
-      "UPDATE transaction_items SET category = 'Furnishings' WHERE LOWER(TRIM(category)) = 'furnisings'"
+      `UPDATE categories
+       SET icon = 'mci:home-percent-outline'
+       WHERE LOWER(TRIM(name)) = 'housing & kpr' AND is_default = 1 AND (icon = 'Home' OR icon = 'HelpCircle')`
     );
     // Repair legacy debt repayments saved under non-existent "Bills" category -> "Bills & Utilities"
     await db.runAsync(
       "UPDATE transactions SET category = 'Bills & Utilities' WHERE lent_parent_tx_id IS NOT NULL AND type = 'expense' AND LOWER(TRIM(category)) = 'bills'"
+    );
+  } catch {
+    // Non-critical migration failure caught safely
+  }
+}
+
+/**
+ * One-time migration from legacy v1 default categories (22 expense + 7 income)
+ * to the streamlined v2 taxonomy (18 expense + 8 income).
+ * Preserves all transactions, receipt items, category budgets, and user-created custom categories.
+ */
+async function migrateCategoriesV2(db: SQLite.SQLiteDatabase): Promise<void> {
+  try {
+    const doneRow = await db.getFirstAsync<{ value: string }>(
+      "SELECT value FROM app_settings WHERE key = 'categories_v2_migrated'"
+    );
+    if (doneRow && doneRow.value === '1') return;
+
+    const defaultByKey = new Map<string, (typeof DEFAULT_CATEGORIES)[number]>();
+    for (const def of DEFAULT_CATEGORIES) {
+      defaultByKey.set(`${def.type}:${def.name.toLowerCase()}`, def);
+    }
+
+    // 1. Remap legacy expense category names across transactions, transaction_items, and default categories
+    for (const [oldLower, newName] of Object.entries(LEGACY_EXPENSE_CATEGORY_MAP)) {
+      await db.runAsync(
+        "UPDATE transactions SET category = ? WHERE type = 'expense' AND LOWER(TRIM(category)) = ?",
+        newName,
+        oldLower
+      );
+      await db.runAsync(
+        'UPDATE transaction_items SET category = ? WHERE LOWER(TRIM(category)) = ?',
+        newName,
+        oldLower
+      );
+
+      const targetExists = await db.getFirstAsync<{ id: string }>(
+        "SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(type)) = 'expense'",
+        newName
+      );
+      const def = defaultByKey.get(`expense:${newName.toLowerCase()}`);
+
+      if (targetExists) {
+        // Remove merged legacy default row (never delete user-created custom categories)
+        await db.runAsync(
+          "DELETE FROM categories WHERE is_default = 1 AND LOWER(TRIM(type)) = 'expense' AND LOWER(TRIM(name)) = ?",
+          oldLower
+        );
+      } else {
+        // Rename the first matching legacy default row in-place so IDs stay tidy
+        const legacyRow = await db.getFirstAsync<{ id: string }>(
+          "SELECT id FROM categories WHERE is_default = 1 AND LOWER(TRIM(type)) = 'expense' AND LOWER(TRIM(name)) = ?",
+          oldLower
+        );
+        if (legacyRow) {
+          await db.runAsync(
+            'UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?',
+            newName,
+            def?.icon || 'CircleEllipsis',
+            def?.color || '#CC785C',
+            legacyRow.id
+          );
+        }
+      }
+    }
+
+    // 2. Ensure all v2 default categories exist (inserts newly introduced categories like Transport, Family, Charity & Gifts, Entertainment, Freelance / Business)
+    for (let i = 0; i < DEFAULT_CATEGORIES.length; i++) {
+      const cat = DEFAULT_CATEGORIES[i];
+      const existing = await db.getFirstAsync<{ id: string }>(
+        'SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(type)) = LOWER(TRIM(?))',
+        cat.name,
+        cat.type
+      );
+      if (!existing) {
+        const slug = cat.name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 16);
+        const catId = `cat_${cat.type[0]}_${slug}_${Date.now().toString(36)}_${i}`;
+        await db.runAsync(
+          `INSERT OR IGNORE INTO categories (id, name, type, icon, color, is_default)
+           VALUES (?, ?, ?, ?, ?, 1)`,
+          catId,
+          cat.name,
+          cat.type,
+          cat.icon,
+          cat.color
+        );
+      }
+    }
+
+    // 3. Remap and merge any stored category_budgets_* JSON maps in app_settings
+    const budgetSettingRows = await db.getAllAsync<{ key: string; value: string }>(
+      "SELECT key, value FROM app_settings WHERE key LIKE 'category_budgets_%'"
+    );
+    for (const row of budgetSettingRows) {
+      try {
+        const parsed = JSON.parse(row.value) as Record<string, number>;
+        if (!parsed || typeof parsed !== 'object') continue;
+        const nextMap: Record<string, number> = {};
+        let changed = false;
+        for (const [catName, rawLimit] of Object.entries(parsed)) {
+          const limit = Number(rawLimit) || 0;
+          if (limit <= 0) continue;
+          const mapped = LEGACY_EXPENSE_CATEGORY_MAP[catName.trim().toLowerCase()];
+          const finalKey = mapped || catName;
+          if (mapped && mapped !== catName) changed = true;
+          nextMap[finalKey] = (nextMap[finalKey] || 0) + limit;
+        }
+        if (changed) {
+          await db.runAsync(
+            'INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, ?)',
+            row.key,
+            JSON.stringify(nextMap)
+          );
+        }
+      } catch {
+        // Ignore malformed budget JSON
+      }
+    }
+
+    await db.runAsync(
+      "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('categories_v2_migrated', '1')"
     );
   } catch {
     // Non-critical migration failure caught safely
@@ -329,6 +464,9 @@ export async function seedDefaultCategories(
 
   await db.runAsync(
     "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('defaults_seeded_v1', '1')"
+  );
+  await db.runAsync(
+    "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('categories_v2_migrated', '1')"
   );
 }
 
@@ -463,6 +601,7 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
       await seedDefaultCategories(db);
 
       await removeSystemTransferCategory(db);
+      await migrateCategoriesV2(db);
       await migrateCategoryIcons(db);
 
       // Auto-repair any wallets with null, empty, or whitespace-only names
@@ -2998,6 +3137,7 @@ export async function importAllData(
         );
       }
 
+      await migrateCategoriesV2(db);
       await migrateCategoryIcons(db);
 
       // Re-store the snapshot so an accidental restore can be undone

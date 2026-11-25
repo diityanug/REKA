@@ -205,13 +205,14 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="90%"
-      maxHeight="94%"
+      fullPage={true}
+      presentation="push"
     >
       <ModalHeader
         title="Monthly Category Budgets"
         subtitle={periodLabel}
         onClose={onClose}
+        leadingIcon="back"
       />
 
       <KeyboardSafeContainer extraBottomSpace={28}>
@@ -438,7 +439,7 @@ export const SetBudgetModal: React.FC<SetBudgetModalProps> = ({
 
 const styles = StyleSheet.create({
   totalSummaryCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 18,
     padding: 16,
     marginBottom: 16,

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import Svg, { G, Rect, Line, Path, Circle, Text as SvgText } from 'react-native-svg';
-import { Palette, Typography } from '../theme/tokens';
+import { FontFamily, Palette, Typography } from '../theme/tokens';
 import { CurrencyType } from '../types';
 import { formatCurrency } from '../utils/formatters';
 import { AppHaptics } from '../utils/haptics';
+import { FadeSlideSwitch } from './MotionPrimitives';
 
 export interface TrendPoint {
   periodKey: string;
@@ -48,11 +49,11 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const activePoint = data[safeIndex] || null;
   const hasAnyActivity = data.some((d) => d.income > 0 || d.expense > 0);
 
-  const chartHeight = 164;
-  const padLeft = 36;
+  const chartHeight = 196;
+  const padLeft = 46;
   const padRight = 10;
-  const padTop = 14;
-  const padBottom = 26;
+  const padTop = 18;
+  const padBottom = 34;
   const plotWidth = Math.max(120, chartWidth - padLeft - padRight);
   const plotHeight = chartHeight - padTop - padBottom;
 
@@ -63,13 +64,13 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const netMaxAbs = Math.max(1, ...data.map((d) => Math.abs(d.net)));
 
   const slotWidth = data.length > 0 ? plotWidth / data.length : plotWidth;
-  const barWidth = Math.max(7, Math.min(14, (slotWidth - 14) / 2));
+  const barWidth = Math.max(8, Math.min(13, (slotWidth - 18) / 2));
 
   // Build Net Cashflow line coordinates (0 centered)
   const netPoints = data.map((d, idx) => {
     const cx = padLeft + slotWidth * idx + slotWidth / 2;
     const midY = padTop + plotHeight / 2;
-    const cy = midY - (d.net / netMaxAbs) * (plotHeight * 0.42);
+    const cy = midY - (d.net / netMaxAbs) * (plotHeight * 0.4);
     return { cx, cy, ...d };
   });
 
@@ -83,7 +84,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <View>
+        <View style={styles.headerTextWrap}>
           <Text style={styles.title}>Monthly Trend</Text>
           <Text style={styles.subtitle}>Last 6 months</Text>
         </View>
@@ -123,48 +124,83 @@ export const TrendChart: React.FC<TrendChartProps> = ({
         </View>
       ) : (
         <>
-          {/* Selected Period Detail Strip */}
+          {/* Selected Period Mini Ledger — Airy 3-row layout (handles Rp billions cleanly) */}
           {activePoint ? (
-            <View style={styles.detailStrip}>
-              <Text style={styles.detailPeriod}>{activePoint.fullLabel}</Text>
-              <View style={styles.detailMetricsRow}>
-                <View style={styles.detailMetricItem}>
-                  <View style={[styles.legendDot, { backgroundColor: Palette.accentTeal }]} />
-                  <Text style={styles.detailMetricLabel}>In </Text>
-                  <Text style={styles.detailMetricVal} numberOfLines={1}>
+            <View style={styles.detailCard}>
+              <View style={styles.detailTopRow}>
+                <Text style={styles.detailPeriod}>{activePoint.fullLabel}</Text>
+                <Text style={styles.detailHint}>
+                  {mode === 'bars' ? 'Tap bar to inspect' : 'Tap point to inspect'}
+                </Text>
+              </View>
+
+              <View style={styles.detailDivider} />
+
+              <View style={styles.detailRows}>
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelGroup}>
+                    <View style={[styles.legendDot, { backgroundColor: Palette.accentTeal }]} />
+                    <Text style={styles.detailMetricLabel}>Income</Text>
+                  </View>
+                  <Text
+                    style={styles.detailMetricVal}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                  >
                     {formatCurrency(activePoint.income, currency, privacyMode)}
                   </Text>
                 </View>
-                <View style={styles.detailMetricItem}>
-                  <View style={[styles.legendDot, { backgroundColor: Palette.primary }]} />
-                  <Text style={styles.detailMetricLabel}>Out </Text>
-                  <Text style={styles.detailMetricVal} numberOfLines={1}>
+
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLabelGroup}>
+                    <View style={[styles.legendDot, { backgroundColor: Palette.primary }]} />
+                    <Text style={styles.detailMetricLabel}>Expense</Text>
+                  </View>
+                  <Text
+                    style={styles.detailMetricVal}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.82}
+                  >
                     {formatCurrency(activePoint.expense, currency, privacyMode)}
                   </Text>
                 </View>
               </View>
-              <Text
-                style={[
-                  styles.detailNetText,
-                  { color: activePoint.net >= 0 ? Palette.success : Palette.error },
-                ]}
-              >
-                Net: {activePoint.net >= 0 ? '+' : '-'}
-                {formatCurrency(Math.abs(activePoint.net), currency, privacyMode)}
-              </Text>
+
+              <View style={styles.detailNetRow}>
+                <Text style={styles.detailNetLabel}>Net Cashflow</Text>
+                <Text
+                  style={[
+                    styles.detailNetVal,
+                    { color: activePoint.net >= 0 ? Palette.success : Palette.error },
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  {activePoint.net >= 0 ? '+' : '-'}
+                  {formatCurrency(Math.abs(activePoint.net), currency, privacyMode)}
+                </Text>
+              </View>
             </View>
           ) : null}
 
           {/* SVG Plot Area */}
-          <View
+          <FadeSlideSwitch
+            transitionKey={mode}
+            offsetY={6}
+            duration={210}
             style={styles.svgContainer}
-            onLayout={(e) => {
-              const w = e.nativeEvent.layout.width;
-              if (w > 0 && Math.abs(w - chartWidth) > 2) {
-                setChartWidth(w);
-              }
-            }}
           >
+            <View
+              onLayout={(e) => {
+                const w = e.nativeEvent.layout.width;
+                if (w > 0 && Math.abs(w - chartWidth) > 2) {
+                  setChartWidth(w);
+                }
+              }}
+            >
             <Svg width={chartWidth} height={chartHeight}>
               {mode === 'bars' ? (
                 <>
@@ -181,13 +217,14 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                           y2={y}
                           stroke={Palette.hairline}
                           strokeWidth={1}
-                          strokeDasharray={ratio > 0 ? '3 3' : undefined}
+                          strokeDasharray={ratio > 0 ? '3 4' : undefined}
                         />
                         {!privacyMode ? (
                           <SvgText
-                            x={padLeft - 6}
-                            y={y + 3}
-                            fontSize={9}
+                            x={padLeft - 8}
+                            y={y + 3.5}
+                            fontSize={10}
+                            fontFamily={FontFamily.sans}
                             fill={Palette.muted}
                             textAnchor="end"
                           >
@@ -202,20 +239,20 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                   {data.map((pt, idx) => {
                     const isSelected = idx === safeIndex;
                     const groupCenter = padLeft + slotWidth * idx + slotWidth / 2;
-                    const incH = Math.max(pt.income > 0 ? 3 : 0, (pt.income / maxBarVal) * plotHeight);
-                    const expH = Math.max(pt.expense > 0 ? 3 : 0, (pt.expense / maxBarVal) * plotHeight);
+                    const incH = Math.max(pt.income > 0 ? 4 : 0, (pt.income / maxBarVal) * plotHeight);
+                    const expH = Math.max(pt.expense > 0 ? 4 : 0, (pt.expense / maxBarVal) * plotHeight);
                     const baseY = padTop + plotHeight;
-                    const gap = 3;
+                    const gap = 4;
 
                     return (
                       <G key={pt.periodKey}>
                         {isSelected ? (
                           <Rect
-                            x={padLeft + slotWidth * idx + 3}
-                            y={padTop - 4}
-                            width={Math.max(slotWidth - 6, 10)}
-                            height={plotHeight + 6}
-                            rx={8}
+                            x={padLeft + slotWidth * idx + 4}
+                            y={padTop - 8}
+                            width={Math.max(slotWidth - 8, 12)}
+                            height={plotHeight + 12}
+                            rx={10}
                             fill={Palette.surfaceSoft}
                           />
                         ) : null}
@@ -228,7 +265,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                           height={incH}
                           rx={4}
                           fill={Palette.accentTeal}
-                          opacity={isSelected ? 1 : 0.72}
+                          opacity={isSelected ? 1 : 0.68}
                         />
 
                         {/* Expense Bar */}
@@ -239,14 +276,15 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                           height={expH}
                           rx={4}
                           fill={Palette.primary}
-                          opacity={isSelected ? 1 : 0.72}
+                          opacity={isSelected ? 1 : 0.68}
                         />
 
                         {/* X-Axis Period Label */}
                         <SvgText
                           x={groupCenter}
-                          y={chartHeight - 6}
-                          fontSize={10}
+                          y={chartHeight - 10}
+                          fontSize={11}
+                          fontFamily={FontFamily.sans}
                           fontWeight={isSelected ? '700' : '500'}
                           fill={isSelected ? Palette.ink : Palette.muted}
                           textAnchor="middle"
@@ -262,7 +300,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                   {/* Zero baseline + upper/lower guides */}
                   {[1, 0, -1].map((dir) => {
                     const midY = padTop + plotHeight / 2;
-                    const y = midY - dir * (plotHeight * 0.42);
+                    const y = midY - dir * (plotHeight * 0.4);
                     const labelVal = dir * netMaxAbs;
                     return (
                       <G key={`net-grid-${dir}`}>
@@ -273,13 +311,14 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                           y2={y}
                           stroke={dir === 0 ? Palette.mutedSoft : Palette.hairline}
                           strokeWidth={dir === 0 ? 1.2 : 1}
-                          strokeDasharray={dir !== 0 ? '3 3' : undefined}
+                          strokeDasharray={dir !== 0 ? '3 4' : undefined}
                         />
                         {!privacyMode ? (
                           <SvgText
-                            x={padLeft - 6}
-                            y={y + 3}
-                            fontSize={9}
+                            x={padLeft - 8}
+                            y={y + 3.5}
+                            fontSize={10}
+                            fontFamily={FontFamily.sans}
                             fill={Palette.muted}
                             textAnchor="end"
                           >
@@ -290,13 +329,27 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     );
                   })}
 
+                  {/* Selected Point Vertical Crosshair Guide (distinct from bar column highlight) */}
+                  {netPoints[safeIndex] ? (
+                    <Line
+                      x1={netPoints[safeIndex].cx}
+                      y1={padTop - 4}
+                      x2={netPoints[safeIndex].cx}
+                      y2={padTop + plotHeight + 2}
+                      stroke={Palette.mutedSoft}
+                      strokeWidth={1.2}
+                      strokeDasharray="3 3"
+                      opacity={0.75}
+                    />
+                  ) : null}
+
                   {/* Connecting Path */}
                   {netPath ? (
                     <Path
                       d={netPath}
                       fill="none"
                       stroke={Palette.ink}
-                      strokeWidth={2}
+                      strokeWidth={2.2}
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     />
@@ -308,6 +361,15 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                     const dotColor = pt.net >= 0 ? Palette.success : Palette.error;
                     return (
                       <G key={`net-pt-${pt.periodKey}`}>
+                        {isSelected ? (
+                          <Circle
+                            cx={pt.cx}
+                            cy={pt.cy}
+                            r={11}
+                            fill={dotColor}
+                            opacity={0.18}
+                          />
+                        ) : null}
                         <Circle
                           cx={pt.cx}
                           cy={pt.cy}
@@ -318,8 +380,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                         />
                         <SvgText
                           x={pt.cx}
-                          y={chartHeight - 6}
-                          fontSize={10}
+                          y={chartHeight - 10}
+                          fontSize={11}
+                          fontFamily={FontFamily.sans}
                           fontWeight={isSelected ? '700' : '500'}
                           fill={isSelected ? Palette.ink : Palette.muted}
                           textAnchor="middle"
@@ -354,7 +417,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                 />
               ))}
             </View>
-          </View>
+            </View>
+          </FadeSlideSwitch>
         </>
       )}
     </View>
@@ -365,7 +429,8 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: Palette.white,
     borderRadius: 20,
-    padding: 16,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
     marginBottom: 16,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -374,17 +439,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    gap: 12,
+    marginBottom: 16,
+  },
+  headerTextWrap: {
+    flex: 1,
   },
   title: {
-    ...Typography.heading,
-    fontSize: 15,
+    fontFamily: FontFamily.sans,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: '700',
     color: Palette.ink,
+    letterSpacing: -0.2,
   },
   subtitle: {
-    ...Typography.caption,
-    fontSize: 11,
+    fontFamily: FontFamily.sans,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
     color: Palette.muted,
     marginTop: 2,
   },
@@ -394,18 +467,21 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 3,
     gap: 2,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
   },
   modeBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 8,
   },
   modeBtnActive: {
     backgroundColor: Palette.white,
   },
   modeBtnText: {
-    ...Typography.caption,
-    fontSize: 11,
+    fontFamily: FontFamily.sans,
+    fontSize: 11.5,
+    lineHeight: 14,
     fontWeight: '600',
     color: Palette.muted,
   },
@@ -413,57 +489,106 @@ const styles = StyleSheet.create({
     color: Palette.ink,
     fontWeight: '700',
   },
-  detailStrip: {
+  detailCard: {
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    marginBottom: 10,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
   },
-  detailPeriod: {
-    ...Typography.caption,
-    fontSize: 11,
-    fontWeight: '700',
-    color: Palette.ink,
-    marginBottom: 4,
-  },
-  detailMetricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 10,
-    marginBottom: 3,
-  },
-  detailMetricItem: {
+  detailTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  detailPeriod: {
+    fontFamily: FontFamily.sans,
+    fontSize: 13,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: Palette.ink,
+  },
+  detailHint: {
+    fontFamily: FontFamily.sans,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '500',
+    color: Palette.muted,
+  },
+  detailDivider: {
+    height: 1,
+    backgroundColor: Palette.hairline,
+    marginVertical: 10,
+  },
+  detailRows: {
+    gap: 8,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  detailLabelGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexShrink: 0,
   },
   legendDot: {
-    width: 7,
-    height: 7,
+    width: 8,
+    height: 8,
     borderRadius: 4,
-    marginRight: 5,
   },
   detailMetricLabel: {
-    ...Typography.caption,
-    fontSize: 11,
+    fontFamily: FontFamily.sans,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: '500',
     color: Palette.muted,
   },
   detailMetricVal: {
-    ...Typography.body,
-    fontSize: 12,
+    ...Typography.mono,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '700',
     color: Palette.ink,
+    textAlign: 'right',
     flexShrink: 1,
   },
-  detailNetText: {
-    ...Typography.caption,
-    fontSize: 11,
+  detailNetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: Palette.hairline,
+  },
+  detailNetLabel: {
+    fontFamily: FontFamily.sans,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: Palette.ink,
+    flexShrink: 0,
+  },
+  detailNetVal: {
+    ...Typography.mono,
+    fontSize: 13.5,
+    lineHeight: 18,
     fontWeight: '700',
+    textAlign: 'right',
+    flexShrink: 1,
   },
   svgContainer: {
     position: 'relative',
     width: '100%',
+    paddingTop: 2,
   },
   touchOverlay: {
     position: 'absolute',
@@ -474,14 +599,15 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   emptyBox: {
-    paddingVertical: 20,
+    paddingVertical: 24,
+    paddingHorizontal: 12,
     alignItems: 'center',
   },
   emptyText: {
-    ...Typography.caption,
-    fontSize: 12,
+    fontFamily: FontFamily.sans,
+    fontSize: 12.5,
     color: Palette.muted,
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 19,
   },
 });

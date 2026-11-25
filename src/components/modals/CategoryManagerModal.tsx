@@ -86,13 +86,14 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
+      presentation="push"
     >
       <ModalHeader
         title="Categories"
         subtitle="Manage expense and income tags"
         onClose={onClose}
+        leadingIcon="back"
       />
 
             {/* Segmented Control */}
@@ -418,7 +419,7 @@ const styles = StyleSheet.create({
   textInputBox: {
     ...Typography.body,
     fontSize: 14,
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,

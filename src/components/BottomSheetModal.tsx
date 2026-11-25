@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import {
   View,
   TouchableOpacity,
   Animated,
   StyleSheet,
-  Dimensions,
+  useWindowDimensions,
   StyleProp,
   ViewStyle,
   Keyboard,
@@ -16,17 +16,18 @@ import { Palette } from '../theme/tokens';
 import {
   OverlayPortal,
   SheetDepthContext,
-  useIsInsideSheet,
   useOverlayLayer,
 } from './OverlayHost';
 
-const { height: WINDOW_HEIGHT } = Dimensions.get('window');
-const { height: SCREEN_HEIGHT_RAW } = Dimensions.get('screen');
-const SCREEN_HEIGHT = Math.max(WINDOW_HEIGHT, SCREEN_HEIGHT_RAW || 0);
+const FullPageSheetContext = createContext<boolean>(false);
+
+export function useIsFullPageSheet(): boolean {
+  return useContext(FullPageSheetContext);
+}
 
 /**
  * Keeps the closing sheet's last visible children subtree intact during the
- * 200ms slide-down animation without triggering double renders while open.
+ * exit animation without triggering double renders while open.
  */
 const FrozenContent = React.memo<{
   visible: boolean;
@@ -37,6 +38,8 @@ const FrozenContent = React.memo<{
 );
 FrozenContent.displayName = 'FrozenContent';
 
+export type FullPagePresentation = 'push' | 'modal';
+
 interface BottomSheetModalProps {
   visible: boolean;
   onClose: () => void;
@@ -46,6 +49,12 @@ interface BottomSheetModalProps {
   sheetStyle?: StyleProp<ViewStyle>;
   dismissOnBackdropPress?: boolean;
   fullPage?: boolean;
+  /**
+   * Native transition style when `fullPage={true}`:
+   * - `'push'`: horizontal slide-in from right (drill-down detail & settings pages, paired with ←)
+   * - `'modal'`: snappy upward lift + fade (creation forms & task flows, paired with ✕)
+   */
+  presentation?: FullPagePresentation;
 }
 
 export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
@@ -57,11 +66,15 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
   sheetStyle,
   dismissOnBackdropPress = true,
   fullPage = false,
+  presentation = 'modal',
 }) => {
   const insets = useSafeAreaInsets();
-  const insideSheet = useIsInsideSheet();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const [modalMounted, setModalMounted] = useState(visible);
   const animValue = useState(() => new Animated.Value(0))[0];
+
+  const isPush = fullPage && presentation === 'push';
+  const isFullModal = fullPage && presentation === 'modal';
 
   // Mount synchronously when opening (derived state) instead of through an effect (cascading render)
   if (visible && !modalMounted) {
@@ -73,15 +86,17 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
       Keyboard.dismiss();
       Animated.timing(animValue, {
         toValue: 1,
-        duration: 260,
-        easing: Easing.out(Easing.cubic),
+        duration: isPush ? 260 : isFullModal ? 220 : 250,
+        easing: Easing.bezier(0.2, 0.85, 0.25, 1),
         useNativeDriver: true,
       }).start();
     } else {
       Animated.timing(animValue, {
         toValue: 0,
-        duration: 200,
-        easing: Easing.in(Easing.cubic),
+        duration: isPush ? 210 : isFullModal ? 175 : 200,
+        easing: isPush
+          ? Easing.bezier(0.32, 0.08, 0.24, 1)
+          : Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(({ finished }) => {
         if (finished) {
@@ -89,7 +104,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
         }
       });
     }
-  }, [visible, animValue]);
+  }, [visible, animValue, isPush, isFullModal]);
 
   const handleRequestClose = useCallback(() => {
     if (Keyboard.isVisible && Keyboard.isVisible()) {
@@ -100,7 +115,7 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
     return true;
   }, [onClose]);
 
-  const { overlayId, zIndex } = useOverlayLayer(
+  const { overlayId } = useOverlayLayer(
     modalMounted,
     visible,
     handleRequestClose
@@ -108,20 +123,42 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
 
   if (!modalMounted) return null;
 
-  // Backdrop softly fades in/out without any harsh sliding black box
+  // Soft stationary fading scrim (lighter for fullPage push/modal so it feels truly native)
   const backdropOpacity = animValue.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 1],
   });
 
-  // Sheet smoothly glides up from bottom
+  // Native motion curves per presentation type
   const sheetTranslateY = animValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [SCREEN_HEIGHT, 0],
+    outputRange: [
+      isFullModal ? Math.min(windowHeight * 0.12, 84) : windowHeight,
+      0,
+    ],
   });
 
+  const pushTranslateX = animValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: [windowWidth, 0],
+  });
+
+  const modalFadeOpacity = animValue.interpolate({
+    inputRange: [0, 0.55, 1],
+    outputRange: [0, 0.96, 1],
+  });
+
+  const animatedContainerStyle = isPush
+    ? { transform: [{ translateX: pushTranslateX }] }
+    : isFullModal
+      ? {
+          opacity: modalFadeOpacity,
+          transform: [{ translateY: sheetTranslateY }],
+        }
+      : { transform: [{ translateY: sheetTranslateY }] };
+
   const handleBackdropPress = () => {
-    if (!dismissOnBackdropPress) return;
+    if (fullPage || !dismissOnBackdropPress) return;
     // While typing, a tap outside should only dismiss the keyboard,
     // otherwise a stray tap would discard a half-filled form.
     if (Keyboard.isVisible && Keyboard.isVisible()) {
@@ -138,52 +175,57 @@ export const BottomSheetModal: React.FC<BottomSheetModalProps> = ({
       pointerEvents={visible ? 'auto' : 'none'}
       style={[
         styles.rootContainer,
-        !insideSheet && { zIndex },
         fullPage ? styles.rootContainerFullPage : { paddingTop: Math.max(insets.top, 24) + 8 },
       ]}
     >
-      {/* Soft Stationary Fading Scrim - Warm Editorial Overlay */}
+      {/* Subtle Native Dim Layer behind incoming page / sheet */}
       <Animated.View
         style={[
           StyleSheet.absoluteFill,
-          styles.backdrop,
+          fullPage
+            ? isPush
+              ? styles.backdropPush
+              : styles.backdropFullModal
+            : styles.backdrop,
           { opacity: backdropOpacity },
         ]}
       >
         <TouchableOpacity
           style={StyleSheet.absoluteFill}
           activeOpacity={1}
+          disabled={fullPage}
           onPress={handleBackdropPress}
         />
       </Animated.View>
 
-      {/* Sliding Sheet / Page Container with Curved Header */}
+      {/* Sliding Native Page / Bottom Sheet Container */}
       <Animated.View
         style={[
           styles.sheet,
           fullPage && [styles.sheetFullPage, { paddingTop: insets.top }],
+          isPush && styles.sheetPushShadow,
           height && !fullPage ? { height } : null,
           maxHeight && !fullPage ? { maxHeight } : null,
           sheetStyle,
-          { transform: [{ translateY: sheetTranslateY }] },
+          animatedContainerStyle,
         ]}
       >
         <SheetDepthContext.Provider value={true}>
-          <FrozenContent visible={visible}>{children}</FrozenContent>
+          <FullPageSheetContext.Provider value={fullPage}>
+            <FrozenContent visible={visible}>{children}</FrozenContent>
+          </FullPageSheetContext.Provider>
         </SheetDepthContext.Provider>
       </Animated.View>
     </View>
   );
 
-  if (insideSheet) {
-    return (
-      <OverlayPortal id={overlayId} active={modalMounted}>
-        {overlayView}
-      </OverlayPortal>
-    );
-  }
-
-  return overlayView;
+  // Always portal into root OverlayHost so modals mounted inside tabs
+  // (like HistoryFilterModal) render edge-to-edge above AppHeader and BottomTabBar.
+  return (
+    <OverlayPortal id={overlayId} active={modalMounted}>
+      {overlayView}
+    </OverlayPortal>
+  );
 };
 
 const styles = StyleSheet.create({
@@ -202,7 +244,13 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   backdrop: {
-    backgroundColor: 'rgba(18, 18, 16, 0.32)', // Soft warm subtle scrim (No harsh pitch-black)
+    backgroundColor: 'rgba(18, 18, 16, 0.34)', // Compact bottom-sheet scrim
+  },
+  backdropPush: {
+    backgroundColor: 'rgba(20, 20, 19, 0.14)', // Native push screen subtle previous-page dim
+  },
+  backdropFullModal: {
+    backgroundColor: 'rgba(20, 20, 19, 0.16)', // Subtle transition scrim for full-page task modal
   },
   sheet: {
     backgroundColor: Palette.white,
@@ -212,11 +260,20 @@ const styles = StyleSheet.create({
   },
   sheetFullPage: {
     flex: 1,
+    width: '100%',
     height: '100%',
     maxHeight: '100%',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    backgroundColor: Palette.white,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    backgroundColor: Palette.canvas,
     overflow: 'hidden',
+  },
+  sheetPushShadow: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: 'rgba(20, 20, 19, 0.1)',
+    shadowColor: '#141413',
+    shadowOffset: { width: -4, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
   },
 });

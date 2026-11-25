@@ -123,12 +123,15 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="82%"
+      fullPage={true}
+      presentation="push"
     >
       <View style={styles.container}>
         <ModalHeader
           title={isChanging ? 'Change PIN' : 'Set Up PIN'}
+          subtitle="App security lock"
           onClose={onClose}
+          leadingIcon="back"
         />
 
         <View style={styles.content}>
@@ -230,7 +233,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
   },
   stepTitle: {
     ...Typography.subheading,

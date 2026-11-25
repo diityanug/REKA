@@ -24,6 +24,8 @@ import {
   Smartphone,
   FileText,
   X,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react-native';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
@@ -40,6 +42,7 @@ import { useLocalAlert } from '../../hooks/useLocalAlert';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
+import { triggerSmoothLayout } from '../MotionPrimitives';
 import { POCKET_ICON_CATEGORIES } from './NewPocketModal';
 import { TransactionItemRow } from '../TransactionItemRow';
 import { BottomSheetModal } from '../BottomSheetModal';
@@ -201,13 +204,14 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     <BottomSheetModal
       visible={!!propWallet}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
+      presentation="push"
     >
       <ModalHeader
         title={walletDisplayName}
-        subtitle={`${wallet.currency} • ${wallet.type.toUpperCase()}${wallet.accountNumber ? ` • ${wallet.accountNumber}` : ''}`}
+        subtitle={`${wallet.currency}  ·  ${wallet.type}${wallet.accountNumber ? `  ·  ${wallet.accountNumber}` : ''}`}
         onClose={onClose}
+        leadingIcon="back"
       />
 
       <KeyboardSafeContainer
@@ -780,24 +784,16 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
               )}
 
               {/* Account Activity / Transactions */}
-              <View style={[styles.sectionHeader, { marginTop: 20 }]}>
+              <View style={styles.activityHeaderRow}>
                 <Text style={styles.sectionTitle} numberOfLines={1} textBreakStrategy="simple">
                   {`Activity (${currentTransactions.length})`}
                 </Text>
                 {currentTransactions.length > 10 ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      AppHaptics.selection();
-                      setShowAllActivity((prev) => !prev);
-                    }}
-                    activeOpacity={0.75}
-                    accessibilityRole="button"
-                    accessibilityLabel={showAllActivity ? 'Show latest 10 transactions' : `Show all ${currentTransactions.length} transactions`}
-                  >
-                    <Text style={{ ...Typography.caption, color: Palette.primary, fontWeight: '600' }}>
-                      {showAllActivity ? 'Show Latest 10' : `Show All (${currentTransactions.length})`}
-                    </Text>
-                  </TouchableOpacity>
+                  <Text style={styles.activityCountHint}>
+                    {showAllActivity
+                      ? `All ${currentTransactions.length} shown`
+                      : `Latest 10 of ${currentTransactions.length}`}
+                  </Text>
                 ) : null}
               </View>
 
@@ -810,16 +806,46 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   </Text>
                 </View>
               ) : (
-                (showAllActivity ? currentTransactions : currentTransactions.slice(0, 10)).map((tx) => (
-                  <TransactionItemRow
-                    key={tx.id}
-                    transaction={tx}
-                    categoryIcon={getCategoryIconName(tx.category, tx.type)}
-                    pocketName={getPocketName(tx.pocketId)}
-                    privacyMode={privacyMode}
-                    onPress={onSelectTransaction}
-                  />
-                ))
+                <>
+                  {(showAllActivity ? currentTransactions : currentTransactions.slice(0, 10)).map((tx) => (
+                    <TransactionItemRow
+                      key={tx.id}
+                      transaction={tx}
+                      categoryIcon={getCategoryIconName(tx.category, tx.type)}
+                      pocketName={getPocketName(tx.pocketId)}
+                      privacyMode={privacyMode}
+                      onPress={onSelectTransaction}
+                    />
+                  ))}
+                  {currentTransactions.length > 10 ? (
+                    <TouchableOpacity
+                      style={styles.showAllActivityBtn}
+                      onPress={() => {
+                        AppHaptics.selection();
+                        triggerSmoothLayout();
+                        setShowAllActivity((prev) => !prev);
+                      }}
+                      activeOpacity={0.8}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        showAllActivity
+                          ? 'Show latest 10 transactions'
+                          : `Show all ${currentTransactions.length} transactions`
+                      }
+                    >
+                      <Text style={styles.showAllActivityBtnText}>
+                        {showAllActivity
+                          ? 'Show Latest 10'
+                          : `Show All ${currentTransactions.length} Transactions`}
+                      </Text>
+                      {showAllActivity ? (
+                        <ChevronUp size={15} color={Palette.primary} />
+                      ) : (
+                        <ChevronDown size={15} color={Palette.primary} />
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
+                </>
               )}
 
               {/* Delete Account */}
@@ -946,10 +972,12 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   summaryCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
   },
   summaryLabel: {
     ...Typography.caption,
@@ -1002,6 +1030,38 @@ const styles = StyleSheet.create({
   },
   sectionHeader: {
     marginBottom: 8,
+  },
+  activityHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    marginBottom: 10,
+    gap: 8,
+  },
+  activityCountHint: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    color: Palette.muted,
+  },
+  showAllActivityBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  showAllActivityBtnText: {
+    ...Typography.body,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Palette.primary,
   },
   sectionTitle: {
     ...Typography.subheading,
@@ -1235,13 +1295,15 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
   },
   pocketTargetPrefixTag: {
+    width: 42,
     backgroundColor: Palette.white,
-    paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: Palette.hairline,
     marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pocketTargetPrefixText: {
     ...Typography.caption,

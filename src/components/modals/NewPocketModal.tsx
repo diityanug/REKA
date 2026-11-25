@@ -21,7 +21,7 @@ import { useLastDefined } from '../../hooks/useLastDefined';
 import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
-import { CategoryIcon, AVAILABLE_ICONS } from '../CategoryIcon';
+import { CategoryIcon, AVAILABLE_ICONS, getIconDisplayName } from '../CategoryIcon';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
 
@@ -36,7 +36,20 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
     key: 'savings',
     name: 'Savings & Goals',
     icons: [
+      'mci:safe-square-outline',
       'PiggyBank',
+      'mci:gold',
+      'mci:bullseye-arrow',
+      'mci:sack-percent',
+      'mci:sprout-outline',
+      'mci:chart-areaspline',
+      'mci:treasure-chest-outline',
+      'mci:diamond-stone',
+      'mci:rocket-launch-outline',
+      'mci:shield-star-outline',
+      'mci:wallet-plus-outline',
+      'mci:cash-multiple',
+      'mci:bitcoin',
       'Landmark',
       'TrendingUp',
       'DollarSign',
@@ -47,9 +60,51 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
       'Award',
       'CreditCard',
       'Banknote',
-      'Building2',
       'Percent',
       'Receipt',
+    ],
+  },
+  {
+    key: 'kpr',
+    name: 'KPR & Property',
+    icons: [
+      'mci:home-percent-outline',
+      'mci:home-city-outline',
+      'mci:home-heart',
+      'mci:home-lock',
+      'mci:key-chain-variant',
+      'mci:file-sign',
+      'mci:handshake-outline',
+      'mci:scale-balance',
+      'mci:office-building-outline',
+      'Home',
+      'Key',
+      'Building2',
+      'Armchair',
+      'BedDouble',
+    ],
+  },
+  {
+    key: 'personal',
+    name: 'Personal & Care',
+    icons: [
+      'mci:account-heart-outline',
+      'mci:account-circle-outline',
+      'mci:face-woman-shimmer-outline',
+      'mci:face-man-shimmer-outline',
+      'mci:spa-outline',
+      'mci:lotion-outline',
+      'mci:hair-dryer-outline',
+      'mci:lipstick',
+      'mci:hanger',
+      'mci:shoe-sneaker',
+      'mci:sunglasses',
+      'mci:meditation',
+      'mci:ring',
+      'User',
+      'SmilePlus',
+      'Scissors',
+      'Sparkles',
     ],
   },
   {
@@ -74,6 +129,7 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
     key: 'safety',
     name: 'Safety & Health',
     icons: [
+      'mci:shield-star-outline',
       'ShieldCheck',
       'Shield',
       'Lock',
@@ -91,9 +147,16 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
     name: 'Travel & Transport',
     icons: [
       'Plane',
+      'mci:beach',
+      'mci:tent',
       'Luggage',
       'Hotel',
       'Car',
+      'mci:motorbike',
+      'mci:scooter',
+      'mci:train',
+      'mci:ferry',
+      'mci:car-wrench',
       'Fuel',
       'CircleParking',
       'Bus',
@@ -111,6 +174,9 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
       'Tag',
       'Shirt',
       'Watch',
+      'mci:hanger',
+      'mci:shoe-sneaker',
+      'mci:sunglasses',
       'Sparkles',
       'Package',
       'Glasses',
@@ -168,8 +234,14 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
   },
   {
     key: 'family',
-    name: 'Family & Pets',
+    name: 'Family & Charity',
     icons: [
+      'mci:human-male-female-child',
+      'mci:hand-heart-outline',
+      'mci:mosque-outline',
+      'mci:charity',
+      'mci:baby-carriage',
+      'mci:ring',
       'Users',
       'User',
       'Baby',
@@ -177,6 +249,8 @@ export const POCKET_ICON_CATEGORIES: PocketIconCategory[] = [
       'HeartHandshake',
       'SmilePlus',
       'PawPrint',
+      'mci:dog',
+      'mci:cat',
       'Footprints',
     ],
   },
@@ -283,8 +357,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="95%"
+      fullPage={true}
     >
       <ModalHeader
         title="New Pocket"
@@ -294,6 +367,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
             : 'Allocate funds for specific goals'
         }
         onClose={onClose}
+        leadingIcon="close"
       />
 
           <KeyboardSafeContainer extraBottomSpace={16}>
@@ -448,7 +522,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
                   <CategoryIcon name={icon} size={22} color={Palette.white} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.selectedIconName}>{icon}</Text>
+                  <Text style={styles.selectedIconName}>{getIconDisplayName(icon)}</Text>
                   <Text style={styles.selectedIconCategory}>
                     Category: {getCategoryForIcon(icon)}
                   </Text>
@@ -637,7 +711,7 @@ const styles = StyleSheet.create({
   textInputBox: {
     ...Typography.body,
     fontSize: 14,
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -865,11 +939,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   amountPrefixTag: {
+    width: 44,
     backgroundColor: Palette.surfaceSoft,
-    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
     marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   amountPrefixTagText: {
     ...Typography.body,

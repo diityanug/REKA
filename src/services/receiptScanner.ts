@@ -125,11 +125,11 @@ Rules:
 2. "merchantName": Official name of the store, merchant, or transfer recipient/sender.
 3. "transactionDate": Date in YYYY-MM-DD format (or ISO-8601 if timestamp is visible).
 4. "category": Choose one most accurate category from:
-   - Expense categories (use when "type" is "expense"): "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnishings", "Social", "Health & Medical", "Education", "Travel", "Others".
-   - Income categories (use when "type" is "income"): "Salary", "Allowance", "Interest", "Investments", "Bonus", "Gift", "Others".
+   - Expense categories (use when "type" is "expense"): "Food & Dining", "Coffee & Snacks", "Transport", "Vehicle & Fuel", "Shopping", "Housing & KPR", "Bills & Utilities", "Subscriptions", "Health & Medical", "Fitness & Gym", "Personal", "Family", "Charity & Gifts", "Entertainment", "Travel", "Education", "Insurance & Tax", "Others".
+   - Income categories (use when "type" is "income"): "Salary", "Freelance / Business", "Bonus", "Investments", "Interest", "Allowance", "Gift", "Others".
 5. "type": "expense" for purchases/transfers sent, or "income" for incoming funds/deposits.
 6. "currency": Detect whether the currency is "IDR" (Rupiah, Rp) or "USD" (Dollar, $).
-7. "paymentMethod": e.g. "QRIS", "Debit Card", "Credit Card", "Cash", "Bank Transfer", "E-Wallet", or "E-Money".
+7. "paymentMethod": e.g. "QRIS", "Bank Transfer", "Virtual Account", "Debit Card", "Credit Card", "E-Wallet", "Cash", or "E-Money".
 8. "items": Extract ALL purchased products, services, or line items shown on the receipt as an array of objects:
    - "name": Clean item description / product name
    - "quantity": Number of units purchased (number, default 1)

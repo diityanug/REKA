@@ -112,8 +112,8 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
     <BottomSheetModal
       visible={!!propPocket}
       onClose={onClose}
-      height="88%"
-      maxHeight="92%"
+      maxHeight="88%"
+      sheetStyle={styles.sheetCanvas}
     >
       <ModalHeader
         title={pocket.name}
@@ -121,7 +121,7 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
         onClose={onClose}
       />
 
-            <KeyboardSafeContainer>
+            <KeyboardSafeContainer adaptive={true} extraBottomSpace={16}>
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryLabel}>Current Balance</Text>
                 <Text style={styles.summaryAmount}>
@@ -318,11 +318,16 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  sheetCanvas: {
+    backgroundColor: Palette.canvas,
+  },
   summaryCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 14,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
   },
   summaryLabel: {
     ...Typography.caption,
@@ -422,11 +427,13 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   amountPrefixTag: {
+    width: 44,
     backgroundColor: Palette.surfaceSoft,
-    paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
     marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   amountPrefixTagText: {
     ...Typography.body,

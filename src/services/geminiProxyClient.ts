@@ -11,43 +11,61 @@ export const CANDIDATE_MODELS = [
 ] as const;
 
 const AI_EXPENSE_CATEGORIES = new Set([
-  'Food & Beverages',
-  'Snacks',
+  'Food & Dining',
+  'Coffee & Snacks',
+  'Transport',
+  'Vehicle & Fuel',
   'Shopping',
+  'Housing & KPR',
   'Bills & Utilities',
   'Subscriptions',
-  'Housing / Rent',
-  'Internet & Phone',
-  'Insurance',
-  'Fitness & Gym',
-  'Cloud & Storage',
-  'Fuel',
-  'Parking',
-  'Vehicle Services',
-  'Public Services',
-  'Personal',
-  'Home Services',
-  'Furnishings',
-  'Social',
   'Health & Medical',
-  'Education',
+  'Fitness & Gym',
+  'Personal',
+  'Family',
+  'Charity & Gifts',
+  'Entertainment',
   'Travel',
+  'Education',
+  'Insurance & Tax',
   'Others',
 ]);
 
 const AI_INCOME_CATEGORIES = new Set([
   'Salary',
-  'Allowance',
-  'Interest',
-  'Investments',
+  'Freelance / Business',
   'Bonus',
+  'Investments',
+  'Interest',
+  'Allowance',
   'Gift',
   'Others',
 ]);
 
+const AI_LEGACY_EXPENSE_ALIASES: Record<string, string> = {
+  'food & beverages': 'Food & Dining',
+  snacks: 'Coffee & Snacks',
+  snack: 'Coffee & Snacks',
+  'housing / rent': 'Housing & KPR',
+  'home services': 'Housing & KPR',
+  furnishings: 'Housing & KPR',
+  furnisings: 'Housing & KPR',
+  fuel: 'Vehicle & Fuel',
+  parking: 'Vehicle & Fuel',
+  'vehicle services': 'Vehicle & Fuel',
+  'internet & phone': 'Bills & Utilities',
+  bills: 'Bills & Utilities',
+  'cloud & storage': 'Subscriptions',
+  insurance: 'Insurance & Tax',
+  'public services': 'Insurance & Tax',
+  social: 'Entertainment',
+  charity: 'Charity & Gifts',
+  zakat: 'Charity & Gifts',
+};
+
 /**
  * Normalizes AI-returned category strings to valid REKA default categories matching `type`,
- * preventing phantom/typo labels ("General", "Transfer", "Furnisings", "Bills") from leaking.
+ * preventing phantom/typo/legacy labels from leaking.
  */
 export function sanitizeAiCategory(
   rawCategory: unknown,
@@ -56,14 +74,13 @@ export function sanitizeAiCategory(
   const cleaned = String(rawCategory || '').trim();
   if (!cleaned) return 'Others';
   const lower = cleaned.toLowerCase();
+  if (lower === 'transfer' || lower === 'general') return 'Others';
   const normalized =
-    lower === 'furnisings'
-      ? 'Furnishings'
-      : lower === 'bills' && type === 'expense'
-        ? 'Bills & Utilities'
-        : lower === 'transfer' || lower === 'general'
-          ? 'Others'
-          : cleaned;
+    type === 'expense' && AI_LEGACY_EXPENSE_ALIASES[lower]
+      ? AI_LEGACY_EXPENSE_ALIASES[lower]
+      : type === 'income' && (lower === 'freelance' || lower === 'business')
+        ? 'Freelance / Business'
+        : cleaned;
   const allowed = type === 'income' ? AI_INCOME_CATEGORIES : AI_EXPENSE_CATEGORIES;
   return allowed.has(normalized) ? normalized : 'Others';
 }

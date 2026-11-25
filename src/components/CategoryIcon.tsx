@@ -1,4 +1,5 @@
 import React from 'react';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   Utensils,
   Coffee,
@@ -226,6 +227,80 @@ const ICON_MAP: Record<string, LucideIcon> = {
   HelpCircle,
 };
 
+type MciGlyphName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+/**
+ * Extended MaterialCommunityIcons registry for domain-specific finance, KPR/mortgage,
+ * savings/vault/gold, personal/self-care, worship/charity, and transport icons.
+ */
+const MCI_ICON_MAP: Record<string, { glyph: MciGlyphName; label: string }> = {
+  // KPR, Property & Mortgage
+  'mci:home-percent-outline': { glyph: 'home-percent-outline', label: 'Mortgage / KPR' },
+  'mci:home-city-outline': { glyph: 'home-city-outline', label: 'Property / Estate' },
+  'mci:home-heart': { glyph: 'home-heart', label: 'Dream Home' },
+  'mci:home-lock': { glyph: 'home-lock', label: 'Home Fund' },
+  'mci:key-chain-variant': { glyph: 'key-chain-variant', label: 'House Keys / DP' },
+  'mci:file-sign': { glyph: 'file-sign', label: 'Contract / Installment' },
+  'mci:handshake-outline': { glyph: 'handshake-outline', label: 'Loan / Agreement' },
+  'mci:scale-balance': { glyph: 'scale-balance', label: 'Tax & Legal' },
+  'mci:office-building-outline': { glyph: 'office-building-outline', label: 'Apartment' },
+
+  // Savings, Vault, Gold & Investment Goals
+  'mci:safe-square-outline': { glyph: 'safe-square-outline', label: 'Safe Vault' },
+  'mci:gold': { glyph: 'gold', label: 'Gold Savings' },
+  'mci:sack-percent': { glyph: 'sack-percent', label: 'Deposit / Interest' },
+  'mci:bullseye-arrow': { glyph: 'bullseye-arrow', label: 'Target Goal' },
+  'mci:diamond-stone': { glyph: 'diamond-stone', label: 'Luxury / Asset' },
+  'mci:treasure-chest-outline': { glyph: 'treasure-chest-outline', label: 'Retirement Fund' },
+  'mci:sprout-outline': { glyph: 'sprout-outline', label: 'Mutual Fund / Growth' },
+  'mci:rocket-launch-outline': { glyph: 'rocket-launch-outline', label: 'Big Goal' },
+  'mci:chart-areaspline': { glyph: 'chart-areaspline', label: 'Stocks / Portfolio' },
+  'mci:wallet-plus-outline': { glyph: 'wallet-plus-outline', label: 'Top Up / Reserve' },
+  'mci:cash-multiple': { glyph: 'cash-multiple', label: 'Cash Reserve' },
+  'mci:shield-star-outline': { glyph: 'shield-star-outline', label: 'Emergency Shield' },
+  'mci:bitcoin': { glyph: 'bitcoin', label: 'Crypto' },
+
+  // Personal, Self-Care & Lifestyle
+  'mci:account-heart-outline': { glyph: 'account-heart-outline', label: 'Personal / Self' },
+  'mci:account-circle-outline': { glyph: 'account-circle-outline', label: 'Personal Profile' },
+  'mci:face-woman-shimmer-outline': { glyph: 'face-woman-shimmer-outline', label: 'Skincare / Beauty' },
+  'mci:face-man-shimmer-outline': { glyph: 'face-man-shimmer-outline', label: 'Grooming / Barber' },
+  'mci:spa-outline': { glyph: 'spa-outline', label: 'Spa / Wellness' },
+  'mci:lotion-outline': { glyph: 'lotion-outline', label: 'Personal Care' },
+  'mci:hair-dryer-outline': { glyph: 'hair-dryer-outline', label: 'Hair & Salon' },
+  'mci:hanger': { glyph: 'hanger', label: 'Wardrobe / Fashion' },
+  'mci:shoe-sneaker': { glyph: 'shoe-sneaker', label: 'Shoes / Sneakers' },
+  'mci:sunglasses': { glyph: 'sunglasses', label: 'Accessories' },
+  'mci:ring': { glyph: 'ring', label: 'Wedding / Ring' },
+  'mci:meditation': { glyph: 'meditation', label: 'Mindfulness' },
+  'mci:lipstick': { glyph: 'lipstick', label: 'Cosmetics' },
+
+  // Family, Worship, Charity & Pets
+  'mci:hand-heart-outline': { glyph: 'hand-heart-outline', label: 'Charity / Parents' },
+  'mci:mosque-outline': { glyph: 'mosque-outline', label: 'Worship / Zakat' },
+  'mci:charity': { glyph: 'charity', label: 'Donation / Zakat' },
+  'mci:baby-carriage': { glyph: 'baby-carriage', label: 'Baby & Kids' },
+  'mci:human-male-female-child': { glyph: 'human-male-female-child', label: 'Family Fund' },
+  'mci:dog': { glyph: 'dog', label: 'Dog' },
+  'mci:cat': { glyph: 'cat', label: 'Cat' },
+
+  // Transport & Travel
+  'mci:motorbike': { glyph: 'motorbike', label: 'Motorbike' },
+  'mci:scooter': { glyph: 'scooter', label: 'Scooter' },
+  'mci:train': { glyph: 'train', label: 'Train / Commuter' },
+  'mci:ferry': { glyph: 'ferry', label: 'Ferry / Cruise' },
+  'mci:beach': { glyph: 'beach', label: 'Vacation / Beach' },
+  'mci:tent': { glyph: 'tent', label: 'Camping / Outdoor' },
+  'mci:car-wrench': { glyph: 'car-wrench', label: 'Vehicle Service' },
+};
+
+export function getIconDisplayName(name: string): string {
+  const mci = MCI_ICON_MAP[name];
+  if (mci) return mci.label;
+  // Convert PascalCase Lucide names (e.g. "PiggyBank" -> "Piggy Bank")
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+}
+
 interface CategoryIconProps {
   name: string;
   size?: number;
@@ -237,6 +312,16 @@ export const CategoryIcon: React.FC<CategoryIconProps> = ({
   size = 18,
   color = '#CC785C',
 }) => {
+  const mciEntry = MCI_ICON_MAP[name];
+  if (mciEntry) {
+    return (
+      <MaterialCommunityIcons
+        name={mciEntry.glyph}
+        size={Math.round(size * 1.1)}
+        color={color}
+      />
+    );
+  }
   const IconComponent = ICON_MAP[name] || HelpCircle;
   return <IconComponent size={size} color={color} />;
 };
@@ -248,6 +333,70 @@ export interface IconCategoryGroup {
 }
 
 export const CATEGORY_ICON_GROUPS: IconCategoryGroup[] = [
+  {
+    key: 'savings',
+    name: 'Savings & Goals',
+    icons: [
+      'mci:safe-square-outline',
+      'PiggyBank',
+      'mci:gold',
+      'mci:bullseye-arrow',
+      'mci:sack-percent',
+      'mci:sprout-outline',
+      'mci:chart-areaspline',
+      'mci:treasure-chest-outline',
+      'mci:diamond-stone',
+      'mci:rocket-launch-outline',
+      'mci:shield-star-outline',
+      'mci:wallet-plus-outline',
+      'mci:cash-multiple',
+      'mci:bitcoin',
+      'Coins',
+      'TrendingUp',
+    ],
+  },
+  {
+    key: 'kpr',
+    name: 'KPR & Property',
+    icons: [
+      'mci:home-percent-outline',
+      'mci:home-city-outline',
+      'mci:home-heart',
+      'mci:home-lock',
+      'mci:key-chain-variant',
+      'mci:file-sign',
+      'mci:handshake-outline',
+      'mci:scale-balance',
+      'mci:office-building-outline',
+      'Home',
+      'Key',
+      'Building2',
+      'Landmark',
+    ],
+  },
+  {
+    key: 'personal',
+    name: 'Personal & Care',
+    icons: [
+      'mci:account-heart-outline',
+      'mci:account-circle-outline',
+      'mci:face-woman-shimmer-outline',
+      'mci:face-man-shimmer-outline',
+      'mci:spa-outline',
+      'mci:lotion-outline',
+      'mci:hair-dryer-outline',
+      'mci:lipstick',
+      'mci:hanger',
+      'mci:shoe-sneaker',
+      'mci:sunglasses',
+      'mci:meditation',
+      'mci:ring',
+      'User',
+      'SmilePlus',
+      'Scissors',
+      'Sparkles',
+    ],
+  },
   {
     key: 'food',
     name: 'Food',
@@ -271,73 +420,186 @@ export const CATEGORY_ICON_GROUPS: IconCategoryGroup[] = [
     ],
   },
   {
-    key: 'sport',
-    name: 'Sport',
-    icons: ['Dumbbell', 'Activity', 'Trophy', 'Footprints', 'Bike'],
-  },
-  {
-    key: 'pet',
-    name: 'Pet',
-    icons: ['PawPrint'],
-  },
-  {
     key: 'shopping',
     name: 'Shopping',
-    icons: ['ShoppingCart', 'ShoppingBag', 'Tag', 'Shirt', 'Watch', 'Package', 'Glasses', 'Sparkles'],
+    icons: [
+      'ShoppingCart',
+      'ShoppingBag',
+      'Tag',
+      'Shirt',
+      'Watch',
+      'Package',
+      'Glasses',
+      'mci:hanger',
+      'mci:shoe-sneaker',
+      'mci:sunglasses',
+    ],
   },
   {
     key: 'traffic',
-    name: 'Traffic',
-    icons: ['Car', 'Fuel', 'CircleParking', 'Plane', 'Bus', 'Bike', 'MapPin', 'Compass', 'Luggage', 'Hotel'],
+    name: 'Transport & Travel',
+    icons: [
+      'Car',
+      'mci:motorbike',
+      'mci:scooter',
+      'mci:train',
+      'mci:car-wrench',
+      'Fuel',
+      'CircleParking',
+      'Plane',
+      'Bus',
+      'Bike',
+      'mci:ferry',
+      'mci:beach',
+      'mci:tent',
+      'Luggage',
+      'Hotel',
+      'MapPin',
+      'Compass',
+    ],
+  },
+  {
+    key: 'utilities',
+    name: 'Bills & Living',
+    icons: [
+      'Zap',
+      'Droplet',
+      'Flame',
+      'Lightbulb',
+      'Trash2',
+      'Wifi',
+      'Tv',
+      'Smartphone',
+      'Armchair',
+      'Bed',
+      'BedDouble',
+    ],
+  },
+  {
+    key: 'family',
+    name: 'Family & Charity',
+    icons: [
+      'mci:human-male-female-child',
+      'mci:hand-heart-outline',
+      'mci:mosque-outline',
+      'mci:charity',
+      'mci:baby-carriage',
+      'mci:ring',
+      'Users',
+      'Baby',
+      'Heart',
+      'HeartHandshake',
+      'Gift',
+    ],
+  },
+  {
+    key: 'medical',
+    name: 'Medical & Sport',
+    icons: [
+      'HeartPulse',
+      'Pill',
+      'Stethoscope',
+      'Activity',
+      'Syringe',
+      'Dumbbell',
+      'Trophy',
+      'Footprints',
+      'mci:meditation',
+    ],
+  },
+  {
+    key: 'pet',
+    name: 'Pets',
+    icons: ['PawPrint', 'mci:dog', 'mci:cat'],
   },
   {
     key: 'entertainment',
     name: 'Entertainment',
-    icons: ['Film', 'Gamepad2', 'Camera', 'Palette', 'Ticket', 'PartyPopper', 'Gift'],
-  },
-  {
-    key: 'medical',
-    name: 'Medical',
-    icons: ['HeartPulse', 'Pill', 'Stethoscope', 'Activity', 'Syringe', 'Scissors'],
+    icons: ['Film', 'Gamepad2', 'Camera', 'Palette', 'Ticket', 'PartyPopper', 'Music2', 'Headphones', 'Mic'],
   },
   {
     key: 'education',
-    name: 'Education',
-    icons: ['GraduationCap', 'Book', 'BookOpen', 'PenTool', 'Newspaper'],
-  },
-  {
-    key: 'utilities',
-    name: 'Utilities',
-    icons: ['Zap', 'Droplet', 'Flame', 'Lightbulb', 'Trash2', 'Wifi', 'Tv', 'Smartphone'],
-  },
-  {
-    key: 'tech',
-    name: 'Work & Tech',
-    icons: ['Briefcase', 'Laptop', 'Monitor', 'Cloud', 'Calendar', 'Clock'],
-  },
-  {
-    key: 'tools',
-    name: 'Security & Tools',
-    icons: ['ShieldCheck', 'Shield', 'Key', 'Lock', 'Wrench', 'Hammer', 'Umbrella', 'Sun', 'Moon'],
-  },
-  {
-    key: 'family',
-    name: 'Family',
-    icons: ['Users', 'User', 'Baby', 'Heart', 'HeartHandshake', 'SmilePlus', 'Home', 'Armchair', 'Bed', 'BedDouble'],
-  },
-  {
-    key: 'music',
-    name: 'Music',
-    icons: ['Music2', 'Headphones', 'Mic'],
+    name: 'Work & Education',
+    icons: ['GraduationCap', 'Book', 'BookOpen', 'PenTool', 'Newspaper', 'Briefcase', 'Laptop', 'Monitor', 'Cloud', 'Calendar', 'Clock'],
   },
   {
     key: 'income',
-    name: 'Income',
-    icons: ['DollarSign', 'CircleDollarSign', 'HandCoins', 'PiggyBank', 'Wallet', 'Coins', 'Landmark', 'TrendingUp', 'Award', 'CreditCard', 'Banknote', 'Building2', 'Percent', 'Receipt', 'CircleEllipsis'],
+    name: 'Income & Finance',
+    icons: [
+      'DollarSign',
+      'CircleDollarSign',
+      'HandCoins',
+      'Wallet',
+      'Award',
+      'CreditCard',
+      'Banknote',
+      'Percent',
+      'Receipt',
+      'ShieldCheck',
+      'Shield',
+      'Lock',
+      'Wrench',
+      'Hammer',
+      'Umbrella',
+      'Sun',
+      'Moon',
+      'CircleEllipsis',
+    ],
   },
 ];
 
 export const AVAILABLE_ICONS = [
+  // Savings, Vault, Gold & Goals
+  'mci:safe-square-outline',
+  'PiggyBank',
+  'mci:gold',
+  'mci:bullseye-arrow',
+  'mci:sack-percent',
+  'mci:sprout-outline',
+  'mci:chart-areaspline',
+  'mci:treasure-chest-outline',
+  'mci:diamond-stone',
+  'mci:rocket-launch-outline',
+  'mci:shield-star-outline',
+  'mci:wallet-plus-outline',
+  'mci:cash-multiple',
+  'mci:bitcoin',
+
+  // KPR, Property & Mortgage
+  'mci:home-percent-outline',
+  'mci:home-city-outline',
+  'mci:home-heart',
+  'mci:home-lock',
+  'mci:key-chain-variant',
+  'mci:file-sign',
+  'mci:handshake-outline',
+  'mci:scale-balance',
+  'mci:office-building-outline',
+
+  // Personal, Self-Care & Lifestyle
+  'mci:account-heart-outline',
+  'mci:account-circle-outline',
+  'mci:face-woman-shimmer-outline',
+  'mci:face-man-shimmer-outline',
+  'mci:spa-outline',
+  'mci:lotion-outline',
+  'mci:hair-dryer-outline',
+  'mci:lipstick',
+  'mci:hanger',
+  'mci:shoe-sneaker',
+  'mci:sunglasses',
+  'mci:ring',
+  'mci:meditation',
+
+  // Family, Worship, Charity & Pets
+  'mci:human-male-female-child',
+  'mci:hand-heart-outline',
+  'mci:mosque-outline',
+  'mci:charity',
+  'mci:baby-carriage',
+  'mci:dog',
+  'mci:cat',
+
   // Food & Dining
   'Utensils',
   'Cookie',
@@ -356,7 +618,7 @@ export const AVAILABLE_ICONS = [
   'Beer',
   'Wine',
 
-  // Shopping & Lifestyle
+  // Shopping & Goods
   'ShoppingCart',
   'ShoppingBag',
   'Tag',
@@ -368,11 +630,18 @@ export const AVAILABLE_ICONS = [
 
   // Transport & Travel
   'Car',
+  'mci:motorbike',
+  'mci:scooter',
+  'mci:train',
+  'mci:car-wrench',
   'Fuel',
   'CircleParking',
   'Plane',
   'Bus',
   'Bike',
+  'mci:ferry',
+  'mci:beach',
+  'mci:tent',
   'Luggage',
   'Hotel',
   'MapPin',
@@ -430,7 +699,6 @@ export const AVAILABLE_ICONS = [
   'DollarSign',
   'CircleDollarSign',
   'HandCoins',
-  'PiggyBank',
   'Wallet',
   'Coins',
   'Landmark',

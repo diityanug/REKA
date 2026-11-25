@@ -35,6 +35,7 @@ import { useLastDefined } from '../../hooks/useLastDefined';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon } from '../CategoryIcon';
+import { PaymentMethodIcon } from '../PaymentMethodIcon';
 import { BottomSheetModal } from '../BottomSheetModal';
 
 interface TxDetailModalProps {
@@ -332,6 +333,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
       visible={!!tx}
       onClose={onClose}
       maxHeight="88%"
+      sheetStyle={styles.sheetCanvas}
     >
       <ModalHeader
         title={
@@ -346,8 +348,10 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
       />
 
       <ScrollView
-        style={styles.scrollContent}
-        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom, 20) + 12 }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Math.max(insets.bottom, 20) + 12 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* 1. Hero Amount Card */}
@@ -539,7 +543,14 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
 
               <View style={styles.metaRow}>
                 <Text style={styles.metaLabel}>Payment Method</Text>
-                <Text style={styles.metaValue}>{currentTx.paymentMethod}</Text>
+                <View style={styles.categoryInline}>
+                  <PaymentMethodIcon
+                    method={currentTx.paymentMethod}
+                    size={15}
+                    color={Palette.ink}
+                  />
+                  <Text style={styles.metaValue}>{currentTx.paymentMethod}</Text>
+                </View>
               </View>
 
               {resolvedPocketName ? (
@@ -951,15 +962,20 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
 };
 
 const styles = StyleSheet.create({
+  sheetCanvas: {
+    backgroundColor: Palette.canvas,
+  },
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 16,
   },
   summaryCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
   },
   summaryTopRow: {
     flexDirection: 'row',

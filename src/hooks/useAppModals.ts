@@ -301,7 +301,7 @@ export function useAppModals() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [manMerchant, setManMerchant] = useState<string>('');
   const [manAmount, setManAmount] = useState<string>('');
-  const [manCategory, setManCategory] = useState<string>('Food & Beverages');
+  const [manCategory, setManCategory] = useState<string>('');
   const [manType, setManType] = useState<TransactionType>('expense');
   const [manCurrency, setManCurrency] = useState<CurrencyType>('IDR');
   const [manMethod, setManMethod] = useState<string>('QRIS');
@@ -312,7 +312,7 @@ export function useAppModals() {
   const [manLentTo, setManLentTo] = useState<string>('');
 
   const openManualModal = useCallback(
-    (activeCurrency: CurrencyType, defaultCategory: string = 'Food & Beverages') => {
+    (activeCurrency: CurrencyType, defaultCategory: string = '') => {
       AppHaptics.light();
       setEditingTransaction(null);
       setManMerchant('');
@@ -320,7 +320,7 @@ export function useAppModals() {
       setManNotes('');
       setManIsLent(false);
       setManLentTo('');
-      setManCategory(defaultCategory || 'Others');
+      setManCategory(defaultCategory);
       setManType('expense');
       setManCurrency(activeCurrency);
       setManMethod('QRIS');

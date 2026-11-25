@@ -1,10 +1,105 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, Pressable, Animated, StyleSheet } from 'react-native';
 import { Layers, CreditCard, Plus, Receipt, TrendingUp } from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { TabType } from '../types';
 import { AppHaptics } from '../utils/haptics';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+
+interface NavTabItemProps {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  renderIcon: (color: string) => React.ReactNode;
+}
+
+const AnimatedNavTabItem: React.FC<NavTabItemProps> = React.memo(({
+  label,
+  active,
+  onPress,
+  renderIcon,
+}) => {
+  const [pressScale] = useState(() => new Animated.Value(1));
+  const [activeAnim] = useState(() => new Animated.Value(active ? 1 : 0));
+
+  useEffect(() => {
+    Animated.spring(activeAnim, {
+      toValue: active ? 1 : 0,
+      speed: 22,
+      bounciness: active ? 9 : 0,
+      useNativeDriver: true,
+    }).start();
+  }, [active, activeAnim]);
+
+  const iconScale = activeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.08],
+  });
+
+  const pillScale = activeAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.65, 1],
+  });
+
+  return (
+    <Pressable
+      style={styles.navTabItem}
+      onPressIn={() => {
+        Animated.spring(pressScale, {
+          toValue: 0.9,
+          speed: 40,
+          bounciness: 0,
+          useNativeDriver: true,
+        }).start();
+      }}
+      onPressOut={() => {
+        Animated.spring(pressScale, {
+          toValue: 1,
+          speed: 24,
+          bounciness: 8,
+          useNativeDriver: true,
+        }).start();
+      }}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+    >
+      <Animated.View
+        style={[
+          styles.navTabInner,
+          { transform: [{ scale: pressScale }] },
+        ]}
+      >
+        <View style={styles.iconHolder}>
+          <Animated.View
+            style={[
+              styles.activeIconPill,
+              {
+                opacity: activeAnim,
+                transform: [{ scale: pillScale }],
+              },
+            ]}
+          />
+          <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+            {renderIcon(active ? Palette.primary : Palette.muted)}
+          </Animated.View>
+        </View>
+        <Text
+          style={[
+            styles.navTabLabel,
+            active && styles.navTabLabelActive,
+          ]}
+          numberOfLines={1}
+        >
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+});
+
+AnimatedNavTabItem.displayName = 'AnimatedNavTabItem';
 
 interface BottomTabBarProps {
   activeTab: TabType;
@@ -20,129 +115,114 @@ export const BottomTabBar = React.memo<BottomTabBarProps>(({
   bottomInset,
 }) => {
   const keyboardHeight = useKeyboardHeight();
+  const [fabScale] = useState(() => new Animated.Value(1));
+  const [fabRotate] = useState(() => new Animated.Value(0));
+
   // Prevent Android adjustResize from pushing the floating nav bar up over search results
   if (keyboardHeight > 0) return null;
 
+  const fabSpin = fabRotate.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '18deg'],
+  });
+
   return (
-    <View style={[styles.navBarWrapper, { paddingBottom: Math.max(bottomInset, 16) }]}>
+    <View
+      pointerEvents="box-none"
+      style={[styles.navBarWrapper, { paddingBottom: Math.max(bottomInset, 16) }]}
+    >
       <View style={styles.navBar}>
-        <TouchableOpacity
-          style={styles.navTabItem}
+        <AnimatedNavTabItem
+          label="Overview"
+          active={activeTab === 'overview'}
           onPress={() => {
             AppHaptics.selection();
             onSelectTab('overview');
           }}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Overview"
-          accessibilityState={{ selected: activeTab === 'overview' }}
-        >
-          <Layers
-            size={20}
-            color={activeTab === 'overview' ? Palette.primary : Palette.muted}
-          />
-          <Text
-            style={[
-              styles.navTabLabel,
-              activeTab === 'overview' && styles.navTabLabelActive,
-            ]}
-            numberOfLines={1}
-          >
-            Overview
-          </Text>
-        </TouchableOpacity>
+          renderIcon={(color) => <Layers size={20} color={color} />}
+        />
 
-        <TouchableOpacity
-          style={styles.navTabItem}
+        <AnimatedNavTabItem
+          label="Accounts"
+          active={activeTab === 'accounts'}
           onPress={() => {
             AppHaptics.selection();
             onSelectTab('accounts');
           }}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Accounts"
-          accessibilityState={{ selected: activeTab === 'accounts' }}
-        >
-          <CreditCard
-            size={20}
-            color={activeTab === 'accounts' ? Palette.primary : Palette.muted}
-          />
-          <Text
-            style={[
-              styles.navTabLabel,
-              activeTab === 'accounts' && styles.navTabLabelActive,
-            ]}
-            numberOfLines={1}
-          >
-            Accounts
-          </Text>
-        </TouchableOpacity>
+          renderIcon={(color) => <CreditCard size={20} color={color} />}
+        />
 
-        {/* Center Primary Action: Manual Transaction */}
-        <TouchableOpacity
-          style={styles.centerActionBtn}
+        {/* Center Primary Action: Tactile Spring FAB */}
+        <Pressable
+          onPressIn={() => {
+            Animated.parallel([
+              Animated.spring(fabScale, {
+                toValue: 0.89,
+                speed: 40,
+                bounciness: 0,
+                useNativeDriver: true,
+              }),
+              Animated.timing(fabRotate, {
+                toValue: 1,
+                duration: 110,
+                useNativeDriver: true,
+              }),
+            ]).start();
+          }}
+          onPressOut={() => {
+            Animated.parallel([
+              Animated.spring(fabScale, {
+                toValue: 1,
+                speed: 22,
+                bounciness: 10,
+                useNativeDriver: true,
+              }),
+              Animated.spring(fabRotate, {
+                toValue: 0,
+                speed: 22,
+                bounciness: 6,
+                useNativeDriver: true,
+              }),
+            ]).start();
+          }}
           onPress={() => {
             AppHaptics.light();
             onOpenManualTransaction();
           }}
-          activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel="Add transaction"
         >
-          <Plus size={24} color={Palette.white} strokeWidth={2.5} />
-        </TouchableOpacity>
+          <Animated.View
+            style={[
+              styles.centerActionBtn,
+              { transform: [{ scale: fabScale }] },
+            ]}
+          >
+            <Animated.View style={{ transform: [{ rotate: fabSpin }] }}>
+              <Plus size={24} color={Palette.white} strokeWidth={2.5} />
+            </Animated.View>
+          </Animated.View>
+        </Pressable>
 
-        <TouchableOpacity
-          style={styles.navTabItem}
+        <AnimatedNavTabItem
+          label="History"
+          active={activeTab === 'history'}
           onPress={() => {
             AppHaptics.selection();
             onSelectTab('history');
           }}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="History"
-          accessibilityState={{ selected: activeTab === 'history' }}
-        >
-          <Receipt
-            size={20}
-            color={activeTab === 'history' ? Palette.primary : Palette.muted}
-          />
-          <Text
-            style={[
-              styles.navTabLabel,
-              activeTab === 'history' && styles.navTabLabelActive,
-            ]}
-            numberOfLines={1}
-          >
-            History
-          </Text>
-        </TouchableOpacity>
+          renderIcon={(color) => <Receipt size={20} color={color} />}
+        />
 
-        <TouchableOpacity
-          style={styles.navTabItem}
+        <AnimatedNavTabItem
+          label="Analytics"
+          active={activeTab === 'analytics'}
           onPress={() => {
             AppHaptics.selection();
             onSelectTab('analytics');
           }}
-          activeOpacity={0.7}
-          accessibilityRole="button"
-          accessibilityLabel="Analytics"
-          accessibilityState={{ selected: activeTab === 'analytics' }}
-        >
-          <TrendingUp
-            size={20}
-            color={activeTab === 'analytics' ? Palette.primary : Palette.muted}
-          />
-          <Text
-            style={[
-              styles.navTabLabel,
-              activeTab === 'analytics' && styles.navTabLabelActive,
-            ]}
-            numberOfLines={1}
-          >
-            Analytics
-          </Text>
-        </TouchableOpacity>
+          renderIcon={(color) => <TrendingUp size={20} color={color} />}
+        />
       </View>
     </View>
   );
@@ -156,6 +236,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 50,
     paddingHorizontal: 20,
     backgroundColor: 'transparent',
   },
@@ -179,18 +260,36 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 4,
+  },
+  navTabInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 3,
+  },
+  iconHolder: {
+    width: 40,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  activeIconPill: {
+    position: 'absolute',
+    width: 40,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Palette.tintExpense,
   },
   navTabLabel: {
     ...Typography.caption,
     fontSize: 10,
     fontWeight: '500',
     color: Palette.muted,
-    marginTop: 3,
+    marginTop: 2,
   },
   navTabLabelActive: {
     color: Palette.primary,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   centerActionBtn: {
     width: 52,
@@ -199,11 +298,11 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    marginHorizontal: 4,
     shadowColor: Palette.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
-    marginHorizontal: 4,
   },
 });

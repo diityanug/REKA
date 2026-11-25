@@ -1,5 +1,7 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Animated,
+  Easing,
   View,
   Text,
   TouchableOpacity,
@@ -36,6 +38,15 @@ export interface CustomAlertModalProps {
   onClose: (alertId?: string) => void;
 }
 
+const FrozenAlertBody = React.memo<{
+  visible: boolean;
+  children: React.ReactNode;
+}>(
+  ({ children }) => <>{children}</>,
+  (_prev, next) => !next.visible
+);
+FrozenAlertBody.displayName = 'FrozenAlertBody';
+
 export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   visible,
   title,
@@ -45,6 +56,52 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   alertId,
   onClose,
 }) => {
+  const [mounted, setMounted] = useState<boolean>(visible);
+  const [backdropAnim] = useState(() => new Animated.Value(visible ? 1 : 0));
+  const [cardScale] = useState(() => new Animated.Value(visible ? 1 : 0.92));
+
+  if (visible && !mounted) {
+    setMounted(true);
+  }
+
+  useEffect(() => {
+    if (visible) {
+      backdropAnim.setValue(0);
+      cardScale.setValue(0.9);
+      Animated.parallel([
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 180,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.spring(cardScale, {
+          toValue: 1,
+          speed: 26,
+          bounciness: 6,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    } else if (mounted) {
+      Animated.parallel([
+        Animated.timing(backdropAnim, {
+          toValue: 0,
+          duration: 140,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(cardScale, {
+          toValue: 0.94,
+          duration: 140,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) setMounted(false);
+      });
+    }
+  }, [visible, mounted, backdropAnim, cardScale]);
+
   // A destructive or non-cancel action makes the backdrop non-dismissable,
   // so an accidental tap can never silently cancel a confirm.
   const hasBlockingAction = buttons.some((btn) => btn.style !== 'cancel');
@@ -56,9 +113,9 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
     return true;
   }, [hasBlockingAction, onClose, alertId]);
 
-  const { overlayId } = useOverlayLayer(visible, visible, handleBackPress);
+  const { overlayId } = useOverlayLayer(mounted, visible, handleBackPress, true);
 
-  if (!visible) return null;
+  if (!mounted) return null;
 
   const renderIcon = () => {
     switch (type) {
@@ -109,60 +166,79 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   };
 
   return (
-    <OverlayPortal id={overlayId} active={visible}>
-      <Pressable
-        style={styles.overlay}
-        onPress={requestClose}
-        accessibilityViewIsModal={true}
+    <OverlayPortal id={overlayId} active={mounted}>
+      <Animated.View
+        pointerEvents={visible ? 'auto' : 'none'}
+        style={[styles.overlay, { opacity: backdropAnim }]}
       >
-        <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.topSection}>
-            {renderIcon()}
-            <Text style={styles.title}>{title}</Text>
-            {message ? <Text style={styles.message}>{message}</Text> : null}
-          </View>
+        <Pressable
+          style={styles.overlayTapArea}
+          onPress={requestClose}
+          accessibilityViewIsModal={visible}
+        >
+          <Animated.View
+            style={[
+              styles.cardWrap,
+              {
+                opacity: backdropAnim,
+                transform: [{ scale: cardScale }],
+              },
+            ]}
+          >
+            <Pressable style={styles.card} onPress={(e) => e.stopPropagation()}>
+              <FrozenAlertBody visible={visible}>
+                <View style={styles.topSection}>
+                  {renderIcon()}
+                  <Text style={styles.title}>{title}</Text>
+                  {message ? <Text style={styles.message}>{message}</Text> : null}
+                </View>
 
-          <View style={[
-            styles.actionsContainer,
-            buttons.length > 2 ? styles.actionsColumn : styles.actionsRow
-          ]}>
-            {buttons.map((btn, index) => {
-              const isCancel = btn.style === 'cancel';
-              const isDestructive = btn.style === 'destructive';
-
-              let btnBg = Palette.surfaceSoft;
-              let textCol = Palette.ink;
-
-              if (isDestructive) {
-                btnBg = Palette.error;
-                textCol = Palette.white;
-              } else if (!isCancel) {
-                btnBg = Palette.primary;
-                textCol = Palette.white;
-              }
-
-              return (
-                <TouchableOpacity
-                  key={`${btn.text}-${index}`}
+                <View
                   style={[
-                    styles.button,
-                    { backgroundColor: btnBg },
-                    buttons.length <= 2 ? { flex: 1 } : { width: '100%' },
+                    styles.actionsContainer,
+                    buttons.length > 2 ? styles.actionsColumn : styles.actionsRow,
                   ]}
-                  onPress={() => handleButtonPress(btn)}
-                  activeOpacity={0.8}
-                  accessibilityRole="button"
-                  accessibilityLabel={btn.text}
                 >
-                  <Text style={[styles.buttonText, { color: textCol }]}>
-                    {btn.text}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                  {buttons.map((btn, index) => {
+                    const isCancel = btn.style === 'cancel';
+                    const isDestructive = btn.style === 'destructive';
+
+                    let btnBg = Palette.surfaceSoft;
+                    let textCol = Palette.ink;
+
+                    if (isDestructive) {
+                      btnBg = Palette.error;
+                      textCol = Palette.white;
+                    } else if (!isCancel) {
+                      btnBg = Palette.primary;
+                      textCol = Palette.white;
+                    }
+
+                    return (
+                      <TouchableOpacity
+                        key={`${btn.text}-${index}`}
+                        style={[
+                          styles.button,
+                          { backgroundColor: btnBg },
+                          buttons.length <= 2 ? { flex: 1 } : { width: '100%' },
+                        ]}
+                        onPress={() => handleButtonPress(btn)}
+                        activeOpacity={0.8}
+                        accessibilityRole="button"
+                        accessibilityLabel={btn.text}
+                      >
+                        <Text style={[styles.buttonText, { color: textCol }]}>
+                          {btn.text}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </FrozenAlertBody>
+            </Pressable>
+          </Animated.View>
         </Pressable>
-      </Pressable>
+      </Animated.View>
     </OverlayPortal>
   );
 };
@@ -174,14 +250,20 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: 'rgba(18, 18, 16, 0.45)',
+    backgroundColor: 'rgba(18, 18, 16, 0.44)',
+  },
+  overlayTapArea: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 28,
   },
-  card: {
+  cardWrap: {
     width: '100%',
     maxWidth: 340,
+  },
+  card: {
+    width: '100%',
     backgroundColor: Palette.white,
     borderRadius: 22,
     paddingHorizontal: 20,
@@ -200,11 +282,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   iconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    alignItems: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 14,
   },
   title: {
@@ -217,10 +299,10 @@ const styles = StyleSheet.create({
   },
   message: {
     ...Typography.body,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: 13.5,
     color: Palette.muted,
     textAlign: 'center',
+    lineHeight: 20,
   },
   actionsContainer: {
     gap: 10,
@@ -232,10 +314,12 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
   },
   button: {
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: 13,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    minHeight: 46,
   },
   buttonText: {
     ...Typography.body,

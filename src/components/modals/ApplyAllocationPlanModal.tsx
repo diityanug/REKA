@@ -145,13 +145,14 @@ export const ApplyAllocationPlanModal: React.FC<ApplyAllocationPlanModalProps> =
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="88%"
-      maxHeight="92%"
+      fullPage={true}
+      presentation="push"
     >
       <ModalHeader
         title="Apply Allocation Plan"
         subtitle={plan.title}
         onClose={onClose}
+        leadingIcon="back"
       />
 
       <ScrollView

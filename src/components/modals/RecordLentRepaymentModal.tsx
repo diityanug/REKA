@@ -187,8 +187,8 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="88%"
-      maxHeight="92%"
+      maxHeight="88%"
+      sheetStyle={styles.sheetCanvas}
     >
       <ModalHeader
         title={isBorrowed ? 'Pay Back Debt' : 'Record Repayment'}
@@ -197,9 +197,9 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       />
 
       <KeyboardSafeContainer
-        style={styles.container}
+        adaptive={true}
         contentContainerStyle={styles.scrollContent}
-        extraBottomSpace={24}
+        extraBottomSpace={16}
       >
         {/* 1. Spacious Hero Loan Card */}
         <View style={styles.heroCard}>
@@ -478,8 +478,8 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  sheetCanvas: {
+    backgroundColor: Palette.canvas,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
   },
   heroCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
     marginBottom: 20,

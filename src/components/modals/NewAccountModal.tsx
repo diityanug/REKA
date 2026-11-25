@@ -102,13 +102,13 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="90%"
-      maxHeight="94%"
+      fullPage={true}
     >
       <ModalHeader
         title="New Account"
         subtitle="Add a bank, cash, or e-wallet vault"
         onClose={onClose}
+        leadingIcon="close"
       />
 
       <KeyboardSafeContainer
@@ -553,11 +553,13 @@ const styles = StyleSheet.create({
     height: 52,
   },
   amountPrefixTag: {
+    width: 44,
     backgroundColor: Palette.surfaceSoft,
-    paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 8,
     marginRight: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   amountPrefixTagText: {
     ...Typography.body,
