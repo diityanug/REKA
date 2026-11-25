@@ -390,9 +390,9 @@ Rules:
      * For Credit Card billing statements: Purchases / charges / fees = "expense"; Refunds / cashback = "income".
    - "amount": Positive numeric amount of the transaction (pure number, no currency symbols or thousand separators).
    - "category": Pick the single most accurate category from:
-     * Expense categories: "Food & Beverages", "Snacks", "Shopping", "Bills & Utilities", "Subscriptions", "Housing / Rent", "Internet & Phone", "Insurance", "Fitness & Gym", "Cloud & Storage", "Fuel", "Parking", "Vehicle Services", "Public Services", "Personal", "Home Services", "Furnishings", "Social", "Health & Medical", "Education", "Travel", "Others"
-     * Income categories: "Salary", "Allowance", "Interest", "Investments", "Bonus", "Gift", "Others"
-   - "paymentMethod": e.g. "Bank Transfer", "QRIS", "Debit Card", "Credit Card", "E-Wallet", or "E-Money".
+     * Expense categories: "Food & Dining", "Coffee & Snacks", "Transport", "Vehicle & Fuel", "Shopping", "Housing & KPR", "Bills & Utilities", "Subscriptions", "Health & Medical", "Fitness & Gym", "Personal", "Family", "Charity & Gifts", "Entertainment", "Travel", "Education", "Insurance & Tax", "Others"
+     * Income categories: "Salary", "Freelance / Business", "Bonus", "Investments", "Interest", "Allowance", "Gift", "Others"
+   - "paymentMethod": e.g. "Bank Transfer", "Virtual Account", "QRIS", "Debit Card", "Credit Card", "E-Wallet", "Cash", or "E-Money".
    - "notes": Keep the original bank description / reference code here for reference.
 `;
 

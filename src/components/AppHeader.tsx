@@ -1,11 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, Platform } from 'react-native';
-import {
-  useFonts,
-  PlayfairDisplay_600SemiBold,
-} from '@expo-google-fonts/playfair-display';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Eye, EyeOff, Settings } from 'lucide-react-native';
-import { Palette } from '../theme/tokens';
+import { Palette, FontFamily } from '../theme/tokens';
 import { AppHaptics } from '../utils/haptics';
 
 interface AppHeaderProps {
@@ -19,10 +15,6 @@ export const AppHeader = React.memo<AppHeaderProps>(({
   onTogglePrivacy,
   onOpenSettings,
 }) => {
-  const [fontsLoaded] = useFonts({
-    PlayfairDisplay_600SemiBold,
-  });
-
   return (
     <View style={styles.appBar}>
       <View style={styles.brandBox}>
@@ -40,12 +32,7 @@ export const AppHeader = React.memo<AppHeaderProps>(({
             accessibilityRole="header"
             accessibilityLabel="Reka"
           >
-            <Text
-              style={[
-                styles.brandTitle,
-                fontsLoaded && styles.brandTitleEditorial,
-              ]}
-            >
+            <Text style={styles.brandTitle}>
               Reka<Text style={styles.brandDot}>.</Text>
             </Text>
           </View>
@@ -130,17 +117,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   brandTitle: {
-    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
+    fontFamily: FontFamily.editorial,
     fontSize: 24,
     fontWeight: '600',
     color: '#11473B',
-    letterSpacing: 0.3,
+    letterSpacing: 0.2,
     lineHeight: 28,
     includeFontPadding: false,
-  },
-  brandTitleEditorial: {
-    fontFamily: 'PlayfairDisplay_600SemiBold',
-    fontWeight: '400',
   },
   brandDot: {
     color: Palette.primary,

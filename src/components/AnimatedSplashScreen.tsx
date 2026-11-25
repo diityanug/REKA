@@ -224,6 +224,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 9999,
+    elevation: 9999,
   },
   ambientGlow: {
     position: 'absolute',

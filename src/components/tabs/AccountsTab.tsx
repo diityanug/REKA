@@ -108,8 +108,15 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
             accessibilityRole="button"
             accessibilityLabel="Add new account"
           >
-            <Plus size={18} color={Palette.white} style={{ marginRight: 8 }} />
-            <Text style={styles.addAccountBtnText}>Add Account</Text>
+            <Plus size={16} color={Palette.white} style={{ marginRight: 5 }} />
+            <Text
+              style={styles.addAccountBtnText}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.82}
+            >
+              Add Account
+            </Text>
           </TouchableOpacity>
 
           {onImportStatement ? (
@@ -123,8 +130,15 @@ export const AccountsTab = React.memo<AccountsTabProps>(({
               accessibilityRole="button"
               accessibilityLabel="Import e-Statement"
             >
-              <FileText size={16} color={Palette.ink} style={{ marginRight: 6 }} />
-              <Text style={styles.statementActionBtnText}>e-Statement</Text>
+              <FileText size={15} color={Palette.ink} style={{ marginRight: 5 }} />
+              <Text
+                style={styles.statementActionBtnText}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+              >
+                e-Statement
+              </Text>
             </TouchableOpacity>
           ) : null}
 
@@ -189,9 +203,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   bannerTitle: {
-    ...Typography.heading,
+    ...Typography.editorialTitle,
     fontSize: 22,
-    fontWeight: '700',
     color: Palette.ink,
   },
   sectionHeaderRow: {
@@ -288,45 +301,50 @@ const styles = StyleSheet.create({
   },
   addAccountBtn: {
     flex: 1,
+    minWidth: 0,
+    height: 46,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Palette.primary,
-    paddingVertical: 14,
-    borderRadius: 16,
+    paddingHorizontal: 10,
+    borderRadius: 14,
   },
   statementActionBtn: {
+    height: 46,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    paddingHorizontal: 12,
+    borderRadius: 14,
+    flexShrink: 0,
   },
   statementActionBtnText: {
     ...Typography.body,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: Palette.ink,
   },
   manageOrderBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
+    width: 46,
+    height: 46,
+    borderRadius: 14,
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   addAccountBtnText: {
     ...Typography.body,
-    fontSize: 15,
+    fontSize: 13.5,
     fontWeight: '600',
     color: Palette.white,
+    flexShrink: 1,
   },
   emptyCard: {
     backgroundColor: Palette.surfaceSoft,

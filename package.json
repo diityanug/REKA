@@ -5,7 +5,10 @@
   "dependencies": {
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
+    "@expo-google-fonts/jetbrains-mono": "^0.4.1",
     "@expo-google-fonts/playfair-display": "^0.4.2",
+    "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
+    "@expo/vector-icons": "^15.0.2",
     "@google/genai": "^2.30.0",
     "expo": "~58.0.22",
     "expo-crypto": "~58.0.8",

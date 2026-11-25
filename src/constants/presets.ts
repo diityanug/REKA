@@ -30,9 +30,10 @@ export const POCKET_PRESETS = [
 export const PAYMENT_METHODS = [
   'QRIS',
   'Bank Transfer',
+  'Virtual Account',
   'Debit Card',
-  'Cash',
-  'E-Wallet',
   'Credit Card',
+  'E-Wallet',
+  'Cash',
   'E-Money',
 ];

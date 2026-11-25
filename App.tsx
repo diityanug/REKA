@@ -13,6 +13,24 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { ShieldCheck } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as SplashScreen from 'expo-splash-screen';
+import { useFonts } from 'expo-font';
+import {
+  PlayfairDisplay_500Medium,
+  PlayfairDisplay_600SemiBold,
+  PlayfairDisplay_700Bold,
+} from '@expo-google-fonts/playfair-display';
+import {
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+} from '@expo-google-fonts/plus-jakarta-sans';
+import {
+  JetBrainsMono_400Regular,
+  JetBrainsMono_500Medium,
+  JetBrainsMono_600SemiBold,
+  JetBrainsMono_700Bold,
+} from '@expo-google-fonts/jetbrains-mono';
 
 // Domain Services & Utilities
 import {
@@ -64,6 +82,7 @@ import { OverlayProvider, OverlayHost } from './src/components/OverlayHost';
 // Visual Components & Tabs
 import { AppHeader } from './src/components/AppHeader';
 import { BottomTabBar } from './src/components/BottomTabBar';
+import { AnimatedTabPane } from './src/components/MotionPrimitives';
 import { OverviewTab } from './src/components/tabs/OverviewTab';
 import { AccountsTab } from './src/components/tabs/AccountsTab';
 import { HistoryTab } from './src/components/tabs/HistoryTab';
@@ -126,12 +145,41 @@ function buildLocalTimestamp(dateStr: string, timeStr: string): string {
 }
 
 export default function App() {
+  const [fontsLoaded, fontError] = useFonts([
+    {
+      fontFamily: 'PlayfairDisplay',
+      fontDefinitions: [
+        { path: PlayfairDisplay_500Medium, weight: 500 },
+        { path: PlayfairDisplay_600SemiBold, weight: 600 },
+        { path: PlayfairDisplay_700Bold, weight: 700 },
+      ],
+    },
+    {
+      fontFamily: 'PlusJakartaSans',
+      fontDefinitions: [
+        { path: PlusJakartaSans_400Regular, weight: 400 },
+        { path: PlusJakartaSans_500Medium, weight: 500 },
+        { path: PlusJakartaSans_600SemiBold, weight: 600 },
+        { path: PlusJakartaSans_700Bold, weight: 700 },
+      ],
+    },
+    {
+      fontFamily: 'JetBrainsMono',
+      fontDefinitions: [
+        { path: JetBrainsMono_400Regular, weight: 400 },
+        { path: JetBrainsMono_500Medium, weight: 500 },
+        { path: JetBrainsMono_600SemiBold, weight: 600 },
+        { path: JetBrainsMono_700Bold, weight: 700 },
+      ],
+    },
+  ]);
+
   return (
     <SafeAreaProvider>
       <ErrorBoundary>
         <KeyboardMetricsProvider>
           <OverlayProvider>
-            <MainApp />
+            <MainApp fontsReady={fontsLoaded || Boolean(fontError)} />
           </OverlayProvider>
         </KeyboardMetricsProvider>
       </ErrorBoundary>
@@ -139,11 +187,13 @@ export default function App() {
   );
 }
 
-function MainApp() {
+function MainApp({ fontsReady }: { fontsReady: boolean }) {
   const insets = useSafeAreaInsets();
 
   // Navigation & Core States
   const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [tabDirection, setTabDirection] = useState<number>(0);
+  const activeTabRef = useRef<TabType>('overview');
   const [visitedTabs, setVisitedTabs] = useState<Record<TabType, boolean>>({
     overview: true,
     accounts: false,
@@ -158,6 +208,18 @@ function MainApp() {
 
   const handleSelectTab = useCallback((nextTab: TabType) => {
     Keyboard.dismiss();
+    const order: Record<TabType, number> = {
+      overview: 0,
+      accounts: 1,
+      history: 2,
+      analytics: 3,
+    };
+    const prevIdx = order[activeTabRef.current];
+    const nextIdx = order[nextTab];
+    if (nextIdx !== prevIdx) {
+      setTabDirection(nextIdx > prevIdx ? 1 : -1);
+    }
+    activeTabRef.current = nextTab;
     setActiveTab(nextTab);
     setVisitedTabs((prev) => (prev[nextTab] ? prev : { ...prev, [nextTab]: true }));
   }, []);
@@ -608,12 +670,7 @@ function MainApp() {
   const handleOpenManualTransaction = useCallback(
     (preferredCurrency?: CurrencyType) => {
       const curr = preferredCurrency || activeCurrency;
-      const selectableExpenses = filterSelectableCategories(categories, 'expense');
-      const preferredCat =
-        selectableExpenses.find((c) => c.name === 'Food & Beverages')?.name ||
-        selectableExpenses[0]?.name ||
-        'Others';
-      openManualModal(curr, preferredCat);
+      openManualModal(curr, '');
       const matchingWallet = wallets.find((w) => w.currency === curr);
       if (matchingWallet) {
         setSelectedWalletId(matchingWallet.id);
@@ -622,7 +679,7 @@ function MainApp() {
       }
       setSelectedPocketId('');
     },
-    [activeCurrency, categories, openManualModal, wallets, setSelectedWalletId, setSelectedPocketId]
+    [activeCurrency, openManualModal, wallets, setSelectedWalletId, setSelectedPocketId]
   );
 
   // Keep the selected category valid whenever the transaction type changes
@@ -634,7 +691,7 @@ function MainApp() {
         (c) => c.name.toLowerCase() === manCategory.toLowerCase()
       );
       if (!stillValid) {
-        setManCategory(selectable[0]?.name || 'Others');
+        setManCategory('');
       }
     },
     [categories, manCategory, setManType, setManCategory]
@@ -1434,7 +1491,7 @@ function MainApp() {
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  if (!splashFinished || (finance.loading && !finance.initialAppReady)) {
+  if (!splashFinished || !fontsReady || (finance.loading && !finance.initialAppReady)) {
     return (
       <AnimatedSplashScreen
         minDurationMs={1000}
@@ -1455,13 +1512,10 @@ function MainApp() {
           onOpenSettings={handleOpenSettings}
         />
 
-        {/* Persistent Tab Screens (lazily mounted on first visit so scroll & input state survive switches) */}
+        {/* Persistent Tab Screens with silky cross-fade & directional slide */}
         <View style={styles.tabsArea}>
           {visitedTabs.overview && (
-            <View
-              style={[styles.tabPane, activeTab !== 'overview' && styles.tabPaneHidden]}
-              pointerEvents={activeTab === 'overview' ? 'auto' : 'none'}
-            >
+            <AnimatedTabPane active={activeTab === 'overview'} direction={tabDirection}>
               <ScrollView
                 style={styles.tabScroll}
                 contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
@@ -1495,14 +1549,11 @@ function MainApp() {
                   getPocketName={getPocketName}
                 />
               </ScrollView>
-            </View>
+            </AnimatedTabPane>
           )}
 
           {visitedTabs.accounts && (
-            <View
-              style={[styles.tabPane, activeTab !== 'accounts' && styles.tabPaneHidden]}
-              pointerEvents={activeTab === 'accounts' ? 'auto' : 'none'}
-            >
+            <AnimatedTabPane active={activeTab === 'accounts'} direction={tabDirection}>
               <ScrollView
                 style={styles.tabScroll}
                 contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
@@ -1525,14 +1576,11 @@ function MainApp() {
                   onApplyAllocationPlan={openApplyPlan}
                 />
               </ScrollView>
-            </View>
+            </AnimatedTabPane>
           )}
 
           {visitedTabs.history && (
-            <View
-              style={[styles.tabPane, activeTab !== 'history' && styles.tabPaneHidden]}
-              pointerEvents={activeTab === 'history' ? 'auto' : 'none'}
-            >
+            <AnimatedTabPane active={activeTab === 'history'} direction={tabDirection}>
               <HistoryTab
                 transactions={filteredTransactions}
                 activeCurrency={finance.activeCurrency}
@@ -1577,14 +1625,11 @@ function MainApp() {
                 getCategoryIconName={getCategoryIconName}
                 getPocketName={getPocketName}
               />
-            </View>
+            </AnimatedTabPane>
           )}
 
           {visitedTabs.analytics && (
-            <View
-              style={[styles.tabPane, activeTab !== 'analytics' && styles.tabPaneHidden]}
-              pointerEvents={activeTab === 'analytics' ? 'auto' : 'none'}
-            >
+            <AnimatedTabPane active={activeTab === 'analytics'} direction={tabDirection}>
               <ScrollView
                 style={styles.tabScroll}
                 contentContainerStyle={[styles.scrollBody, { paddingBottom: insets.bottom + 96 }]}
@@ -1610,7 +1655,7 @@ function MainApp() {
                   getCategoryIconName={getCategoryIconName}
                 />
               </ScrollView>
-            </View>
+            </AnimatedTabPane>
           )}
         </View>
 
@@ -2125,12 +2170,10 @@ const styles = StyleSheet.create({
   },
   tabsArea: {
     flex: 1,
-  },
-  tabPane: {
-    flex: 1,
-  },
-  tabPaneHidden: {
-    display: 'none',
+    position: 'relative',
+    zIndex: 1,
+    elevation: 0,
+    overflow: 'hidden',
   },
   tabScroll: {
     flex: 1,

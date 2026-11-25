@@ -1,14 +1,42 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
-import { Check, HandCoins, ArrowDownLeft, ArrowUpRight } from 'lucide-react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import {
+  Check,
+  HandCoins,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Building2,
+  Smartphone,
+  Banknote,
+  TrendingUp,
+  CreditCard,
+  Layers,
+} from 'lucide-react-native';
 import { Palette, Typography } from '../theme/tokens';
 import { Transaction } from '../types';
 import { formatCurrency } from '../utils/formatters';
 import { CategoryIcon } from './CategoryIcon';
+import { PaymentMethodIcon } from './PaymentMethodIcon';
+import { ContactlessCardIcon } from './icons/ContactlessCardIcon';
+import { ScalePressable } from './MotionPrimitives';
+
+function renderWalletMiniIcon(rawType?: string, size = 12, color = Palette.muted) {
+  const t = (rawType || '').toLowerCase();
+  if (t === 'e-wallet' || t === 'ewallet') return <Smartphone size={size} color={color} />;
+  if (t === 'cash') return <Banknote size={size} color={color} />;
+  if (t === 'investment') return <TrendingUp size={size} color={color} />;
+  if (t === 'credit card' || t === 'credit') return <CreditCard size={size} color={color} />;
+  if (t === 'e-money' || t === 'emoney' || t === 'e-toll') {
+    return <ContactlessCardIcon size={size} color={color} />;
+  }
+  return <Building2 size={size} color={color} />;
+}
 
 interface TransactionItemRowProps {
   transaction: Transaction;
   categoryIcon: string;
+  walletName?: string;
+  walletType?: string;
   pocketName?: string;
   privacyMode: boolean;
   selectionMode?: boolean;
@@ -20,6 +48,9 @@ interface TransactionItemRowProps {
 export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
   transaction: tx,
   categoryIcon,
+  walletName,
+  walletType,
+  pocketName,
   privacyMode,
   selectionMode = false,
   isSelected = false,
@@ -112,28 +143,50 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
       tx.pairedDeletedWalletName ||
       tx.pairedDeletedPocketName
   );
-  const deletedWalletLabel = tx.deletedWalletName
-    ? `${tx.deletedWalletName} (Deleted Acc)`
-    : tx.pairedDeletedWalletName
-      ? `${tx.pairedDeletedWalletName} (Deleted Acc)`
+
+  // Account & Pocket footer strip (Option B — full-width ledger footer, never collides with amount)
+  const resolvedAccountLabel = walletName?.trim()
+    ? walletName.trim()
+    : tx.deletedWalletName
+      ? `${tx.deletedWalletName} (Deleted)`
+      : tx.pairedDeletedWalletName
+        ? `${tx.pairedDeletedWalletName} (Deleted)`
+        : '';
+
+  const resolvedPocketLabel = pocketName?.trim()
+    ? pocketName.trim()
+    : tx.deletedPocketName
+      ? `${tx.deletedPocketName} (Deleted)`
       : '';
-  const metaText = [tx.category, deletedWalletLabel]
-    .filter(Boolean)
-    .join(' • ');
+
+  const footerSourceParts = [resolvedAccountLabel, resolvedPocketLabel].filter(Boolean);
+  const footerSourceLabel =
+    footerSourceParts.length > 0
+      ? footerSourceParts.join(' · ')
+      : !walletName && !tx.deletedWalletName
+        ? 'Main Balance'
+        : '';
+  const showWalletIcon = Boolean(resolvedAccountLabel);
+  const footerMethodLabel = tx.paymentMethod?.trim() || '';
+  const hasFooterStrip = Boolean(footerSourceLabel || footerMethodLabel);
+
+  const metaText = tx.category;
 
   return (
-    <TouchableOpacity
-      style={[
+    <ScalePressable
+      style={styles.txCardOuter}
+      contentStyle={[
         styles.txCard,
         isSelected && styles.txCardSelected,
       ]}
+      scaleTo={0.975}
+      activeOpacity={0.92}
       onPress={() => onPress(tx)}
       onLongPress={() => onLongPress?.(tx)}
-      activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`${tx.merchantName}, ${metaText}, ${
-        privacyMode ? 'amount hidden' : formattedAmount
-      }. Open details.`}
+      accessibilityLabel={`${tx.merchantName}, ${metaText}${
+        footerSourceLabel ? `, ${footerSourceLabel}` : ''
+      }, ${privacyMode ? 'amount hidden' : formattedAmount}. Open details.`}
     >
       <View style={styles.txRow}>
         {/* Selection Checkbox */}
@@ -174,7 +227,7 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
           />
         </View>
 
-        {/* Center: Merchant Name & Context Metadata (wraps to new line at boundary, never truncated) */}
+        {/* Center: Merchant Name & Category (wraps cleanly, never truncated) */}
         <View style={styles.txInfoBox}>
           <Text style={styles.txMerchantName}>
             {tx.merchantName}
@@ -209,6 +262,34 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
         </View>
       </View>
 
+      {/* Full-Width Account / Pocket & Payment Method Footer Strip */}
+      {hasFooterStrip ? (
+        <View style={styles.footerBar}>
+          <View style={styles.footerLeft}>
+            <View style={styles.footerIconWrap}>
+              {showWalletIcon ? (
+                renderWalletMiniIcon(walletType, 11.5, Palette.muted)
+              ) : (
+                <Layers size={11.5} color={Palette.muted} />
+              )}
+            </View>
+            <Text style={styles.footerSourceText}>
+              {footerSourceLabel}
+            </Text>
+          </View>
+          {footerMethodLabel ? (
+            <View style={styles.footerMethodPill}>
+              <PaymentMethodIcon
+                method={footerMethodLabel}
+                size={11}
+                color={Palette.muted}
+              />
+              <Text style={styles.footerMethodText}>{footerMethodLabel}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
+
       {/* Dedicated Bottom Strip for Lent / Repayment */}
       {hasExtraInfo ? (
         <View style={styles.subBar}>
@@ -225,19 +306,21 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
           </View>
         </View>
       ) : null}
-    </TouchableOpacity>
+    </ScalePressable>
   );
 });
 
 TransactionItemRow.displayName = 'TransactionItemRow';
 
 const styles = StyleSheet.create({
+  txCardOuter: {
+    marginBottom: 10,
+  },
   txCard: {
     backgroundColor: Palette.white,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
-    marginBottom: 10,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
@@ -305,17 +388,69 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   txAmountText: {
-    fontSize: 15,
-    fontWeight: '700',
-    letterSpacing: -0.3,
+    ...Typography.mono,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: -0.25,
     textAlign: 'right',
+  },
+  footerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginTop: 11,
+    paddingTop: 9,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: Palette.hairline,
+  },
+  footerLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  footerIconWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  footerSourceText: {
+    ...Typography.caption,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '500',
+    color: Palette.body,
+    flexShrink: 1,
+  },
+  footerMethodPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: Palette.surfaceSoft,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  footerMethodText: {
+    ...Typography.caption,
+    fontSize: 10.5,
+    lineHeight: 13,
+    fontWeight: '600',
+    color: Palette.muted,
   },
   subBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: 11,
-    paddingTop: 10,
+    marginTop: 9,
+    paddingTop: 9,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: Palette.hairline,
   },

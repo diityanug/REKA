@@ -14,6 +14,8 @@ interface KeyboardSafeContainerProps {
   contentContainerStyle?: StyleProp<ViewStyle>;
   extraBottomSpace?: number;
   keyboardDismissMode?: 'none' | 'on-drag' | 'interactive';
+  /** When true (inside an auto-height bottom sheet), hugs content up to parent maxHeight instead of forcing flex: 1 */
+  adaptive?: boolean;
 }
 
 // Scrollable container protecting fields from keyboard obstruction across iOS and Android
@@ -23,6 +25,7 @@ export const KeyboardSafeContainer: React.FC<KeyboardSafeContainerProps> = ({
   contentContainerStyle,
   extraBottomSpace = 40,
   keyboardDismissMode = 'none',
+  adaptive = false,
 }) => {
   const keyboardHeight = useUncompensatedKeyboardHeight();
 
@@ -33,9 +36,9 @@ export const KeyboardSafeContainer: React.FC<KeyboardSafeContainerProps> = ({
       : extraBottomSpace;
 
   return (
-    <View style={styles.outerContainer}>
+    <View style={adaptive ? styles.outerContainerAdaptive : styles.outerContainer}>
       <ScrollView
-        style={[styles.wrapper, style]}
+        style={[adaptive ? styles.wrapperAdaptive : styles.wrapper, style]}
         contentContainerStyle={[
           styles.defaultContent,
           contentContainerStyle,
@@ -57,8 +60,16 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
   },
+  outerContainerAdaptive: {
+    flexShrink: 1,
+    width: '100%',
+  },
   wrapper: {
     flex: 1,
+    width: '100%',
+  },
+  wrapperAdaptive: {
+    flexShrink: 1,
     width: '100%',
   },
   defaultContent: {

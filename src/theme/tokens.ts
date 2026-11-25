@@ -57,39 +57,78 @@ export const Spacing = {
   xxxl: 32,
 };
 
+// Editorial 3-Voice Typography Families (loaded via expo-font multi-face in App.tsx)
+export const FontFamily = {
+  editorial: 'PlayfairDisplay',
+  sans: 'PlusJakartaSans',
+  mono: 'JetBrainsMono',
+} as const;
+
 export const Typography = {
-  display: {
-    fontSize: 32,
-    fontWeight: '600' as const,
-    color: Palette.ink,
-    letterSpacing: -0.8,
-  },
-  heading: {
+  editorialTitle: {
+    fontFamily: FontFamily.editorial,
     fontSize: 22,
     fontWeight: '600' as const,
     color: Palette.ink,
-    letterSpacing: -0.4,
+    letterSpacing: -0.15,
+  },
+  display: {
+    fontFamily: FontFamily.sans,
+    fontSize: 30,
+    fontWeight: '600' as const,
+    color: Palette.ink,
+    letterSpacing: -0.7,
+    fontVariant: ['tabular-nums' as const],
+  },
+  heading: {
+    fontFamily: FontFamily.sans,
+    fontSize: 19,
+    fontWeight: '600' as const,
+    color: Palette.ink,
+    letterSpacing: -0.3,
   },
   subheading: {
-    fontSize: 17,
+    fontFamily: FontFamily.sans,
+    fontSize: 15,
     fontWeight: '500' as const,
     color: Palette.bodyStrong,
-    letterSpacing: -0.2,
+    letterSpacing: -0.15,
   },
   body: {
-    fontSize: 15,
+    fontFamily: FontFamily.sans,
+    fontSize: 14,
     fontWeight: '400' as const,
     color: Palette.body,
-    lineHeight: 22,
+    lineHeight: 20,
   },
-  caption: {
-    fontSize: 13,
-    fontWeight: '500' as const,
+  label: {
+    fontFamily: FontFamily.sans,
+    fontSize: 11,
+    fontWeight: '600' as const,
+    letterSpacing: 0.45,
+    textTransform: 'uppercase' as const,
     color: Palette.muted,
   },
+  caption: {
+    fontFamily: FontFamily.sans,
+    fontSize: 12,
+    fontWeight: '400' as const,
+    color: Palette.muted,
+  },
+  // Clean tabular numerals in Plus Jakarta Sans so wide currency strings (e.g. Rp 12.500.000) stay airy & aligned
   mono: {
-    fontSize: 14,
+    fontFamily: FontFamily.sans,
+    fontSize: 13.5,
+    fontWeight: '600' as const,
+    letterSpacing: -0.25,
+    fontVariant: ['tabular-nums' as const],
+  },
+  // Dedicated JetBrains Mono strictly for compact micro-data (times, currency tags, percentages, account numbers)
+  code: {
+    fontFamily: FontFamily.mono,
+    fontSize: 11,
     fontWeight: '500' as const,
-    letterSpacing: -0.3,
+    letterSpacing: -0.2,
+    fontVariant: ['tabular-nums' as const],
   },
 };

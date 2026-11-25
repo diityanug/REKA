@@ -41,7 +41,7 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
           <View style={styles.iconCircle}>
             <Layers size={15} color={Palette.primary} />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
             <Text style={styles.planTitle}>{plan.title}</Text>
             <Text style={styles.planSubtitle}>
               {plan.items.length} Allocation Item{plan.items.length > 1 ? 's' : ''}
@@ -81,17 +81,22 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
               index === plan.items.length - 1 && styles.itemRowLast,
             ]}
           >
-            {/* Left Column: Description */}
+            {/* Left Column: Description (wraps cleanly, never truncated with ...) */}
             <View style={styles.leftCol}>
               <View style={styles.bulletDot} />
-              <Text style={styles.itemLabel} numberOfLines={1} ellipsizeMode="tail">
+              <Text style={styles.itemLabel}>
                 {item.label}
               </Text>
             </View>
 
-            {/* Right Column: Amount (Strictly right-aligned, no overlap) */}
+            {/* Right Column: Amount (Strictly right-aligned, scales cleanly for billions) */}
             <View style={styles.rightCol}>
-              <Text style={styles.itemAmount} numberOfLines={1}>
+              <Text
+                style={styles.itemAmount}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.78}
+              >
                 {formatCurrency(item.amount, planCurrency, privacyMode)}
               </Text>
             </View>
@@ -102,7 +107,12 @@ export const AllocationPlanCard: React.FC<AllocationPlanCardProps> = ({
       {/* Card Footer: Total Allocated */}
       <View style={styles.footerRow}>
         <Text style={styles.footerLabel}>Total Allocated:</Text>
-        <Text style={styles.footerAmount}>
+        <Text
+          style={styles.footerAmount}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+          minimumFontScale={0.78}
+        >
           {formatCurrency(totalAmount, planCurrency, privacyMode)}
         </Text>
       </View>
@@ -159,7 +169,8 @@ const styles = StyleSheet.create({
   },
   planTitle: {
     ...Typography.body,
-    fontSize: 15,
+    fontSize: 14.5,
+    lineHeight: 19,
     fontWeight: '700',
     color: Palette.ink,
   },
@@ -208,8 +219,7 @@ const styles = StyleSheet.create({
   },
   itemRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'stretch',
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Palette.hairline,
@@ -221,7 +231,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
     paddingRight: 12,
+    borderRightWidth: 1,
+    borderRightColor: Palette.hairline,
   },
   bulletDot: {
     width: 5,
@@ -229,29 +242,37 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
     backgroundColor: Palette.primary,
     marginRight: 8,
+    flexShrink: 0,
   },
   itemLabel: {
     ...Typography.body,
-    fontSize: 13,
+    fontSize: 12.5,
+    lineHeight: 17,
     color: Palette.ink,
     fontWeight: '500',
-    flexShrink: 1,
+    flex: 1,
   },
   rightCol: {
+    width: '44%',
+    minWidth: 120,
+    paddingLeft: 12,
     alignItems: 'flex-end',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   itemAmount: {
-    ...Typography.body,
-    fontSize: 13,
+    ...Typography.mono,
+    fontSize: 12.5,
     fontWeight: '700',
     color: Palette.ink,
     textAlign: 'right',
+    width: '100%',
   },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 10,
     paddingTop: 2,
   },
   footerLabel: {
@@ -259,12 +280,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: Palette.muted,
+    flexShrink: 0,
   },
   footerAmount: {
-    ...Typography.heading,
-    fontSize: 16,
+    ...Typography.mono,
+    fontSize: 15.5,
     fontWeight: '700',
     color: Palette.ink,
+    flex: 1,
+    textAlign: 'right',
   },
   applyBtn: {
     flexDirection: 'row',

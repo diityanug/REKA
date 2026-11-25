@@ -10,7 +10,22 @@ import {
   Easing,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ArrowDown, ArrowLeftRight, ArrowRight, Plus, RefreshCw } from 'lucide-react-native';
+import {
+  ArrowDown,
+  ArrowLeftRight,
+  ArrowRight,
+  Plus,
+  RefreshCw,
+  Check,
+  Building2,
+  Smartphone,
+  Banknote,
+  TrendingUp,
+  CreditCard,
+  Layers,
+} from 'lucide-react-native';
+import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
+import { CategoryIcon } from '../CategoryIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
@@ -35,6 +50,16 @@ import { useLocalAlert } from '../../hooks/useLocalAlert';
 const DEFAULT_EXCHANGE_RATE = 16000;
 const MIN_EXCHANGE_RATE = 1;
 const MAX_EXCHANGE_RATE = 1e9;
+
+function getAccountTypeIcon(rawType?: string) {
+  const t = (rawType || '').toLowerCase();
+  if (t === 'e-wallet' || t === 'ewallet') return Smartphone;
+  if (t === 'cash') return Banknote;
+  if (t === 'investment') return TrendingUp;
+  if (t === 'credit card' || t === 'credit') return CreditCard;
+  if (t === 'e-money' || t === 'emoney' || t === 'e-toll') return ContactlessCardIcon;
+  return Building2;
+}
 
 export interface EditingTransferData {
   txId: string;
@@ -459,8 +484,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     <BottomSheetModal
       visible={visible}
       onClose={handleModalClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
     >
       <ModalHeader
         title={editingTransfer ? 'Edit Transfer' : 'Transfer Funds'}
@@ -472,6 +496,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
               : `Move money across accounts (${fromCurrency})`
         }
         onClose={handleModalClose}
+        leadingIcon="close"
       />
 
           <KeyboardSafeContainer extraBottomSpace={32}>
@@ -499,20 +524,25 @@ export const TransferModal = React.memo<TransferModalProps>(({
               </View>
             ) : (
               <>
-                {/* Source Account Selector */}
+                {/* Source Account Selector — Fixed Full-Width Ledger List */}
                 <View style={styles.fieldSection}>
                   <Text style={styles.inputLabel}>
                     From Account <Text style={styles.requiredStar}>*</Text>
                   </Text>
-                  <View style={styles.accountChipsRow}>
-                    {eligibleWallets.map((w) => {
+                  <View style={styles.selectorListCard}>
+                    {eligibleWallets.map((w, idx) => {
                       const isSelected = w.id === fromWalletId;
+                      const isLast = idx === eligibleWallets.length - 1;
+                      const AccIcon = getAccountTypeIcon(w.type);
+                      const accDisplayName =
+                        w.name?.trim() || (w.type ? `${w.type} Account` : 'Account');
                       return (
                         <TouchableOpacity
                           key={`from_${w.id}`}
                           style={[
-                            styles.accountChip,
-                            isSelected && styles.accountChipActive,
+                            styles.selectorListRow,
+                            !isLast && styles.selectorListRowBorder,
+                            isSelected && styles.selectorListRowActiveFrom,
                           ]}
                           onPress={() => {
                             AppHaptics.selection();
@@ -536,45 +566,61 @@ export const TransferModal = React.memo<TransferModalProps>(({
                               }
                             }
                           }}
-                          activeOpacity={0.8}
+                          activeOpacity={0.78}
                           accessibilityRole="button"
-                          accessibilityLabel={`From account ${w.name}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
+                          accessibilityLabel={`From account ${accDisplayName}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
                           accessibilityState={{ selected: isSelected }}
                         >
-                          <View style={styles.chipTopRow}>
-                            <Text
-                              style={[
-                                styles.accountChipName,
-                                isSelected && styles.accountChipTextActive,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {w.name}
-                            </Text>
-                            <View
-                              style={[
-                                styles.currencyPill,
-                                isSelected && styles.currencyPillActive,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.currencyPillText,
-                                  isSelected && styles.currencyPillTextActive,
-                                ]}
-                              >
-                                {w.currency}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text
+                          <View
                             style={[
-                              styles.accountChipBalance,
-                              isSelected && styles.accountChipTextActive,
+                              styles.selectorRowIconBox,
+                              isSelected && styles.selectorRowIconBoxActiveFrom,
                             ]}
                           >
-                            {formatCurrency(w.balance, w.currency, privacyMode)}
-                          </Text>
+                            <AccIcon
+                              size={16}
+                              color={isSelected ? Palette.white : Palette.primary}
+                            />
+                          </View>
+                          <View style={styles.selectorRowCenter}>
+                            <Text
+                              style={[
+                                styles.selectorRowName,
+                                isSelected && styles.selectorRowNameActiveFrom,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.84}
+                            >
+                              {accDisplayName}
+                            </Text>
+                            <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                              {w.type ? `${w.type} · ${w.currency}` : w.currency}
+                            </Text>
+                          </View>
+                          <View style={styles.selectorRowRight}>
+                            <Text
+                              style={[
+                                styles.selectorRowBalance,
+                                isSelected && styles.selectorRowBalanceActiveFrom,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.8}
+                            >
+                              {formatCurrency(w.balance, w.currency, privacyMode)}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.selectorRowRadio,
+                              isSelected && styles.selectorRowRadioActiveFrom,
+                            ]}
+                          >
+                            {isSelected ? (
+                              <Check size={10} color={Palette.white} strokeWidth={3} />
+                            ) : null}
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
@@ -584,84 +630,118 @@ export const TransferModal = React.memo<TransferModalProps>(({
                   {fromWalletPockets.length > 0 && selectedFromWallet && (
                     <View style={styles.pocketSubSection}>
                       <Text style={styles.pocketSubLabel}>Source Balance / Pocket</Text>
-                      <View style={styles.pocketChipsRow}>
-                        <TouchableOpacity
-                          style={[
-                            styles.pocketChip,
-                            !fromPocketId && styles.pocketChipActiveFrom,
-                          ]}
-                          onPress={() => {
-                            AppHaptics.selection();
-                            setFromPocketId('');
-                            if (isSameWallet && !toPocketId && fromWalletPockets.length > 0) {
-                              setToPocketId(fromWalletPockets[0].id);
-                            }
-                          }}
-                          activeOpacity={0.8}
-                          accessibilityRole="button"
-                          accessibilityLabel={`From Main Account, unallocated balance ${formatCurrency(fromUnallocatedDisplay, selectedFromWallet.currency, privacyMode)}`}
-                          accessibilityState={{ selected: !fromPocketId }}
-                        >
-                          <Text
-                            style={[
-                              styles.pocketChipName,
-                              !fromPocketId && styles.pocketChipTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            Main Account
-                          </Text>
-                          <Text
-                            style={[
-                              styles.pocketChipBalance,
-                              !fromPocketId && styles.pocketChipTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {formatCurrency(fromUnallocatedDisplay, selectedFromWallet.currency, privacyMode)}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {fromWalletPockets.map((p) => {
-                          const isSelected = p.id === fromPocketId;
+                      <View style={styles.selectorListCard}>
+                        {[
+                          {
+                            id: '',
+                            name: 'Main Balance',
+                            balance: fromUnallocatedDisplay,
+                            icon: 'Wallet',
+                            color: Palette.primary,
+                            isMain: true as const,
+                          },
+                          ...fromWalletPockets.map((p) => ({
+                            id: p.id,
+                            name: p.name,
+                            balance: p.balance,
+                            icon: p.icon || 'Briefcase',
+                            color: p.color || Palette.primary,
+                            isMain: false as const,
+                          })),
+                        ].map((choice, idx, arr) => {
+                          const isSelected = choice.id === fromPocketId;
+                          const isLast = idx === arr.length - 1;
+                          const accentColor = choice.isMain ? Palette.primary : choice.color;
                           return (
                             <TouchableOpacity
-                              key={`from_pocket_${p.id}`}
+                              key={`from_pkt_${choice.id || 'main'}`}
                               style={[
-                                styles.pocketChip,
-                                isSelected && styles.pocketChipActiveFrom,
+                                styles.selectorListRow,
+                                !isLast && styles.selectorListRowBorder,
+                                isSelected && styles.selectorListRowActiveFrom,
                               ]}
                               onPress={() => {
                                 AppHaptics.selection();
-                                setFromPocketId(p.id);
-                                if (isSameWallet && toPocketId === p.id) {
-                                  const altPocket = fromWalletPockets.find((op) => op.id !== p.id);
-                                  setToPocketId(altPocket ? altPocket.id : '');
+                                if (choice.isMain) {
+                                  setFromPocketId('');
+                                  if (isSameWallet && !toPocketId && fromWalletPockets.length > 0) {
+                                    setToPocketId(fromWalletPockets[0].id);
+                                  }
+                                } else {
+                                  setFromPocketId(choice.id);
+                                  if (isSameWallet && toPocketId === choice.id) {
+                                    const altPocket = fromWalletPockets.find((op) => op.id !== choice.id);
+                                    setToPocketId(altPocket ? altPocket.id : '');
+                                  }
                                 }
                               }}
-                              activeOpacity={0.8}
+                              activeOpacity={0.78}
                               accessibilityRole="button"
-                              accessibilityLabel={`From pocket ${p.name}, balance ${formatCurrency(p.balance, selectedFromWallet.currency, privacyMode)}`}
+                              accessibilityLabel={`From ${choice.name}, balance ${formatCurrency(choice.balance, selectedFromWallet.currency, privacyMode)}`}
                               accessibilityState={{ selected: isSelected }}
                             >
-                              <Text
+                              <View
                                 style={[
-                                  styles.pocketChipName,
-                                  isSelected && styles.pocketChipTextActive,
+                                  styles.selectorRowIconBox,
+                                  {
+                                    backgroundColor: isSelected
+                                      ? accentColor
+                                      : Palette.surfaceSoft,
+                                  },
                                 ]}
-                                numberOfLines={1}
                               >
-                                {p.name}
-                              </Text>
-                              <Text
+                                {choice.isMain ? (
+                                  <Layers
+                                    size={15}
+                                    color={isSelected ? Palette.white : Palette.primary}
+                                  />
+                                ) : (
+                                  <CategoryIcon
+                                    name={choice.icon}
+                                    size={15}
+                                    color={isSelected ? Palette.white : accentColor}
+                                  />
+                                )}
+                              </View>
+                              <View style={styles.selectorRowCenter}>
+                                <Text
+                                  style={[
+                                    styles.selectorRowName,
+                                    isSelected && styles.selectorRowNameActiveFrom,
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.84}
+                                >
+                                  {choice.name}
+                                </Text>
+                                <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                                  {choice.isMain ? 'Unallocated balance' : 'Pocket'}
+                                </Text>
+                              </View>
+                              <View style={styles.selectorRowRight}>
+                                <Text
+                                  style={[
+                                    styles.selectorRowBalance,
+                                    isSelected && styles.selectorRowBalanceActiveFrom,
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.8}
+                                >
+                                  {formatCurrency(choice.balance, selectedFromWallet.currency, privacyMode)}
+                                </Text>
+                              </View>
+                              <View
                                 style={[
-                                  styles.pocketChipBalance,
-                                  isSelected && styles.pocketChipTextActive,
+                                  styles.selectorRowRadio,
+                                  isSelected && styles.selectorRowRadioActiveFrom,
                                 ]}
-                                numberOfLines={1}
                               >
-                                {formatCurrency(p.balance, selectedFromWallet.currency, privacyMode)}
-                              </Text>
+                                {isSelected ? (
+                                  <Check size={10} color={Palette.white} strokeWidth={3} />
+                                ) : null}
+                              </View>
                             </TouchableOpacity>
                           );
                         })}
@@ -683,25 +763,30 @@ export const TransferModal = React.memo<TransferModalProps>(({
                   <View style={styles.swapLine} />
                 </View>
 
-                {/* Destination Account Selector */}
+                {/* Destination Account Selector — Fixed Full-Width Ledger List */}
                 <View style={styles.fieldSection}>
                   <Text style={styles.inputLabel}>
                     To Account <Text style={styles.requiredStar}>*</Text>
                   </Text>
-                  <View style={styles.accountChipsRow}>
-                    {eligibleWallets.map((w) => {
+                  <View style={styles.selectorListCard}>
+                    {eligibleWallets.map((w, idx) => {
                       const isSelected = w.id === toWalletId;
+                      const isLast = idx === eligibleWallets.length - 1;
                       const isSource = w.id === fromWalletId;
                       const canPickSameWallet =
                         isSource && eligiblePockets.some((p) => p.walletId === w.id);
                       const isDisabled = isSource && !canPickSameWallet;
+                      const AccIcon = getAccountTypeIcon(w.type);
+                      const accDisplayName =
+                        w.name?.trim() || (w.type ? `${w.type} Account` : 'Account');
                       return (
                         <TouchableOpacity
                           key={`to_${w.id}`}
                           style={[
-                            styles.accountChip,
-                            isSelected && styles.accountChipActiveTo,
-                            isDisabled && styles.accountChipDisabled,
+                            styles.selectorListRow,
+                            !isLast && styles.selectorListRowBorder,
+                            isSelected && styles.selectorListRowActiveTo,
+                            isDisabled && styles.selectorListRowDisabled,
                           ]}
                           disabled={isDisabled}
                           onPress={() => {
@@ -721,47 +806,63 @@ export const TransferModal = React.memo<TransferModalProps>(({
                               }
                             }
                           }}
-                          activeOpacity={0.8}
+                          activeOpacity={0.78}
                           accessibilityRole="button"
-                          accessibilityLabel={`To account ${w.name}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
+                          accessibilityLabel={`To account ${accDisplayName}, ${w.currency}, balance ${formatCurrency(w.balance, w.currency, privacyMode)}`}
                           accessibilityState={{ selected: isSelected, disabled: isDisabled }}
                         >
-                          <View style={styles.chipTopRow}>
-                            <Text
-                              style={[
-                                styles.accountChipName,
-                                isSelected && styles.accountChipTextActive,
-                                isDisabled && styles.accountChipTextDisabled,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {w.name}
-                            </Text>
-                            <View
-                              style={[
-                                styles.currencyPill,
-                                isSelected && styles.currencyPillActive,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.currencyPillText,
-                                  isSelected && styles.currencyPillTextActive,
-                                ]}
-                              >
-                                {w.currency}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text
+                          <View
                             style={[
-                              styles.accountChipBalance,
-                              isSelected && styles.accountChipTextActive,
-                              isDisabled && styles.accountChipTextDisabled,
+                              styles.selectorRowIconBox,
+                              isSelected && styles.selectorRowIconBoxActiveTo,
                             ]}
                           >
-                            {formatCurrency(w.balance, w.currency, privacyMode)}
-                          </Text>
+                            <AccIcon
+                              size={16}
+                              color={isSelected ? Palette.white : Palette.accentTeal}
+                            />
+                          </View>
+                          <View style={styles.selectorRowCenter}>
+                            <Text
+                              style={[
+                                styles.selectorRowName,
+                                isSelected && styles.selectorRowNameActiveTo,
+                                isDisabled && styles.selectorRowTextDisabled,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.84}
+                            >
+                              {accDisplayName}
+                            </Text>
+                            <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                              {w.type ? `${w.type} · ${w.currency}` : w.currency}
+                            </Text>
+                          </View>
+                          <View style={styles.selectorRowRight}>
+                            <Text
+                              style={[
+                                styles.selectorRowBalance,
+                                isSelected && styles.selectorRowBalanceActiveTo,
+                                isDisabled && styles.selectorRowTextDisabled,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.8}
+                            >
+                              {formatCurrency(w.balance, w.currency, privacyMode)}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.selectorRowRadio,
+                              isSelected && styles.selectorRowRadioActiveTo,
+                            ]}
+                          >
+                            {isSelected ? (
+                              <Check size={10} color={Palette.white} strokeWidth={3} />
+                            ) : null}
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
@@ -771,85 +872,113 @@ export const TransferModal = React.memo<TransferModalProps>(({
                   {toWalletPockets.length > 0 && selectedToWallet && (
                     <View style={styles.pocketSubSection}>
                       <Text style={styles.pocketSubLabel}>Destination Balance / Pocket</Text>
-                      <View style={styles.pocketChipsRow}>
-                        <TouchableOpacity
-                          style={[
-                            styles.pocketChip,
-                            !toPocketId && styles.pocketChipActiveTo,
-                            isSameWallet && !fromPocketId && { opacity: 0.4 },
-                          ]}
-                          disabled={isSameWallet && !fromPocketId}
-                          onPress={() => {
-                            AppHaptics.selection();
-                            setToPocketId('');
-                          }}
-                          activeOpacity={0.8}
-                          accessibilityRole="button"
-                          accessibilityLabel={`To Main Account, unallocated balance ${formatCurrency(toUnallocatedDisplay, selectedToWallet.currency, privacyMode)}`}
-                          accessibilityState={{
-                            selected: !toPocketId,
+                      <View style={styles.selectorListCard}>
+                        {[
+                          {
+                            id: '',
+                            name: isSameWallet && !fromPocketId ? 'Main Balance (Source)' : 'Main Balance',
+                            balance: toUnallocatedDisplay,
+                            icon: 'Wallet',
+                            color: Palette.accentTeal,
+                            isMain: true as const,
                             disabled: isSameWallet && !fromPocketId,
-                          }}
-                        >
-                          <Text
-                            style={[
-                              styles.pocketChipName,
-                              !toPocketId && styles.pocketChipTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {isSameWallet && !fromPocketId ? 'Main (Source)' : 'Main Account'}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.pocketChipBalance,
-                              !toPocketId && styles.pocketChipTextActive,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {formatCurrency(toUnallocatedDisplay, selectedToWallet.currency, privacyMode)}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {toWalletPockets.map((p) => {
-                          const isSelected = p.id === toPocketId;
-                          const isSamePocketSource = isSameWallet && p.id === fromPocketId;
+                          },
+                          ...toWalletPockets.map((p) => ({
+                            id: p.id,
+                            name: p.name,
+                            balance: p.balance,
+                            icon: p.icon || 'Briefcase',
+                            color: p.color || Palette.accentTeal,
+                            isMain: false as const,
+                            disabled: isSameWallet && p.id === fromPocketId,
+                          })),
+                        ].map((choice, idx, arr) => {
+                          const isSelected = choice.id === toPocketId;
+                          const isLast = idx === arr.length - 1;
+                          const accentColor = choice.isMain ? Palette.accentTeal : choice.color;
                           return (
                             <TouchableOpacity
-                              key={`to_pocket_${p.id}`}
+                              key={`to_pkt_${choice.id || 'main'}`}
                               style={[
-                                styles.pocketChip,
-                                isSelected && styles.pocketChipActiveTo,
-                                isSamePocketSource && { opacity: 0.4 },
+                                styles.selectorListRow,
+                                !isLast && styles.selectorListRowBorder,
+                                isSelected && styles.selectorListRowActiveTo,
+                                choice.disabled && styles.selectorListRowDisabled,
                               ]}
-                              disabled={isSamePocketSource}
+                              disabled={choice.disabled}
                               onPress={() => {
                                 AppHaptics.selection();
-                                setToPocketId(p.id);
+                                setToPocketId(choice.id);
                               }}
-                              activeOpacity={0.8}
+                              activeOpacity={0.78}
                               accessibilityRole="button"
-                              accessibilityLabel={`To pocket ${p.name}, balance ${formatCurrency(p.balance, selectedToWallet.currency, privacyMode)}`}
-                              accessibilityState={{ selected: isSelected }}
+                              accessibilityLabel={`To ${choice.name}, balance ${formatCurrency(choice.balance, selectedToWallet.currency, privacyMode)}`}
+                              accessibilityState={{ selected: isSelected, disabled: choice.disabled }}
                             >
-                              <Text
+                              <View
                                 style={[
-                                  styles.pocketChipName,
-                                  isSelected && styles.pocketChipTextActive,
+                                  styles.selectorRowIconBox,
+                                  {
+                                    backgroundColor: isSelected
+                                      ? accentColor
+                                      : Palette.surfaceSoft,
+                                  },
                                 ]}
-                                numberOfLines={1}
                               >
-                                {p.name}
-                              </Text>
-                              <Text
+                                {choice.isMain ? (
+                                  <Layers
+                                    size={15}
+                                    color={isSelected ? Palette.white : Palette.accentTeal}
+                                  />
+                                ) : (
+                                  <CategoryIcon
+                                    name={choice.icon}
+                                    size={15}
+                                    color={isSelected ? Palette.white : accentColor}
+                                  />
+                                )}
+                              </View>
+                              <View style={styles.selectorRowCenter}>
+                                <Text
+                                  style={[
+                                    styles.selectorRowName,
+                                    isSelected && styles.selectorRowNameActiveTo,
+                                    choice.disabled && styles.selectorRowTextDisabled,
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.84}
+                                >
+                                  {choice.name}
+                                </Text>
+                                <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                                  {choice.isMain ? 'Unallocated balance' : 'Pocket'}
+                                </Text>
+                              </View>
+                              <View style={styles.selectorRowRight}>
+                                <Text
+                                  style={[
+                                    styles.selectorRowBalance,
+                                    isSelected && styles.selectorRowBalanceActiveTo,
+                                    choice.disabled && styles.selectorRowTextDisabled,
+                                  ]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.8}
+                                >
+                                  {formatCurrency(choice.balance, selectedToWallet.currency, privacyMode)}
+                                </Text>
+                              </View>
+                              <View
                                 style={[
-                                  styles.pocketChipBalance,
-                                  isSelected && styles.pocketChipTextActive,
+                                  styles.selectorRowRadio,
+                                  isSelected && styles.selectorRowRadioActiveTo,
                                 ]}
-                                numberOfLines={1}
                               >
-                                {formatCurrency(p.balance, selectedToWallet.currency, privacyMode)}
-                              </Text>
+                                {isSelected ? (
+                                  <Check size={10} color={Palette.white} strokeWidth={3} />
+                                ) : null}
+                              </View>
                             </TouchableOpacity>
                           );
                         })}
@@ -1055,7 +1184,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
           </KeyboardSafeContainer>
 
           {/* Sticky Bottom Action */}
-          {eligibleWallets.length >= 2 && !isKeyboardVisible && (
+          {(eligibleWallets.length >= 2 || hasSameAccountPockets) && !isKeyboardVisible && (
             <View
               style={[
                 styles.stickyFooter,
@@ -1150,11 +1279,6 @@ const styles = StyleSheet.create({
     color: Palette.primary,
     fontWeight: '700',
   },
-  accountChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
   pocketSubSection: {
     marginTop: 10,
     paddingTop: 10,
@@ -1162,113 +1286,125 @@ const styles = StyleSheet.create({
     borderTopColor: Palette.hairline,
   },
   pocketSubLabel: {
-    ...Typography.caption,
-    fontSize: 11,
-    fontWeight: '600',
+    ...Typography.label,
+    fontSize: 10.5,
     color: Palette.muted,
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  pocketChipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  pocketChip: {
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 11,
-    backgroundColor: Palette.surfaceSoft,
+  selectorListCard: {
+    backgroundColor: Palette.white,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    minWidth: '30%',
-    flexGrow: 1,
+    overflow: 'hidden',
   },
-  pocketChipActiveFrom: {
+  selectorListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 58,
+    paddingHorizontal: 13,
+    gap: 10,
+    backgroundColor: Palette.white,
+  },
+  selectorListRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Palette.hairline,
+  },
+  selectorListRowActiveFrom: {
+    backgroundColor: Palette.tintExpense,
+  },
+  selectorListRowActiveTo: {
+    backgroundColor: Palette.tintIncome,
+  },
+  selectorListRowDisabled: {
+    opacity: 0.42,
+    backgroundColor: Palette.surfaceSoft,
+  },
+  selectorRowIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowIconBoxActiveFrom: {
     backgroundColor: Palette.primary,
-    borderColor: Palette.primary,
   },
-  pocketChipActiveTo: {
+  selectorRowIconBoxActiveTo: {
     backgroundColor: Palette.accentTeal,
-    borderColor: Palette.accentTeal,
   },
-  pocketChipName: {
+  selectorRowCenter: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  selectorRowName: {
     ...Typography.body,
-    fontSize: 12,
+    fontSize: 13.5,
+    lineHeight: 17,
     fontWeight: '600',
     color: Palette.ink,
   },
-  pocketChipBalance: {
+  selectorRowNameActiveFrom: {
+    color: Palette.primary,
+    fontWeight: '700',
+  },
+  selectorRowNameActiveTo: {
+    color: Palette.ink,
+    fontWeight: '700',
+  },
+  selectorRowTextDisabled: {
+    color: Palette.mutedSoft,
+  },
+  selectorRowMeta: {
     ...Typography.caption,
     fontSize: 11,
+    lineHeight: 14,
     color: Palette.muted,
     marginTop: 1,
   },
-  pocketChipTextActive: {
-    color: Palette.white,
+  selectorRowRight: {
+    maxWidth: '42%',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  chipTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 2,
+  selectorRowBalance: {
+    ...Typography.mono,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: Palette.bodyStrong,
+    textAlign: 'right',
   },
-  currencyPill: {
-    backgroundColor: Palette.surfaceSoft,
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-  },
-  currencyPillActive: {
-    backgroundColor: 'rgba(255,255,255,0.25)',
-  },
-  currencyPillText: {
-    ...Typography.caption,
-    fontSize: 10,
+  selectorRowBalanceActiveFrom: {
+    color: Palette.primaryActive,
     fontWeight: '700',
-    color: Palette.muted,
   },
-  currencyPillTextActive: {
-    color: Palette.white,
+  selectorRowBalanceActiveTo: {
+    color: Palette.ink,
+    fontWeight: '700',
   },
-  accountChip: {
-    flex: 1,
-    minWidth: '47%',
-    minHeight: 44,
-    padding: 12,
-    borderRadius: 14,
-    backgroundColor: Palette.surfaceSoft,
-    borderWidth: 1,
+  selectorRowRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
     borderColor: Palette.hairline,
+    backgroundColor: Palette.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
-  accountChipActive: {
+  selectorRowRadioActiveFrom: {
     backgroundColor: Palette.primary,
     borderColor: Palette.primary,
   },
-  accountChipActiveTo: {
+  selectorRowRadioActiveTo: {
     backgroundColor: Palette.accentTeal,
     borderColor: Palette.accentTeal,
-  },
-  accountChipDisabled: {
-    opacity: 0.4,
-    backgroundColor: '#F5F5F5',
-  },
-  accountChipName: {
-    ...Typography.body,
-    fontSize: 13,
-    fontWeight: '600',
-    color: Palette.ink,
-  },
-  accountChipBalance: {
-    ...Typography.caption,
-    fontSize: 12,
-    color: Palette.muted,
-    marginTop: 2,
-  },
-  accountChipTextActive: {
-    color: Palette.white,
-  },
-  accountChipTextDisabled: {
-    color: Palette.mutedSoft,
   },
   swapDividerRow: {
     flexDirection: 'row',
@@ -1428,7 +1564,7 @@ const styles = StyleSheet.create({
   amountInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -1436,7 +1572,7 @@ const styles = StyleSheet.create({
     height: 48,
   },
   currencyPrefixBadge: {
-    paddingHorizontal: 14,
+    width: 52,
     height: '100%',
     backgroundColor: '#EBE5DF',
     borderRightWidth: 1,
@@ -1501,7 +1637,7 @@ const styles = StyleSheet.create({
   textInputBox: {
     ...Typography.body,
     fontSize: 14,
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,

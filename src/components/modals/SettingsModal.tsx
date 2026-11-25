@@ -437,12 +437,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       visible={visible}
       onClose={onClose}
       fullPage={true}
+      presentation="push"
     >
       <ModalHeader
         title="Settings"
         subtitle="Preferences & Data Management"
         onClose={onClose}
-        hideDragHandle={true}
+        leadingIcon="back"
       />
 
       <KeyboardSafeContainer extraBottomSpace={40}>
@@ -1029,7 +1030,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
 const styles = StyleSheet.create({
   sectionCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,

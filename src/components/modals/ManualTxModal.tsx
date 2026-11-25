@@ -9,7 +9,21 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Check, FolderTree, Calendar } from 'lucide-react-native';
+import {
+  Plus,
+  Check,
+  FolderTree,
+  Calendar,
+  Building2,
+  Smartphone,
+  Banknote,
+  TrendingUp,
+  CreditCard,
+  Layers,
+  ChevronDown,
+  ChevronUp,
+} from 'lucide-react-native';
+import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import {
   Wallet,
@@ -29,9 +43,31 @@ import { useLastDefined } from '../../hooks/useLastDefined';
 import { ModalHeader } from '../ModalHeader';
 import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { CategoryIcon } from '../CategoryIcon';
+import { PaymentMethodIcon } from '../PaymentMethodIcon';
+import { triggerSmoothLayout } from '../MotionPrimitives';
 import { AmountInputModal } from './AmountInputModal';
 import { DatePickerModal } from './DatePickerModal';
 import { BottomSheetModal } from '../BottomSheetModal';
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    rows.push(items.slice(i, i + size));
+  }
+  return rows;
+}
+
+const PAYMENT_METHOD_ROWS = chunkArray(PAYMENT_METHODS, 2);
+
+function getAccountTypeIcon(rawType?: string) {
+  const t = (rawType || '').toLowerCase();
+  if (t === 'e-wallet' || t === 'ewallet') return Smartphone;
+  if (t === 'cash') return Banknote;
+  if (t === 'investment') return TrendingUp;
+  if (t === 'credit card') return CreditCard;
+  if (t === 'e-money' || t === 'emoney') return ContactlessCardIcon;
+  return Building2;
+}
 
 interface ManualTxModalProps {
   visible: boolean;
@@ -118,7 +154,22 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
   const [datePickerVisible, setDatePickerVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
+  const [showOptionalDetails, setShowOptionalDetails] = useState<boolean>(false);
+  const [wasVisible, setWasVisible] = useState<boolean>(visible);
   const isKeyboardVisible = useKeyboardHeight() > 0;
+
+  if (visible !== wasVisible) {
+    setWasVisible(visible);
+    if (visible) {
+      setShowOptionalDetails(
+        Boolean(
+          manNotes.trim() ||
+            manIsLent ||
+            (isEditing && editingTransaction?.lentParentTxId)
+        )
+      );
+    }
+  }
 
   // Freeze wallets and pockets while saving or closing so account/pocket balances and warnings never jump
   const isStable = !saving && visible;
@@ -133,6 +184,30 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
 
   const selectedWallet = relevantWallets.find((w) => w.id === selectedWalletId);
   const selectedPocket = walletPockets.find((p) => p.id === selectedPocketId);
+  const selectedWalletAllocated = walletPockets.reduce((sum, p) => sum + p.balance, 0);
+  const selectedWalletMainBalance = selectedWallet
+    ? Math.max(selectedWallet.balance - selectedWalletAllocated, 0)
+    : 0;
+  const pocketChoices = useMemo(() => {
+    const mainChoice = {
+      id: '',
+      name: 'Main Balance',
+      balance: selectedWalletMainBalance,
+      icon: 'Wallet',
+      color: Palette.primary,
+      isMain: true as const,
+    };
+    const subChoices = walletPockets.map((p) => ({
+      id: p.id,
+      name: p.name,
+      balance: p.balance,
+      icon: p.icon || 'Briefcase',
+      color: p.color || Palette.accentTeal,
+      isMain: false as const,
+    }));
+    return [mainChoice, ...subChoices];
+  }, [walletPockets, selectedWalletMainBalance]);
+  const categoryRows = useMemo(() => chunkArray(activeCategories, 3), [activeCategories]);
   const parsedAmount = useMemo(
     () => parseAmount(manAmount, manCurrency),
     [manAmount, manCurrency]
@@ -265,7 +340,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
         title={isEditing ? 'Edit Transaction' : 'New Transaction'}
         subtitle={isEditing ? 'Update transaction details' : 'Manual entry'}
         onClose={onClose}
-        hideDragHandle={true}
+        leadingIcon="close"
       />
 
           <KeyboardSafeContainer extraBottomSpace={48}>
@@ -330,51 +405,19 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 onSubmitEditing={Keyboard.dismiss}
               />
 
-              {/* Currency Selector */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Currency <Text style={styles.requiredStar}>*</Text>
-              </Text>
-              <View style={styles.currencyToggleBox}>
-                <TouchableOpacity
-                  style={[
-                    styles.currencyBtn,
-                    manCurrency === 'IDR' && styles.currencyBtnActive,
-                  ]}
-                  onPress={() => onChangeCurrency('IDR')}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.currencyBtnText,
-                      manCurrency === 'IDR' && styles.currencyBtnTextActive,
-                    ]}
-                  >
-                    IDR (Rp)
+              {/* Amount Input with Calculator Modal (Currency follows selected Account) */}
+              <View style={styles.amountHeaderRow}>
+                <Text style={styles.sectionHeaderLabel}>
+                  Amount <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View style={styles.amountCurrencyChip}>
+                  <Text style={styles.amountCurrencyChipText} numberOfLines={1} ellipsizeMode="tail">
+                    {selectedWallet
+                      ? `${manCurrency} · ${selectedWallet.name?.trim() || selectedWallet.type}`
+                      : manCurrency}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.currencyBtn,
-                    manCurrency === 'USD' && styles.currencyBtnActive,
-                  ]}
-                  onPress={() => onChangeCurrency('USD')}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.currencyBtnText,
-                      manCurrency === 'USD' && styles.currencyBtnTextActive,
-                    ]}
-                  >
-                    USD ($)
-                  </Text>
-                </TouchableOpacity>
+                </View>
               </View>
-
-              {/* Amount Input with Calculator Modal */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Amount <Text style={styles.requiredStar}>*</Text>
-              </Text>
               <TouchableOpacity
                 style={styles.amountInputContainer}
                 onPress={() => {
@@ -414,16 +457,31 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 ) : null}
               </View>
 
-              {/* Transaction Date & Time */}
-              <Text style={[styles.inputLabel, { marginTop: 6 }]}>
-                Date <Text style={styles.requiredStar}>*</Text>
-              </Text>
-              <View style={styles.dateTimeRow}>
+              {/* Transaction Date & Time — Full-width date bar + inline time pill in header */}
+              <View style={styles.dateHeaderRow}>
+                <Text style={styles.sectionHeaderLabel}>
+                  Date & Time <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View style={styles.timeBox}>
+                  <Text style={styles.timeLabel}>Time</Text>
+                  <TextInput
+                    style={styles.timeInput}
+                    value={manTime}
+                    onChangeText={onChangeTime}
+                    onBlur={handleTimeBlur}
+                    placeholder="HH:mm"
+                    placeholderTextColor={Palette.mutedSoft}
+                    maxLength={5}
+                    keyboardType="numbers-and-punctuation"
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+                </View>
+              </View>
               <View style={styles.dateSelectorCard}>
                 <TouchableOpacity
                   style={[
                     styles.dateSegmentBtn,
-                    styles.dateSegmentBtnToday,
                     manDate === todayStr && styles.dateSegmentBtnActive,
                   ]}
                   onPress={() => {
@@ -448,7 +506,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <TouchableOpacity
                   style={[
                     styles.dateSegmentBtn,
-                    styles.dateSegmentBtnYesterday,
                     manDate === yesterdayStr && styles.dateSegmentBtnActive,
                   ]}
                   onPress={() => {
@@ -473,7 +530,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <TouchableOpacity
                   style={[
                     styles.dateSegmentBtn,
-                    styles.dateSegmentBtnPick,
                     isCustomDate && styles.dateSegmentBtnActive,
                   ]}
                   onPress={() => {
@@ -501,23 +557,6 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 </TouchableOpacity>
               </View>
 
-                <View style={styles.timeBox}>
-                  <Text style={styles.timeLabel}>Time</Text>
-                  <TextInput
-                    style={styles.timeInput}
-                    value={manTime}
-                    onChangeText={onChangeTime}
-                    onBlur={handleTimeBlur}
-                    placeholder="HH:mm"
-                    placeholderTextColor={Palette.mutedSoft}
-                    maxLength={5}
-                    keyboardType="numbers-and-punctuation"
-                    returnKeyType="done"
-                    onSubmitEditing={Keyboard.dismiss}
-                  />
-                </View>
-              </View>
-
               <DatePickerModal
                 visible={datePickerVisible}
                 selectedDate={manDate}
@@ -528,311 +567,553 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 onClose={() => setDatePickerVisible(false)}
               />
 
-              {/* Select Account */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Account <Text style={styles.requiredStar}>*</Text>
-              </Text>
-              <View style={styles.chipsRow}>
-                {relevantWallets.map((w) => (
-                  <TouchableOpacity
-                    key={w.id}
-                    style={[
-                      styles.presetChip,
-                      styles.accountChip,
-                      selectedWalletId === w.id && styles.presetChipActive,
-                    ]}
-                    onPress={() => {
-                      AppHaptics.selection();
-                      if (w.currency !== manCurrency) {
-                        onChangeCurrency(w.currency);
-                      }
-                      if (w.id !== selectedWalletId) {
-                        onSelectWallet(w.id);
-                        onSelectPocket('');
-                      }
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`${w.name?.trim() || 'Account'}, balance ${formatCurrency(
-                      w.balance,
-                      w.currency,
-                      privacyMode
-                    )}`}
-                    accessibilityState={{ selected: selectedWalletId === w.id }}
-                  >
-                    <Text
-                      style={[
-                        styles.presetChipText,
-                        selectedWalletId === w.id && styles.presetChipTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {w.name?.trim() || (w.type ? `${w.type} Account` : 'Account')}
-                    </Text>
-                    <Text
-                      style={[
-                        styles.accountChipBalance,
-                        selectedWalletId === w.id && styles.presetChipTextActive,
-                      ]}
-                    >
-                      {formatCurrency(w.balance, w.currency, privacyMode)}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+              {/* Select Account — Symmetrical 2-Column Grid */}
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeaderLabel}>
+                  Account <Text style={styles.requiredStar}>*</Text>
+                </Text>
                 <TouchableOpacity
-                  style={styles.addChip}
-                  onPress={onOpenAddAccount}
+                  style={styles.sectionHeaderAction}
+                  onPress={() => {
+                    AppHaptics.light();
+                    onOpenAddAccount();
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="New Account"
                 >
-                  <Plus size={14} color={Palette.primary} />
-                  <Text style={styles.addChipText}>New Account</Text>
+                  <Plus size={12} color={Palette.primary} strokeWidth={2.4} />
+                  <Text style={styles.sectionHeaderActionText}>New</Text>
                 </TouchableOpacity>
               </View>
-
-              {/* Select Pocket */}
-              {selectedWalletId ? (
-                <>
-                  <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                    Pocket
-                  </Text>
-                  <View style={styles.chipsRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.presetChip,
-                        selectedPocketId === '' && styles.presetChipActive,
-                      ]}
-                      onPress={() => {
-                        AppHaptics.selection();
-                        onSelectPocket('');
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel="Main Balance"
-                      accessibilityState={{ selected: selectedPocketId === '' }}
-                    >
-                      <Text
-                        style={[
-                          styles.presetChipText,
-                          selectedPocketId === '' && styles.presetChipTextActive,
-                        ]}
-                      >
-                        Main Balance
-                      </Text>
-                    </TouchableOpacity>
-                    {walletPockets.map((p) => (
+              {relevantWallets.length === 0 ? (
+                <TouchableOpacity
+                  style={styles.emptySelectorCard}
+                  onPress={() => {
+                    AppHaptics.light();
+                    onOpenAddAccount();
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Plus size={16} color={Palette.primary} />
+                  <Text style={styles.emptySelectorText}>Add your first account</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.selectorListCard}>
+                  {relevantWallets.map((w, idx) => {
+                    const isSelected = selectedWalletId === w.id;
+                    const isLast = idx === relevantWallets.length - 1;
+                    const AccIcon = getAccountTypeIcon(w.type);
+                    const accDisplayName =
+                      w.name?.trim() || (w.type ? `${w.type} Account` : 'Account');
+                    return (
                       <TouchableOpacity
-                        key={p.id}
+                        key={w.id}
                         style={[
-                          styles.presetChip,
-                          selectedPocketId === p.id && styles.presetChipActive,
+                          styles.selectorListRow,
+                          !isLast && styles.selectorListRowBorder,
+                          isSelected && styles.selectorListRowActive,
                         ]}
                         onPress={() => {
                           AppHaptics.selection();
-                          onSelectPocket(p.id);
+                          if (w.currency !== manCurrency) {
+                            onChangeCurrency(w.currency);
+                          }
+                          if (w.id !== selectedWalletId) {
+                            onSelectWallet(w.id);
+                            onSelectPocket('');
+                          }
                         }}
+                        activeOpacity={0.78}
                         accessibilityRole="button"
-                        accessibilityLabel={p.name}
-                        accessibilityState={{ selected: selectedPocketId === p.id }}
+                        accessibilityLabel={`${accDisplayName}, balance ${formatCurrency(
+                          w.balance,
+                          w.currency,
+                          privacyMode
+                        )}`}
+                        accessibilityState={{ selected: isSelected }}
                       >
-                        <Text
+                        <View
                           style={[
-                            styles.presetChipText,
-                            selectedPocketId === p.id && styles.presetChipTextActive,
+                            styles.selectorRowIconBox,
+                            isSelected && styles.selectorRowIconBoxActive,
                           ]}
                         >
-                          {p.name}
-                        </Text>
+                          <AccIcon
+                            size={16}
+                            color={isSelected ? Palette.white : Palette.primary}
+                          />
+                        </View>
+                        <View style={styles.selectorRowCenter}>
+                          <Text
+                            style={[
+                              styles.selectorRowName,
+                              isSelected && styles.selectorRowNameActive,
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.84}
+                          >
+                            {accDisplayName}
+                          </Text>
+                          <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                            {w.type ? `${w.type} · ${w.currency}` : w.currency}
+                          </Text>
+                        </View>
+                        <View style={styles.selectorRowRight}>
+                          <Text
+                            style={[
+                              styles.selectorRowBalance,
+                              isSelected && styles.selectorRowBalanceActive,
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.8}
+                          >
+                            {formatCurrency(w.balance, w.currency, privacyMode)}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.selectorRowRadio,
+                            isSelected && styles.selectorRowRadioActive,
+                          ]}
+                        >
+                          {isSelected ? (
+                            <Check size={10} color={Palette.white} strokeWidth={3} />
+                          ) : null}
+                        </View>
                       </TouchableOpacity>
-                    ))}
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* Select Pocket — Fixed Full-Width List */}
+              {selectedWalletId ? (
+                <>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.sectionHeaderLabel}>Pocket</Text>
                     <TouchableOpacity
-                      style={styles.addChip}
-                      onPress={onOpenAddPocket}
+                      style={styles.sectionHeaderAction}
+                      onPress={() => {
+                        AppHaptics.light();
+                        onOpenAddPocket();
+                      }}
+                      activeOpacity={0.7}
+                      accessibilityRole="button"
+                      accessibilityLabel="New Pocket"
                     >
-                      <Plus size={14} color={Palette.primary} />
-                      <Text style={styles.addChipText}>New Pocket</Text>
+                      <Plus size={12} color={Palette.primary} strokeWidth={2.4} />
+                      <Text style={styles.sectionHeaderActionText}>New</Text>
                     </TouchableOpacity>
+                  </View>
+                  <View style={styles.selectorListCard}>
+                    {pocketChoices.map((choice, idx) => {
+                      const isSelected = selectedPocketId === choice.id;
+                      const isLast = idx === pocketChoices.length - 1;
+                      const accentColor = choice.isMain ? Palette.primary : choice.color;
+                      return (
+                        <TouchableOpacity
+                          key={choice.id || 'main-balance'}
+                          style={[
+                            styles.selectorListRow,
+                            !isLast && styles.selectorListRowBorder,
+                            isSelected && styles.selectorListRowActive,
+                          ]}
+                          onPress={() => {
+                            AppHaptics.selection();
+                            onSelectPocket(choice.id);
+                          }}
+                          activeOpacity={0.78}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${choice.name}, ${formatCurrency(
+                            choice.balance,
+                            selectedWallet?.currency || manCurrency,
+                            privacyMode
+                          )}`}
+                          accessibilityState={{ selected: isSelected }}
+                        >
+                          <View
+                            style={[
+                              styles.selectorRowIconBox,
+                              {
+                                backgroundColor: isSelected
+                                  ? accentColor
+                                  : Palette.surfaceSoft,
+                              },
+                            ]}
+                          >
+                            {choice.isMain ? (
+                              <Layers
+                                size={15}
+                                color={isSelected ? Palette.white : Palette.primary}
+                              />
+                            ) : (
+                              <CategoryIcon
+                                name={choice.icon}
+                                size={15}
+                                color={isSelected ? Palette.white : accentColor}
+                              />
+                            )}
+                          </View>
+                          <View style={styles.selectorRowCenter}>
+                            <Text
+                              style={[
+                                styles.selectorRowName,
+                                isSelected && styles.selectorRowNameActive,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.84}
+                            >
+                              {choice.name}
+                            </Text>
+                            <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                              {choice.isMain ? 'Unallocated balance' : 'Pocket'}
+                            </Text>
+                          </View>
+                          <View style={styles.selectorRowRight}>
+                            <Text
+                              style={[
+                                styles.selectorRowBalance,
+                                isSelected && styles.selectorRowBalanceActive,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.8}
+                            >
+                              {formatCurrency(
+                                choice.balance,
+                                selectedWallet?.currency || manCurrency,
+                                privacyMode
+                              )}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.selectorRowRadio,
+                              isSelected && styles.selectorRowRadioActive,
+                            ]}
+                          >
+                            {isSelected ? (
+                              <Check size={10} color={Palette.white} strokeWidth={3} />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </>
               ) : null}
 
-              {/* 2-Column Category Selector */}
-              <View style={styles.categoryHeaderRow}>
-                <Text style={[styles.inputLabel, { marginBottom: 0 }]}>
+              {/* Compact 3-Column Square Category Selector */}
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeaderLabel}>
                   Category <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={styles.categoryHintSlot}>
-                  {categoryMissing ? (
-                    <Text style={styles.categoryHint} numberOfLines={1}>
-                      Choose a category for this transaction.
-                    </Text>
-                  ) : null}
-                </View>
+                <TouchableOpacity
+                  style={styles.sectionHeaderAction}
+                  onPress={() => {
+                    AppHaptics.light();
+                    onOpenCategoryManager();
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel="Manage Categories"
+                >
+                  <FolderTree size={12} color={Palette.primary} strokeWidth={2.2} />
+                  <Text style={styles.sectionHeaderActionText}>Manage</Text>
+                </TouchableOpacity>
               </View>
-              <View style={styles.bentoGrid2Col}>
-                {activeCategories.map((cat) => {
-                  const isSelected = manCategory.toLowerCase() === cat.name.toLowerCase();
+              {categoryMissing ? (
+                <Text
+                  style={[
+                    styles.categoryHintInline,
+                    Boolean(manCategory.trim()) && styles.categoryHintError,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {manCategory.trim()
+                    ? 'Previous category is unavailable — please pick another.'
+                    : 'Tap a category below to select.'}
+                </Text>
+              ) : null}
+              <View style={styles.gridBlock}>
+                {categoryRows.map((row, rowIdx) => {
                   const tint = manType === 'expense' ? Palette.primary : Palette.accentTeal;
-                  const softBg = manType === 'expense' ? '#FDF0ED' : '#EBF7F4';
+                  const softBg =
+                    manType === 'expense' ? Palette.tintExpense : Palette.tintIncome;
                   return (
-                    <TouchableOpacity
-                      key={cat.id}
-                      style={[
-                        styles.categoryCard,
-                        isSelected && {
-                          borderColor: tint,
-                          backgroundColor: softBg,
-                        },
-                      ]}
-                      onPress={() => {
-                        AppHaptics.selection();
-                        onChangeCategory(cat.name);
-                      }}
-                      accessibilityRole="button"
-                      accessibilityLabel={cat.name}
-                      accessibilityState={{ selected: isSelected }}
-                      activeOpacity={0.8}
-                    >
-                      <View
-                        style={[
-                          styles.categoryIconBox,
-                          { backgroundColor: isSelected ? tint : Palette.surfaceSoft },
-                        ]}
-                      >
-                        <CategoryIcon
-                          name={cat.icon}
-                          size={16}
-                          color={isSelected ? Palette.white : tint}
-                        />
-                      </View>
-                      <Text
-                        style={[
-                          styles.categoryLabel,
-                          isSelected && { color: Palette.ink, fontWeight: '700' },
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {cat.name}
-                      </Text>
-                    </TouchableOpacity>
+                    <View key={`cat-row-${rowIdx}`} style={styles.gridRow3Col}>
+                      {row.map((cat) => {
+                        const isSelected =
+                          manCategory.toLowerCase() === cat.name.toLowerCase();
+                        return (
+                          <View key={cat.id} style={styles.gridCol}>
+                            <TouchableOpacity
+                              style={[
+                                styles.categorySquareTile,
+                                isSelected && {
+                                  borderColor: tint,
+                                  backgroundColor: softBg,
+                                },
+                              ]}
+                              onPress={() => {
+                                AppHaptics.selection();
+                                onChangeCategory(cat.name);
+                              }}
+                              accessibilityRole="button"
+                              accessibilityLabel={cat.name}
+                              accessibilityState={{ selected: isSelected }}
+                              activeOpacity={0.8}
+                            >
+                              <View
+                                style={[
+                                  styles.categorySquareIconBox,
+                                  {
+                                    backgroundColor: isSelected ? tint : Palette.surfaceSoft,
+                                  },
+                                ]}
+                              >
+                                <CategoryIcon
+                                  name={cat.icon}
+                                  size={18}
+                                  color={isSelected ? Palette.white : tint}
+                                />
+                              </View>
+                              <Text
+                                style={[
+                                  styles.categorySquareLabel,
+                                  isSelected && styles.categorySquareLabelActive,
+                                ]}
+                                numberOfLines={2}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.84}
+                              >
+                                {cat.name}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                      {row.length < 3
+                        ? Array.from({ length: 3 - row.length }).map((_, emptyIdx) => (
+                            <View
+                              key={`cat-empty-${rowIdx}-${emptyIdx}`}
+                              style={styles.gridSlotEmpty}
+                            />
+                          ))
+                        : null}
+                    </View>
                   );
                 })}
               </View>
 
-              {/* Manage Categories Action */}
-              <TouchableOpacity
-                style={styles.manageCategoryBtn}
-                onPress={onOpenCategoryManager}
-                activeOpacity={0.8}
-              >
-                <FolderTree size={16} color={Palette.primary} />
-                <Text style={styles.manageCategoryText}>Manage Categories</Text>
-              </TouchableOpacity>
-
-              {/* Payment Method */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>
-                Payment Method <Text style={styles.requiredStar}>*</Text>
-              </Text>
-              <View style={styles.chipsRow}>
-                {PAYMENT_METHODS.map((method) => (
-                  <TouchableOpacity
-                    key={method}
-                    style={[
-                      styles.presetChip,
-                      manMethod === method && styles.presetChipActive,
-                    ]}
-                    onPress={() => {
-                      AppHaptics.selection();
-                      onChangeMethod(method);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={method}
-                    accessibilityState={{ selected: manMethod === method }}
-                  >
-                    <Text
-                      style={[
-                        styles.presetChipText,
-                        manMethod === method && styles.presetChipTextActive,
-                      ]}
-                    >
-                      {method}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              {/* Notes */}
-              <Text style={[styles.inputLabel, { marginTop: 14 }]}>Notes</Text>
-              <TextInput
-                style={styles.textInputBox}
-                placeholder="e.g. Lunch with team"
-                placeholderTextColor={Palette.mutedSoft}
-                value={manNotes}
-                onChangeText={onChangeNotes}
-                maxLength={100}
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-              />
-
-              {/* Lent / Borrowed Split Tagging */}
-              <View style={styles.lentCard}>
-                <View style={styles.lentHeaderRow}>
-                  <View style={{ flex: 1, marginRight: 10 }}>
-                    <Text style={styles.lentTitle}>
-                      {isEditingRepayment
-                        ? 'Loan Repayment Record'
-                        : manType === 'income'
-                          ? 'Borrowed Money'
-                          : 'Lent Money'}
-                    </Text>
-                    <Text style={styles.lentSubtitle}>
-                      {isEditingRepayment
-                        ? 'Linked to a parent loan — delete this entry instead of converting it'
-                        : hasRecordedRepayments
-                          ? 'Locked while repayment entries are linked to this record'
-                          : manType === 'income'
-                            ? 'Mark as money borrowed from someone else to repay later'
-                            : 'Mark as money lent to someone else for tracking'}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[
-                      styles.lentToggleBtn,
-                      manIsLent && styles.lentToggleBtnActive,
-                      loanTypeLocked && { opacity: 0.5 },
-                    ]}
-                    disabled={loanTypeLocked}
-                    onPress={() => {
-                      AppHaptics.selection();
-                      onChangeIsLent?.(!manIsLent);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.lentToggleText,
-                        manIsLent && styles.lentToggleTextActive,
-                      ]}
-                    >
-                      {manIsLent ? (manType === 'income' ? 'Borrowed' : 'Lent') : 'Off'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {manIsLent ? (
-                  <View style={{ marginTop: 10 }}>
-                    <Text style={styles.lentInputLabel}>
-                      {manType === 'income' ? 'Borrowed from (Lender)' : 'Lent to (Borrower)'}
-                    </Text>
-                    <TextInput
-                      style={styles.lentInput}
-                      placeholder="e.g. John Doe, Sarah"
-                      placeholderTextColor={Palette.mutedSoft}
-                      value={manLentTo}
-                      onChangeText={onChangeLentTo}
-                      maxLength={50}
-                      returnKeyType="done"
-                      onSubmitEditing={Keyboard.dismiss}
-                    />
-                  </View>
+              {/* Payment Method — Editorial Grouped 2-Column Ledger Grid */}
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeaderLabel}>
+                  Payment Method <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                {manMethod ? (
+                  <Text style={styles.methodSelectedBadge} numberOfLines={1}>
+                    {manMethod}
+                  </Text>
                 ) : null}
               </View>
+              <View style={styles.methodLedgerCard}>
+                {PAYMENT_METHOD_ROWS.map((row, rowIdx) => {
+                  const isLastRow = rowIdx === PAYMENT_METHOD_ROWS.length - 1;
+                  return (
+                    <View
+                      key={`pm-row-${rowIdx}`}
+                      style={[
+                        styles.methodLedgerRow,
+                        !isLastRow && styles.methodLedgerRowBorder,
+                      ]}
+                    >
+                      {row.map((method, colIdx) => {
+                        const isSelected = manMethod === method;
+                        return (
+                          <TouchableOpacity
+                            key={method}
+                            style={[
+                              styles.methodLedgerCell,
+                              colIdx === 0 && styles.methodLedgerCellLeft,
+                              isSelected && styles.methodLedgerCellActive,
+                            ]}
+                            onPress={() => {
+                              AppHaptics.selection();
+                              onChangeMethod(method);
+                            }}
+                            activeOpacity={0.78}
+                            accessibilityRole="button"
+                            accessibilityLabel={method}
+                            accessibilityState={{ selected: isSelected }}
+                          >
+                            <View
+                              style={[
+                                styles.methodIconWrap,
+                                isSelected && styles.methodIconWrapActive,
+                              ]}
+                            >
+                              <PaymentMethodIcon
+                                method={method}
+                                size={15}
+                                color={isSelected ? Palette.white : Palette.ink}
+                              />
+                            </View>
+                            <Text
+                              style={[
+                                styles.methodLedgerLabel,
+                                isSelected && styles.methodLedgerLabelActive,
+                              ]}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.82}
+                            >
+                              {method}
+                            </Text>
+                            <View
+                              style={[
+                                styles.methodRadioDot,
+                                isSelected && styles.methodRadioDotActive,
+                              ]}
+                            >
+                              {isSelected ? (
+                                <Check size={9} color={Palette.white} strokeWidth={3} />
+                              ) : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
+              </View>
+
+              {/* Optional Details — Collapsible Notes & Lent/Borrowed Split */}
+              <TouchableOpacity
+                style={styles.optionalToggleRow}
+                onPress={() => {
+                  AppHaptics.selection();
+                  triggerSmoothLayout();
+                  setShowOptionalDetails((prev) => !prev);
+                }}
+                activeOpacity={0.78}
+                accessibilityRole="button"
+                accessibilityLabel="Toggle optional notes and lent split"
+                accessibilityState={{ expanded: showOptionalDetails }}
+              >
+                <View style={styles.optionalToggleLeft}>
+                  <Text style={styles.optionalToggleTitle}>Notes & Lent Split</Text>
+                  <Text style={styles.optionalToggleHint} numberOfLines={1}>
+                    {manNotes.trim() || manIsLent || isEditingRepayment
+                      ? [
+                          manNotes.trim() ? 'Note added' : '',
+                          manIsLent
+                            ? manType === 'income'
+                              ? 'Borrowed'
+                              : 'Lent'
+                            : isEditingRepayment
+                              ? 'Repayment'
+                              : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')
+                      : 'Optional'}
+                  </Text>
+                </View>
+                <View style={styles.optionalChevronBox}>
+                  {showOptionalDetails ? (
+                    <ChevronUp size={15} color={Palette.muted} />
+                  ) : (
+                    <ChevronDown size={15} color={Palette.muted} />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              {showOptionalDetails ? (
+                <View style={styles.optionalContent}>
+                  {/* Notes */}
+                  <Text style={styles.inputLabel}>Notes</Text>
+                  <TextInput
+                    style={styles.textInputBox}
+                    placeholder="e.g. Lunch with team"
+                    placeholderTextColor={Palette.mutedSoft}
+                    value={manNotes}
+                    onChangeText={onChangeNotes}
+                    maxLength={100}
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
+                  />
+
+                  {/* Lent / Borrowed Split Tagging */}
+                  <View style={styles.lentCard}>
+                    <View style={styles.lentHeaderRow}>
+                      <View style={{ flex: 1, marginRight: 10 }}>
+                        <Text style={styles.lentTitle}>
+                          {isEditingRepayment
+                            ? 'Loan Repayment Record'
+                            : manType === 'income'
+                              ? 'Borrowed Money'
+                              : 'Lent Money'}
+                        </Text>
+                        <Text style={styles.lentSubtitle}>
+                          {isEditingRepayment
+                            ? 'Linked to a parent loan — delete this entry instead of converting it'
+                            : hasRecordedRepayments
+                              ? 'Locked while repayment entries are linked to this record'
+                              : manType === 'income'
+                                ? 'Mark as money borrowed from someone else to repay later'
+                                : 'Mark as money lent to someone else for tracking'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[
+                          styles.lentToggleBtn,
+                          manIsLent && styles.lentToggleBtnActive,
+                          loanTypeLocked && { opacity: 0.5 },
+                        ]}
+                        disabled={loanTypeLocked}
+                        onPress={() => {
+                          AppHaptics.selection();
+                          triggerSmoothLayout();
+                          onChangeIsLent?.(!manIsLent);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            styles.lentToggleText,
+                            manIsLent && styles.lentToggleTextActive,
+                          ]}
+                        >
+                          {manIsLent ? (manType === 'income' ? 'Borrowed' : 'Lent') : 'Off'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {manIsLent ? (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={styles.lentInputLabel}>
+                          {manType === 'income' ? 'Borrowed from (Lender)' : 'Lent to (Borrower)'}
+                        </Text>
+                        <TextInput
+                          style={styles.lentInput}
+                          placeholder="e.g. John Doe, Sarah"
+                          placeholderTextColor={Palette.mutedSoft}
+                          value={manLentTo}
+                          onChangeText={onChangeLentTo}
+                          maxLength={50}
+                          returnKeyType="done"
+                          onSubmitEditing={Keyboard.dismiss}
+                        />
+                      </View>
+                    ) : null}
+                  </View>
+                </View>
+              ) : null}
             </KeyboardSafeContainer>
 
             {!isKeyboardVisible && (
@@ -921,11 +1202,9 @@ const styles = StyleSheet.create({
     color: Palette.white,
   },
   inputLabel: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '600',
-    color: Palette.ink,
-    marginBottom: 5,
+    ...Typography.label,
+    color: Palette.muted,
+    marginBottom: 6,
   },
   requiredStar: {
     color: Palette.primary,
@@ -934,7 +1213,7 @@ const styles = StyleSheet.create({
   textInputBox: {
     ...Typography.body,
     fontSize: 14,
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -942,54 +1221,45 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     color: Palette.ink,
   },
-  currencyToggleBox: {
+  amountHeaderRow: {
     flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 14,
+    marginBottom: 6,
+  },
+  amountCurrencyChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    padding: 3,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    height: 42,
-    marginBottom: 4,
+    maxWidth: '62%',
   },
-  currencyBtn: {
-    flex: 1,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 9,
-  },
-  currencyBtnActive: {
-    backgroundColor: Palette.white,
-    shadowColor: Palette.ink,
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  currencyBtnText: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '600',
+  amountCurrencyChipText: {
+    ...Typography.code,
+    fontSize: 10.5,
+    fontWeight: '500',
     color: Palette.muted,
   },
-  currencyBtnTextActive: {
-    color: Palette.ink,
-  },
-  dateTimeRow: {
+  dateHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 8,
     gap: 8,
   },
   dateSelectorCard: {
-    flex: 1,
+    width: '100%',
     flexDirection: 'row',
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 14,
     padding: 3,
     borderWidth: 1,
     borderColor: Palette.hairline,
-    height: 44,
+    height: 42,
     alignItems: 'center',
   },
   dateSegmentBtn: {
@@ -1000,17 +1270,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 11,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     overflow: 'hidden',
-  },
-  dateSegmentBtnToday: {
-    flex: 0.78,
-  },
-  dateSegmentBtnYesterday: {
-    flex: 1.02,
-  },
-  dateSegmentBtnPick: {
-    flex: 1.35,
   },
   dateSegmentIcon: {
     marginRight: 4,
@@ -1039,13 +1300,14 @@ const styles = StyleSheet.create({
   timeBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    height: 44,
+    gap: 6,
+    height: 30,
     paddingHorizontal: 10,
-    borderRadius: 14,
-    backgroundColor: Palette.surfaceSoft,
+    borderRadius: 999,
+    backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
+    flexShrink: 0,
   },
   timeLabel: {
     ...Typography.caption,
@@ -1054,18 +1316,19 @@ const styles = StyleSheet.create({
     color: Palette.muted,
   },
   timeInput: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '700',
+    ...Typography.code,
+    fontSize: 11.5,
+    fontWeight: '500',
     color: Palette.ink,
-    width: 38,
+    width: 46,
+    textAlign: 'center',
     padding: 0,
     margin: 0,
   },
   amountInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -1073,7 +1336,7 @@ const styles = StyleSheet.create({
     height: 48,
   },
   currencyPrefixBadge: {
-    paddingHorizontal: 14,
+    width: 52,
     height: '100%',
     backgroundColor: '#EBE5DF',
     borderRightWidth: 1,
@@ -1089,7 +1352,7 @@ const styles = StyleSheet.create({
   },
   amountDisplayText: {
     flex: 1,
-    ...Typography.heading,
+    ...Typography.mono,
     fontSize: 18,
     fontWeight: '700',
     color: Palette.ink,
@@ -1099,113 +1362,284 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     fontWeight: '400',
   },
-  chipsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
+  methodSelectedBadge: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: Palette.primary,
   },
-  presetChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 40,
-    justifyContent: 'center',
-    borderRadius: 10,
-    backgroundColor: Palette.surfaceSoft,
+  methodLedgerCard: {
+    backgroundColor: Palette.white,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Palette.hairline,
+    overflow: 'hidden',
   },
-  accountChip: {
-    alignItems: 'flex-start',
+  methodLedgerRow: {
+    flexDirection: 'row',
+  },
+  methodLedgerRowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: Palette.hairline,
+  },
+  methodLedgerCell: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 48,
+    paddingHorizontal: 11,
+    paddingVertical: 10,
+    backgroundColor: Palette.white,
+  },
+  methodLedgerCellLeft: {
+    borderRightWidth: 1,
+    borderRightColor: Palette.hairline,
+  },
+  methodLedgerCellActive: {
+    backgroundColor: Palette.tintExpense,
+  },
+  methodIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
-  accountChipBalance: {
+  methodIconWrapActive: {
+    backgroundColor: Palette.primary,
+  },
+  methodLedgerLabel: {
+    flex: 1,
     ...Typography.caption,
-    fontSize: 10,
-    fontWeight: '500',
-    color: Palette.muted,
-    marginTop: 2,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: Palette.ink,
   },
-  presetChipActive: {
+  methodLedgerLabelActive: {
+    color: Palette.primary,
+    fontWeight: '700',
+  },
+  methodRadioDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: Palette.hairline,
+    backgroundColor: Palette.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  methodRadioDotActive: {
     backgroundColor: Palette.primary,
     borderColor: Palette.primary,
   },
-  presetChipText: {
-    ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '500',
-    color: Palette.ink,
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 16,
+    marginBottom: 8,
   },
-  presetChipTextActive: {
-    color: Palette.white,
+  sectionHeaderLabel: {
+    ...Typography.label,
+    color: Palette.muted,
   },
-  addChip: {
+  sectionHeaderAction: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 10,
-    paddingVertical: 10,
-    minHeight: 40,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Palette.tintExpense,
+    borderWidth: 1,
+    borderColor: Palette.tintExpenseBorder,
+  },
+  sectionHeaderActionText: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: Palette.primary,
+  },
+  emptySelectorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 10,
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
     borderStyle: 'dashed',
   },
-  addChipText: {
+  emptySelectorText: {
     ...Typography.caption,
-    fontSize: 12,
-    fontWeight: '500',
+    fontSize: 13,
+    fontWeight: '600',
     color: Palette.primary,
   },
-  bentoGrid2Col: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  gridBlock: {
     gap: 8,
   },
-  categoryCard: {
-    width: '48.5%',
+  gridRow2Col: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  gridRow3Col: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  gridCol: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  gridSlotEmpty: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  selectorListCard: {
+    backgroundColor: Palette.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    overflow: 'hidden',
+  },
+  selectorListRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 10,
-    minHeight: 40,
-    borderRadius: 12,
+    height: 58,
+    paddingHorizontal: 13,
+    gap: 10,
+    backgroundColor: Palette.white,
+  },
+  selectorListRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Palette.hairline,
+  },
+  selectorListRowActive: {
+    backgroundColor: Palette.tintExpense,
+  },
+  selectorRowIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowIconBoxActive: {
+    backgroundColor: Palette.primary,
+  },
+  selectorRowCenter: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  selectorRowName: {
+    ...Typography.body,
+    fontSize: 13.5,
+    lineHeight: 17,
+    fontWeight: '600',
+    color: Palette.ink,
+  },
+  selectorRowNameActive: {
+    color: Palette.primary,
+    fontWeight: '700',
+  },
+  selectorRowMeta: {
+    ...Typography.caption,
+    fontSize: 11,
+    lineHeight: 14,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  selectorRowRight: {
+    maxWidth: '42%',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowBalance: {
+    ...Typography.mono,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: Palette.bodyStrong,
+    textAlign: 'right',
+  },
+  selectorRowBalanceActive: {
+    color: Palette.primaryActive,
+    fontWeight: '700',
+  },
+  selectorRowRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: Palette.hairline,
+    backgroundColor: Palette.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowRadioActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  categoryHintInline: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    color: Palette.muted,
+    marginBottom: 8,
+    marginTop: -2,
+  },
+  categoryHintError: {
+    color: Palette.error,
+  },
+  categorySquareTile: {
+    flex: 1,
+    width: '100%',
+    minWidth: 0,
+    minHeight: 74,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 8,
+    borderRadius: 13,
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
+    overflow: 'hidden',
   },
-  categoryIconBox: {
-    width: 28,
-    height: 28,
-    borderRadius: 7,
+  categorySquareIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 8,
+    marginBottom: 5,
   },
-  categoryLabel: {
-    ...Typography.body,
-    fontSize: 12,
-    color: Palette.ink,
-    flex: 1,
-  },
-  categoryHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 14,
-    marginBottom: 6,
-    minHeight: 18,
-  },
-  categoryHintSlot: {
-    flex: 1,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    marginLeft: 8,
-  },
-  categoryHint: {
+  categorySquareLabel: {
     ...Typography.caption,
     fontSize: 11,
-    color: Palette.error,
+    lineHeight: 13.5,
+    fontWeight: '500',
+    color: Palette.bodyStrong,
+    textAlign: 'center',
+    width: '100%',
+  },
+  categorySquareLabelActive: {
+    color: Palette.ink,
+    fontWeight: '700',
   },
   balanceWarningSlot: {
     height: 20,
@@ -1217,23 +1651,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Palette.error,
   },
-  manageCategoryBtn: {
+  optionalToggleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 9,
-    marginTop: 10,
-    borderRadius: 12,
-    backgroundColor: Palette.surfaceSoft,
+    justifyContent: 'space-between',
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
-  manageCategoryText: {
-    ...Typography.caption,
-    fontSize: 12,
+  optionalToggleLeft: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 10,
+  },
+  optionalToggleTitle: {
+    ...Typography.body,
+    fontSize: 13.5,
+    lineHeight: 18,
     fontWeight: '600',
-    color: Palette.primary,
+    color: Palette.ink,
+  },
+  optionalToggleHint: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    lineHeight: 15,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  optionalChevronBox: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  optionalContent: {
+    marginTop: 12,
   },
   lentCard: {
     backgroundColor: Palette.surfaceSoft,

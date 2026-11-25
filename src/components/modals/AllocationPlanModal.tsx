@@ -342,13 +342,13 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
     >
       <ModalHeader
         title={plan ? 'Edit Allocation Plan' : 'New Allocation Plan'}
         subtitle={`(${planCurrency})`}
         onClose={onClose}
+        leadingIcon="close"
       />
 
           <KeyboardSafeContainer extraBottomSpace={28}>

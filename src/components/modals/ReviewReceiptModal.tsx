@@ -11,7 +11,20 @@ import {
   Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Plus, Check, Pencil, Camera, X } from 'lucide-react-native';
+import {
+  Plus,
+  Check,
+  Pencil,
+  Camera,
+  X,
+  Building2,
+  Smartphone,
+  Banknote,
+  TrendingUp,
+  CreditCard,
+  Layers,
+} from 'lucide-react-native';
+import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
 import { Palette, Typography } from '../../theme/tokens';
 import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { useKeyboardHeight } from '../../hooks/useKeyboardHeight';
@@ -26,6 +39,24 @@ import { KeyboardSafeContainer } from '../KeyboardSafeContainer';
 import { BottomSheetModal } from '../BottomSheetModal';
 import { AmountInputModal } from './AmountInputModal';
 import { CustomAlertModal } from '../CustomAlertModal';
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    rows.push(items.slice(i, i + size));
+  }
+  return rows;
+}
+
+function getAccountTypeIcon(rawType?: string) {
+  const t = (rawType || '').toLowerCase();
+  if (t === 'e-wallet' || t === 'ewallet') return Smartphone;
+  if (t === 'cash') return Banknote;
+  if (t === 'investment') return TrendingUp;
+  if (t === 'credit card') return CreditCard;
+  if (t === 'e-money' || t === 'emoney') return ContactlessCardIcon;
+  return Building2;
+}
 
 interface ReviewReceiptModalProps {
   visible: boolean;
@@ -100,6 +131,11 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     return pockets.filter((p) => p.walletId === selectedWalletId);
   }, [pockets, selectedWalletId]);
 
+  const categoryRows = useMemo(
+    () => chunkArray(selectableCategories, 3),
+    [selectableCategories]
+  );
+
   useSyncOnChange([visible], () => {
     if (visible && currentData) {
       setMerchantName(currentData.merchantName || '');
@@ -169,14 +205,14 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="92%"
-      maxHeight="94%"
+      fullPage={true}
       dismissOnBackdropPress={false}
     >
       <ModalHeader
         title="Review Receipt"
         subtitle="Check the details before saving"
         onClose={onClose}
+        leadingIcon="close"
       />
 
             <KeyboardSafeContainer>
@@ -352,34 +388,75 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                   </View>
                 </TouchableOpacity>
 
-                {showCatPicker && selectableCategories.length > 0 ? (
-                  <View style={[styles.chipRow, { marginTop: 6, marginBottom: 10 }]}>
-                    {selectableCategories.map((cat) => {
-                      const active = cat.name.toLowerCase() === selectedCategory.toLowerCase();
+                {showCatPicker && categoryRows.length > 0 ? (
+                  <View style={[styles.gridBlock, { marginTop: 8, marginBottom: 12 }]}>
+                    {categoryRows.map((row, rowIdx) => {
+                      const tint =
+                        selectedType === 'expense' ? Palette.primary : Palette.accentTeal;
+                      const softBg =
+                        selectedType === 'expense'
+                          ? Palette.tintExpense
+                          : Palette.tintIncome;
                       return (
-                        <TouchableOpacity
-                          key={cat.id}
-                          style={[
-                            styles.chip,
-                            { flexDirection: 'row', alignItems: 'center', gap: 5 },
-                            active && styles.chipActive,
-                          ]}
-                          onPress={() => {
-                            AppHaptics.selection();
-                            setSelectedCategory(cat.name);
-                            setShowCatPicker(false);
-                          }}
-                          activeOpacity={0.8}
-                        >
-                          <CategoryIcon
-                            name={cat.icon}
-                            size={12}
-                            color={active ? Palette.white : Palette.primary}
-                          />
-                          <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                            {cat.name}
-                          </Text>
-                        </TouchableOpacity>
+                        <View key={`rc-cat-row-${rowIdx}`} style={styles.gridRow3Col}>
+                          {row.map((cat) => {
+                            const active =
+                              cat.name.toLowerCase() === selectedCategory.toLowerCase();
+                            return (
+                              <View key={cat.id} style={styles.gridCol}>
+                                <TouchableOpacity
+                                  style={[
+                                    styles.categorySquareTile,
+                                    active && {
+                                      borderColor: tint,
+                                      backgroundColor: softBg,
+                                    },
+                                  ]}
+                                  onPress={() => {
+                                    AppHaptics.selection();
+                                    setSelectedCategory(cat.name);
+                                    setShowCatPicker(false);
+                                  }}
+                                  activeOpacity={0.8}
+                                >
+                                  <View
+                                    style={[
+                                      styles.categorySquareIconBox,
+                                      {
+                                        backgroundColor: active ? tint : Palette.surfaceSoft,
+                                      },
+                                    ]}
+                                  >
+                                    <CategoryIcon
+                                      name={cat.icon}
+                                      size={17}
+                                      color={active ? Palette.white : tint}
+                                    />
+                                  </View>
+                                  <Text
+                                    style={[
+                                      styles.categorySquareLabel,
+                                      active && styles.categorySquareLabelActive,
+                                    ]}
+                                    numberOfLines={2}
+                                    adjustsFontSizeToFit
+                                    minimumFontScale={0.84}
+                                  >
+                                    {cat.name}
+                                  </Text>
+                                </TouchableOpacity>
+                              </View>
+                            );
+                          })}
+                          {row.length < 3
+                            ? Array.from({ length: 3 - row.length }).map((_, emptyIdx) => (
+                                <View
+                                  key={`rc-cat-empty-${rowIdx}-${emptyIdx}`}
+                                  style={styles.gridSlotEmpty}
+                                />
+                              ))
+                            : null}
+                        </View>
                       );
                     })}
                   </View>
@@ -418,20 +495,42 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 </View>
               ) : null}
 
-              <Text style={styles.sectionTitle}>
-                Account <Text style={styles.requiredStar}>*</Text>
-              </Text>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeaderLabel}>
+                  Account <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                {hasWalletForCurrency ? (
+                  <TouchableOpacity
+                    style={styles.sectionHeaderAction}
+                    onPress={() => {
+                      AppHaptics.light();
+                      onOpenAddAccount();
+                    }}
+                    activeOpacity={0.7}
+                    accessibilityRole="button"
+                    accessibilityLabel="New account"
+                  >
+                    <Plus size={12} color={Palette.primary} strokeWidth={2.4} />
+                    <Text style={styles.sectionHeaderActionText}>New</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
 
               {hasWalletForCurrency ? (
-                <View style={styles.chipRow}>
-                  {displayWallets.map((w) => {
+                <View style={[styles.selectorListCard, { marginBottom: 14 }]}>
+                  {displayWallets.map((w, idx) => {
                     const isSelected = selectedWalletId === w.id;
+                    const isLast = idx === displayWallets.length - 1;
+                    const AccIcon = getAccountTypeIcon(w.type);
+                    const accDisplayName =
+                      w.name?.trim() || (w.type ? `${w.type} Account` : 'Account');
                     return (
                       <TouchableOpacity
                         key={w.id}
                         style={[
-                          styles.chip,
-                          isSelected && styles.chipActive,
+                          styles.selectorListRow,
+                          !isLast && styles.selectorListRowBorder,
+                          isSelected && styles.selectorListRowActive,
                         ]}
                         onPress={() => {
                           AppHaptics.selection();
@@ -440,31 +539,64 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                             onSelectPocket('');
                           }
                         }}
+                        activeOpacity={0.78}
                         accessibilityRole="button"
-                        accessibilityLabel={`${w.name}, ${w.currency} account`}
+                        accessibilityLabel={`${accDisplayName}, ${w.currency} account`}
                         accessibilityState={{ selected: isSelected }}
                       >
-                        <Text
+                        <View
                           style={[
-                            styles.chipText,
-                            isSelected && styles.chipTextActive,
+                            styles.selectorRowIconBox,
+                            isSelected && styles.selectorRowIconBoxActive,
                           ]}
-                          numberOfLines={1}
                         >
-                          {w.name} ({w.currency})
-                        </Text>
+                          <AccIcon
+                            size={16}
+                            color={isSelected ? Palette.white : Palette.primary}
+                          />
+                        </View>
+                        <View style={styles.selectorRowCenter}>
+                          <Text
+                            style={[
+                              styles.selectorRowName,
+                              isSelected && styles.selectorRowNameActive,
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.84}
+                          >
+                            {accDisplayName}
+                          </Text>
+                          <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                            {w.type ? `${w.type} · ${w.currency}` : w.currency}
+                          </Text>
+                        </View>
+                        <View style={styles.selectorRowRight}>
+                          <Text
+                            style={[
+                              styles.selectorRowBalance,
+                              isSelected && styles.selectorRowBalanceActive,
+                            ]}
+                            numberOfLines={1}
+                            adjustsFontSizeToFit
+                            minimumFontScale={0.8}
+                          >
+                            {formatCurrency(w.balance, w.currency)}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.selectorRowRadio,
+                            isSelected && styles.selectorRowRadioActive,
+                          ]}
+                        >
+                          {isSelected ? (
+                            <Check size={10} color={Palette.white} strokeWidth={3} />
+                          ) : null}
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
-                  <TouchableOpacity
-                    style={styles.addChip}
-                    onPress={onOpenAddAccount}
-                    accessibilityRole="button"
-                    accessibilityLabel="New account"
-                  >
-                    <Plus size={14} color={Palette.primary} />
-                    <Text style={styles.addChipText}>New Account</Text>
-                  </TouchableOpacity>
                 </View>
               ) : (
                 <View style={styles.noWalletNotice}>
@@ -489,64 +621,136 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                 </View>
               )}
 
-              {selectedDisplayWallet ? (
-                <>
-                  <Text style={styles.sectionTitle}>Pocket</Text>
-                  <View style={styles.chipRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.chip,
-                        selectedPocketId === '' && styles.chipActive,
-                      ]}
-                      onPress={() => onSelectPocket('')}
-                      accessibilityRole="button"
-                      accessibilityLabel="Main balance pocket"
-                      accessibilityState={{ selected: selectedPocketId === '' }}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          selectedPocketId === '' && styles.chipTextActive,
-                        ]}
-                      >
-                        Main Balance
-                      </Text>
-                    </TouchableOpacity>
-                    {walletPockets.map((p) => (
+              {selectedDisplayWallet ? (() => {
+                const allocatedSum = walletPockets.reduce((sum, p) => sum + p.balance, 0);
+                const mainBal = Math.max(selectedDisplayWallet.balance - allocatedSum, 0);
+                const pocketChoices = [
+                  {
+                    id: '',
+                    name: 'Main Balance',
+                    balance: mainBal,
+                    icon: 'Wallet',
+                    color: Palette.primary,
+                    isMain: true,
+                  },
+                  ...walletPockets.map((p) => ({
+                    id: p.id,
+                    name: p.name,
+                    balance: p.balance,
+                    icon: p.icon || 'Briefcase',
+                    color: p.color || Palette.accentTeal,
+                    isMain: false,
+                  })),
+                ];
+                return (
+                  <>
+                    <View style={styles.sectionHeaderRow}>
+                      <Text style={styles.sectionHeaderLabel}>Pocket</Text>
                       <TouchableOpacity
-                        key={p.id}
-                        style={[
-                          styles.chip,
-                          selectedPocketId === p.id && styles.chipActive,
-                        ]}
-                        onPress={() => onSelectPocket(p.id)}
+                        style={styles.sectionHeaderAction}
+                        onPress={() => {
+                          AppHaptics.light();
+                          onOpenAddPocket();
+                        }}
+                        activeOpacity={0.7}
                         accessibilityRole="button"
-                        accessibilityLabel={`${p.name} pocket`}
-                        accessibilityState={{ selected: selectedPocketId === p.id }}
+                        accessibilityLabel="New pocket"
                       >
-                        <Text
-                          style={[
-                            styles.chipText,
-                            selectedPocketId === p.id && styles.chipTextActive,
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {p.name}
-                        </Text>
+                        <Plus size={12} color={Palette.primary} strokeWidth={2.4} />
+                        <Text style={styles.sectionHeaderActionText}>New</Text>
                       </TouchableOpacity>
-                    ))}
-                    <TouchableOpacity
-                      style={styles.addChip}
-                      onPress={onOpenAddPocket}
-                      accessibilityRole="button"
-                      accessibilityLabel="New pocket"
-                    >
-                      <Plus size={14} color={Palette.primary} />
-                      <Text style={styles.addChipText}>New Pocket</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : null}
+                    </View>
+                    <View style={[styles.selectorListCard, { marginBottom: 14 }]}>
+                      {pocketChoices.map((choice, idx) => {
+                        const isSelected = selectedPocketId === choice.id;
+                        const isLast = idx === pocketChoices.length - 1;
+                        const accentColor = choice.isMain ? Palette.primary : choice.color;
+                        return (
+                          <TouchableOpacity
+                            key={choice.id || 'main-balance'}
+                            style={[
+                              styles.selectorListRow,
+                              !isLast && styles.selectorListRowBorder,
+                              isSelected && styles.selectorListRowActive,
+                            ]}
+                            onPress={() => {
+                              AppHaptics.selection();
+                              onSelectPocket(choice.id);
+                            }}
+                            activeOpacity={0.78}
+                            accessibilityRole="button"
+                            accessibilityLabel={`${choice.name} pocket`}
+                            accessibilityState={{ selected: isSelected }}
+                          >
+                            <View
+                              style={[
+                                styles.selectorRowIconBox,
+                                {
+                                  backgroundColor: isSelected
+                                    ? accentColor
+                                    : Palette.surfaceSoft,
+                                },
+                              ]}
+                            >
+                              {choice.isMain ? (
+                                <Layers
+                                  size={15}
+                                  color={isSelected ? Palette.white : Palette.primary}
+                                />
+                              ) : (
+                                <CategoryIcon
+                                  name={choice.icon}
+                                  size={15}
+                                  color={isSelected ? Palette.white : accentColor}
+                                />
+                              )}
+                            </View>
+                            <View style={styles.selectorRowCenter}>
+                              <Text
+                                style={[
+                                  styles.selectorRowName,
+                                  isSelected && styles.selectorRowNameActive,
+                                ]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.84}
+                              >
+                                {choice.name}
+                              </Text>
+                              <Text style={styles.selectorRowMeta} numberOfLines={1}>
+                                {choice.isMain ? 'Unallocated balance' : 'Pocket'}
+                              </Text>
+                            </View>
+                            <View style={styles.selectorRowRight}>
+                              <Text
+                                style={[
+                                  styles.selectorRowBalance,
+                                  isSelected && styles.selectorRowBalanceActive,
+                                ]}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.8}
+                              >
+                                {formatCurrency(choice.balance, selectedDisplayWallet.currency)}
+                              </Text>
+                            </View>
+                            <View
+                              style={[
+                                styles.selectorRowRadio,
+                                isSelected && styles.selectorRowRadioActive,
+                              ]}
+                            >
+                              {isSelected ? (
+                                <Check size={10} color={Palette.white} strokeWidth={3} />
+                              ) : null}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </>
+                );
+              })() : null}
 
               <Text style={styles.sectionTitle}>Notes</Text>
               <TextInput
@@ -672,10 +876,12 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
 
 const styles = StyleSheet.create({
   summaryCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
   },
   summaryLabel: {
     ...Typography.caption,
@@ -811,12 +1017,185 @@ const styles = StyleSheet.create({
     color: Palette.ink,
   },
   sectionTitle: {
-    ...Typography.subheading,
-    fontSize: 14,
+    ...Typography.label,
+    color: Palette.muted,
+    marginBottom: 8,
+    marginTop: 6,
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    marginBottom: 8,
+  },
+  sectionHeaderLabel: {
+    ...Typography.label,
+    color: Palette.muted,
+  },
+  sectionHeaderAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: Palette.tintExpense,
+    borderWidth: 1,
+    borderColor: Palette.tintExpenseBorder,
+  },
+  sectionHeaderActionText: {
+    ...Typography.caption,
+    fontSize: 11.5,
+    fontWeight: '600',
+    color: Palette.primary,
+  },
+  gridBlock: {
+    gap: 8,
+  },
+  gridRow2Col: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  gridRow3Col: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  gridCol: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  gridSlotEmpty: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  selectorListCard: {
+    backgroundColor: Palette.white,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    overflow: 'hidden',
+  },
+  selectorListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 58,
+    paddingHorizontal: 13,
+    gap: 10,
+    backgroundColor: Palette.white,
+  },
+  selectorListRowBorder: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Palette.hairline,
+  },
+  selectorListRowActive: {
+    backgroundColor: Palette.tintExpense,
+  },
+  selectorRowIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: Palette.surfaceSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowIconBoxActive: {
+    backgroundColor: Palette.primary,
+  },
+  selectorRowCenter: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+  },
+  selectorRowName: {
+    ...Typography.body,
+    fontSize: 13.5,
+    lineHeight: 17,
     fontWeight: '600',
     color: Palette.ink,
-    marginBottom: 10,
-    marginTop: 4,
+  },
+  selectorRowNameActive: {
+    color: Palette.primary,
+    fontWeight: '700',
+  },
+  selectorRowMeta: {
+    ...Typography.caption,
+    fontSize: 11,
+    lineHeight: 14,
+    color: Palette.muted,
+    marginTop: 1,
+  },
+  selectorRowRight: {
+    maxWidth: '42%',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowBalance: {
+    ...Typography.mono,
+    fontSize: 12.5,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: Palette.bodyStrong,
+    textAlign: 'right',
+  },
+  selectorRowBalanceActive: {
+    color: Palette.primaryActive,
+    fontWeight: '700',
+  },
+  selectorRowRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: Palette.hairline,
+    backgroundColor: Palette.canvas,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  selectorRowRadioActive: {
+    backgroundColor: Palette.primary,
+    borderColor: Palette.primary,
+  },
+  categorySquareTile: {
+    flex: 1,
+    width: '100%',
+    minWidth: 0,
+    minHeight: 74,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: Palette.white,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    overflow: 'hidden',
+  },
+  categorySquareIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 5,
+  },
+  categorySquareLabel: {
+    ...Typography.caption,
+    fontSize: 11,
+    lineHeight: 13.5,
+    fontWeight: '500',
+    color: Palette.bodyStrong,
+    textAlign: 'center',
+    width: '100%',
+  },
+  categorySquareLabelActive: {
+    color: Palette.ink,
+    fontWeight: '700',
   },
   requiredStar: {
     color: Palette.primary,
@@ -895,7 +1274,7 @@ const styles = StyleSheet.create({
   textInputBox: {
     ...Typography.body,
     fontSize: 14,
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,

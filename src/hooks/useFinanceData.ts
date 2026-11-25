@@ -122,7 +122,9 @@ const SEMANTIC_CATEGORY_ICON_FALLBACKS: Record<string, string> = {
   bar: 'Beer',
 
   // Food & Dining
+  'food & dining': 'Utensils',
   'food & beverages': 'Utensils',
+  'coffee & snacks': 'Coffee',
   food: 'Utensils',
   makanan: 'Utensils',
   beverages: 'Utensils',
@@ -164,6 +166,8 @@ const SEMANTIC_CATEGORY_ICON_FALLBACKS: Record<string, string> = {
   gaming: 'Gamepad2',
 
   // Transport & Travel
+  'vehicle & fuel': 'Fuel',
+  vehicle: 'Fuel',
   fuel: 'Fuel',
   bensin: 'Fuel',
   gas: 'Fuel',
@@ -185,13 +189,28 @@ const SEMANTIC_CATEGORY_ICON_FALLBACKS: Record<string, string> = {
   train: 'Bus',
   kereta: 'Bus',
 
-  // Housing
-  'housing / rent': 'Home',
+  // Housing & KPR
+  'housing & kpr': 'mci:home-percent-outline',
+  'housing / rent': 'mci:home-percent-outline',
+  kpr: 'mci:home-percent-outline',
   housing: 'Home',
   rent: 'Home',
   sewa: 'Home',
   kost: 'Home',
   kontrakan: 'Home',
+
+  // Personal, Family, Charity & Insurance
+  personal: 'mci:account-heart-outline',
+  family: 'mci:human-male-female-child',
+  keluarga: 'mci:human-male-female-child',
+  'charity & gifts': 'mci:hand-heart-outline',
+  charity: 'mci:hand-heart-outline',
+  zakat: 'mci:mosque-outline',
+  sedekah: 'mci:hand-heart-outline',
+  'insurance & tax': 'mci:scale-balance',
+  'freelance / business': 'Briefcase',
+  freelance: 'Briefcase',
+  business: 'Briefcase',
 
   // Health
   'health & medical': 'HeartPulse',

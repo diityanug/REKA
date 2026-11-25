@@ -30,6 +30,7 @@ import {
 } from '../../utils/billingCycle';
 import { AppHaptics } from '../../utils/haptics';
 import { TransactionItemRow } from '../TransactionItemRow';
+import { triggerSmoothLayout } from '../MotionPrimitives';
 import { HistoryFilterModal } from '../modals/HistoryFilterModal';
 
 interface HistoryTabProps {
@@ -160,6 +161,12 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  const walletById = useMemo(() => {
+    const map = new Map<string, Wallet>();
+    wallets.forEach((w) => map.set(w.id, w));
+    return map;
+  }, [wallets]);
+
   const isTxArchived = useCallback((tx: Transaction) => {
     return Boolean(
       tx.deletedWalletName ||
@@ -198,6 +205,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     }
     AppHaptics.heavy();
     if (!isSelectionMode) {
+      triggerSmoothLayout();
       setIsSelectionMode(true);
       setSelectedIds(new Set([tx.id]));
     } else {
@@ -217,6 +225,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
 
   const handleExitSelectionMode = useCallback(() => {
     AppHaptics.light();
+    triggerSmoothLayout();
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   }, []);
@@ -252,6 +261,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     const groups: {
       monthKey: string;
       monthTitle: string;
+      rangeBadge: string;
       count: number;
       totalExpense: number;
       totalIncome: number;
@@ -265,16 +275,13 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       const resolvedKey = getPeriodKeyForTimestamp(tx.timestamp, billingCycle);
       const key = resolvedKey || 'Other';
       const rangeBadge = resolvedKey ? formatCycleRangeShort(resolvedKey, billingCycle) : '';
-      const title = resolvedKey
-        ? rangeBadge
-          ? `${formatMonthYear(resolvedKey)} (${rangeBadge})`
-          : formatMonthYear(resolvedKey)
-        : 'Other';
+      const title = resolvedKey ? formatMonthYear(resolvedKey) : 'Other';
 
       if (!map.has(key)) {
         const g = {
           monthKey: key,
           monthTitle: title,
+          rangeBadge,
           count: 0,
           totalExpense: 0,
           totalIncome: 0,
@@ -305,6 +312,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   const sections = useMemo(() => {
     return monthGroups.map((g) => ({
       title: g.monthTitle,
+      rangeBadge: g.rangeBadge,
       count: g.count,
       totalExpense: g.totalExpense,
       totalUsdExpense: g.totalUsdExpense,
@@ -340,19 +348,39 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       {/* Cash Flow Summary Bar */}
       <View style={styles.flowSummaryCard}>
         <View style={styles.flowMetaRow}>
-          <Text style={[styles.flowMetaText, { color: Palette.success }]}>
+          <Text
+            style={[styles.flowMetaText, styles.flowMetaLeft, { color: Palette.success }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+          >
             In: {formatCurrency(historyFlowStats.income, 'IDR', privacyMode)}
           </Text>
-          <Text style={[styles.flowMetaText, { color: Palette.error }]}>
+          <Text
+            style={[styles.flowMetaText, styles.flowMetaRight, { color: Palette.error }]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.78}
+          >
             Out: {formatCurrency(historyFlowStats.expense, 'IDR', privacyMode)}
           </Text>
         </View>
         {hasUsdHistoryFlow ? (
-          <View style={[styles.flowMetaRow, { marginTop: 2 }]}>
-            <Text style={[styles.flowMetaText, { color: Palette.success, fontSize: 11 }]}>
+          <View style={[styles.flowMetaRow, { marginTop: 5 }]}>
+            <Text
+              style={[styles.flowMetaText, styles.flowMetaLeft, { color: Palette.success, fontSize: 11 }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+            >
               USD In: {formatCurrency(historyFlowStats.usdIncome || 0, 'USD', privacyMode)}
             </Text>
-            <Text style={[styles.flowMetaText, { color: Palette.error, fontSize: 11 }]}>
+            <Text
+              style={[styles.flowMetaText, styles.flowMetaRight, { color: Palette.error, fontSize: 11 }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.78}
+            >
               USD Out: {formatCurrency(historyFlowStats.usdExpense || 0, 'USD', privacyMode)}
             </Text>
           </View>
@@ -409,12 +437,12 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             <HandCoins size={16} color={Palette.accentAmber} />
           </View>
           <View style={styles.lentBannerInfo}>
-            <Text style={styles.lentBannerTitle}>Outstanding Lent</Text>
-            <Text style={styles.lentBannerSubtitle}>
+            <Text style={styles.lentBannerTitle} numberOfLines={1}>Outstanding Lent</Text>
+            <Text style={styles.lentBannerSubtitle} numberOfLines={1}>
               {outstandingLentCount} unsettled ({activeCurrency}) • Tap to filter
             </Text>
           </View>
-          <Text style={styles.lentBannerAmount}>
+          <Text style={styles.lentBannerAmount} numberOfLines={1}>
             {formatCurrency(outstandingLentTotal, activeCurrency, privacyMode)}
           </Text>
         </TouchableOpacity>
@@ -483,6 +511,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             if (isSelectionMode) {
               handleExitSelectionMode();
             } else {
+              triggerSmoothLayout();
               setIsSelectionMode(true);
             }
           }}
@@ -759,35 +788,71 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     );
   }, [isFilterActive, onResetAllFilters, onOpenManualModal]);
 
-  const renderSectionHeader = useCallback(({ section }: { section: any }) => (
-    <View style={styles.monthHeaderRow}>
-      <Text style={styles.monthHeaderTitle}>{section.title}</Text>
-      <Text style={styles.monthHeaderMeta} numberOfLines={1}>
-        {section.count} tx
-        {section.hasOnlyTransfers
-          ? ' • Transfers'
-          : (section.totalExpense > 0 || !section.totalUsdExpense
-              ? ` • ${formatCurrency(section.totalExpense, 'IDR', privacyMode)}`
-              : '') +
-            (section.totalUsdExpense > 0
-              ? ` • ${formatCurrency(section.totalUsdExpense, 'USD', privacyMode)}`
-              : '')}
-      </Text>
-    </View>
-  ), [privacyMode]);
+  const renderSectionHeader = useCallback(({ section }: { section: any }) => {
+    const showIdr = !section.hasOnlyTransfers && (section.totalExpense > 0 || !section.totalUsdExpense);
+    const showUsd = !section.hasOnlyTransfers && section.totalUsdExpense > 0;
 
-  const renderItem = useCallback(({ item }: { item: Transaction }) => (
-    <TransactionItemRow
-      transaction={item}
-      categoryIcon={getCategoryIconName(item.category, item.type)}
-      pocketName={getPocketName(item.pocketId)}
-      privacyMode={privacyMode}
-      selectionMode={isSelectionMode}
-      isSelected={selectedIds.has(item.id)}
-      onPress={isSelectionMode ? handleToggleSelectTransaction : onSelectTransaction}
-      onLongPress={handleLongPressTransaction}
-    />
-  ), [
+    return (
+      <View style={styles.monthHeaderBlock}>
+        <View style={styles.monthHeaderTopRow}>
+          <Text style={styles.monthHeaderTitle}>{section.title}</Text>
+          <View style={styles.monthCountBadge}>
+            <Text style={styles.monthCountBadgeText}>{section.count} tx</Text>
+          </View>
+        </View>
+        <View style={styles.monthHeaderSubRow}>
+          {section.rangeBadge ? (
+            <Text style={styles.monthRangeText}>{section.rangeBadge}</Text>
+          ) : null}
+          <View
+            style={[
+              styles.monthAmountsRow,
+              section.rangeBadge ? styles.monthAmountsRowRight : null,
+            ]}
+          >
+            {section.hasOnlyTransfers ? (
+              <Text style={styles.monthHeaderMeta} numberOfLines={1}>
+                Transfers
+              </Text>
+            ) : (
+              <>
+                {showIdr ? (
+                  <Text style={styles.monthHeaderMeta} numberOfLines={1}>
+                    {formatCurrency(section.totalExpense, 'IDR', privacyMode)}
+                  </Text>
+                ) : null}
+                {showIdr && showUsd ? <View style={styles.monthAmountDivider} /> : null}
+                {showUsd ? (
+                  <Text style={styles.monthHeaderMeta} numberOfLines={1}>
+                    {formatCurrency(section.totalUsdExpense, 'USD', privacyMode)}
+                  </Text>
+                ) : null}
+              </>
+            )}
+          </View>
+        </View>
+      </View>
+    );
+  }, [privacyMode]);
+
+  const renderItem = useCallback(({ item }: { item: Transaction }) => {
+    const w = item.walletId ? walletById.get(item.walletId) : undefined;
+    return (
+      <TransactionItemRow
+        transaction={item}
+        categoryIcon={getCategoryIconName(item.category, item.type)}
+        walletName={w ? w.name?.trim() || w.type : undefined}
+        walletType={w?.type}
+        pocketName={getPocketName(item.pocketId)}
+        privacyMode={privacyMode}
+        selectionMode={isSelectionMode}
+        isSelected={selectedIds.has(item.id)}
+        onPress={isSelectionMode ? handleToggleSelectTransaction : onSelectTransaction}
+        onLongPress={handleLongPressTransaction}
+      />
+    );
+  }, [
+    walletById,
     getCategoryIconName,
     getPocketName,
     privacyMode,
@@ -820,9 +885,9 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         windowSize={7}
       />
 
-      {/* Floating Batch Action Bar */}
+      {/* Floating Batch Action Bar — sits cleanly above BottomTabBar (70px height + 10px gap) */}
       {isSelectionMode && selectedIds.size > 0 ? (
-        <View style={[styles.floatingBatchBar, { bottom: Math.max(insets.bottom, 16) + 64 }]}>
+        <View style={[styles.floatingBatchBar, { bottom: Math.max(insets.bottom, 16) + 80 }]}>
           <Text style={styles.floatingBatchText}>
             {selectedIds.size} selected
           </Text>
@@ -858,6 +923,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         availableExpenseCategories={availableExpenseCategories}
         availableIncomeCategories={availableIncomeCategories}
         availableMonths={availableMonths}
+        getCategoryIconName={getCategoryIconName}
         onChangeFilter={onChangeFilter}
         onChangeCategory={onChangeCategory}
         onChangeMonth={onChangeMonth}
@@ -889,9 +955,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   bannerTitle: {
-    ...Typography.heading,
+    ...Typography.editorialTitle,
     fontSize: 22,
-    fontWeight: '700',
     color: Palette.ink,
   },
   bannerSubtitle: {
@@ -929,6 +994,8 @@ const styles = StyleSheet.create({
   },
   lentBannerInfo: {
     flex: 1,
+    minWidth: 0,
+    marginRight: 8,
   },
   lentBannerTitle: {
     ...Typography.caption,
@@ -947,17 +1014,29 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: Palette.accentAmber,
+    flexShrink: 0,
   },
   flowMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
+    gap: 10,
   },
   flowMetaText: {
     ...Typography.mono,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '600',
+  },
+  flowMetaLeft: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'left',
+  },
+  flowMetaRight: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
   },
   dualFlowTrack: {
     height: 5,
@@ -1147,24 +1226,75 @@ const styles = StyleSheet.create({
     color: Palette.muted,
     fontWeight: '600',
   },
-  monthHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
+  monthHeaderBlock: {
+    marginTop: 4,
     marginBottom: 8,
     paddingHorizontal: 2,
   },
+  monthHeaderTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
   monthHeaderTitle: {
     ...Typography.heading,
-    fontSize: 15,
+    fontSize: 15.5,
     fontWeight: '700',
     color: Palette.ink,
   },
-  monthHeaderMeta: {
+  monthCountBadge: {
+    backgroundColor: Palette.surfaceSoft,
+    borderWidth: 1,
+    borderColor: Palette.hairline,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  monthCountBadgeText: {
+    ...Typography.code,
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: Palette.muted,
+  },
+  monthHeaderSubRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    columnGap: 10,
+    rowGap: 4,
+    marginTop: 4,
+  },
+  monthRangeText: {
     ...Typography.caption,
     fontSize: 11,
     color: Palette.muted,
-    fontWeight: '500',
+    flexShrink: 0,
+  },
+  monthAmountsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    columnGap: 7,
+    rowGap: 2,
+    flexShrink: 1,
+  },
+  monthAmountsRowRight: {
+    justifyContent: 'flex-end',
+    marginLeft: 'auto',
+  },
+  monthAmountDivider: {
+    width: 1,
+    height: 10,
+    backgroundColor: Palette.mutedSoft,
+    opacity: 0.45,
+  },
+  monthHeaderMeta: {
+    ...Typography.mono,
+    fontSize: 11.5,
+    color: Palette.muted,
+    fontWeight: '600',
   },
   emptyCard: {
     backgroundColor: Palette.surfaceSoft,

@@ -656,10 +656,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   currencyPrefix: {
-    ...Typography.body,
+    ...Typography.mono,
     fontSize: 20,
     fontWeight: '700',
     color: Palette.muted,
+    minWidth: 32,
+    textAlign: 'center',
   },
   textInput: {
     ...Typography.display,

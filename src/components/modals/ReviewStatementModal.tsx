@@ -234,8 +234,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
     <BottomSheetModal
       visible={visible}
       onClose={onClose}
-      height="93%"
-      maxHeight="95%"
+      fullPage={true}
     >
       <ModalHeader
         title={`e-Statement ${statementData.bankName}`}
@@ -245,6 +244,7 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
             : `${items.length} Transactions Found (${currency})`
         }
         onClose={onClose}
+        leadingIcon="close"
       />
 
       <KeyboardSafeContainer
@@ -734,7 +734,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
   },
   sectionCard: {
-    backgroundColor: Palette.surfaceSoft,
+    backgroundColor: Palette.white,
     borderRadius: 20,
     padding: 16,
     borderWidth: 1,

@@ -294,8 +294,13 @@ export const ManageAccountOrderModal: React.FC<ManageAccountOrderModalProps> = (
   }, [orderIds]);
 
   return (
-    <BottomSheetModal visible={visible} onClose={onClose} height="80%" maxHeight="88%">
-      <ModalHeader title="Manage Account Order" onClose={onClose} />
+    <BottomSheetModal visible={visible} onClose={onClose} fullPage={true} presentation="push">
+      <ModalHeader
+        title="Manage Account Order"
+        subtitle="Drag to customize display order"
+        onClose={onClose}
+        leadingIcon="back"
+      />
 
       <ScrollView
         scrollEnabled={activeId === null}

@@ -268,5 +268,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     zIndex: 50000,
+    elevation: 500,
   },
 });

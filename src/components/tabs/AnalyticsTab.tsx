@@ -31,6 +31,7 @@ import { AppHaptics } from '../../utils/haptics';
 import { CategoryIcon } from '../CategoryIcon';
 import { DonutChart } from '../DonutChart';
 import { TrendChart, TrendPoint } from '../TrendChart';
+import { AnimatedProgressBar } from '../MotionPrimitives';
 
 // High-contrast, maximally separated category colors (ordered so adjacent donut slices never look similar)
 const DISTINCT_CATEGORY_PALETTE = [
@@ -577,11 +578,16 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             <Calendar size={15} color={Palette.primary} />
             <Text style={styles.periodTitleText}>{periodTitle}</Text>
           </View>
-          <Text style={styles.periodSubtitleText}>
+          <Text
+            style={styles.periodSubtitleText}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+          >
             {selectedMonth === 'all'
-              ? 'Showing all-time flow • Tap to change'
+              ? 'Showing all-time flow  •  Tap to change'
               : cycleRangeSubtitle
-                ? `${cycleRangeSubtitle} • Payday cycle`
+                ? `${cycleRangeSubtitle}  •  Payday cycle`
                 : 'Tap to pick month'}
           </Text>
         </TouchableOpacity>
@@ -1016,44 +1022,48 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
               </View>
             </View>
 
-            {/* Symmetrical 50/50 Spent & Limit Row */}
+            {/* Symmetrical Spent & Limit Row */}
             <View style={styles.budgetMainRow}>
-              <View style={[styles.budgetMainCol, { paddingRight: 8 }]}>
-                <Text style={styles.budgetMainLabel} numberOfLines={1}>
-                  Spent in {formatMonthYear(budgetMonthKey)}
+              <View style={[styles.budgetMainCol, { flex: 1.15, paddingRight: 6 }]}>
+                <Text
+                  style={styles.budgetMainLabel}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  Spent in {formatMonthYear(budgetMonthKey).split(' ')[0]}
                 </Text>
                 <Text
                   style={styles.budgetMainAmount}
                   numberOfLines={1}
                   adjustsFontSizeToFit={true}
+                  minimumFontScale={0.75}
                 >
                   {formatCurrency(budgetSpent, activeCurrency, privacyMode)}
                 </Text>
               </View>
-              <View style={[styles.budgetMainCol, { paddingLeft: 8, alignItems: 'flex-end' }]}>
+              <View style={[styles.budgetMainCol, { flex: 1, paddingLeft: 6, alignItems: 'flex-end' }]}>
                 <Text style={styles.budgetMainLabel} numberOfLines={1}>Budget Limit</Text>
                 <Text
                   style={styles.budgetMainAmount}
                   numberOfLines={1}
                   adjustsFontSizeToFit={true}
+                  minimumFontScale={0.75}
                 >
                   {formatCurrency(monthlyBudget, activeCurrency, privacyMode)}
                 </Text>
               </View>
             </View>
 
-            {/* Budget Progress Bar */}
-            <View style={styles.budgetTrack}>
-              <View
-                style={[
-                  styles.budgetProgress,
-                  {
-                    width: `${Math.min(budgetPercentage, 100)}%`,
-                    backgroundColor: budgetColor,
-                  },
-                ]}
-              />
-            </View>
+            {/* Animated Budget Progress Bar */}
+            <AnimatedProgressBar
+              percentage={budgetPercentage}
+              fillColor={budgetColor}
+              trackColor={Palette.surfaceSoft}
+              height={8}
+              borderRadius={4}
+              style={{ marginBottom: 14 }}
+            />
 
             {/* Symmetrical 50/50 Bento Metrics Grid */}
             <View style={styles.budgetBentoGrid}>
@@ -1114,10 +1124,11 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                           backgroundColor: Palette.surfaceSoft,
                           borderRadius: 14,
                           padding: 12,
+                          overflow: 'hidden',
                         }}
                       >
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
                             <View
                               style={{
                                 width: 28,
@@ -1127,6 +1138,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                                 alignItems: 'center',
                                 justifyContent: 'center',
                                 marginRight: 8,
+                                flexShrink: 0,
                               }}
                             >
                               <CategoryIcon
@@ -1135,28 +1147,63 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                                 color={rowColor}
                               />
                             </View>
-                            <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink }} numberOfLines={1}>
+                            <Text style={{ ...Typography.body, fontSize: 13, fontWeight: '600', color: Palette.ink, flex: 1 }} numberOfLines={1}>
                               {row.category}
                             </Text>
                           </View>
-                          <View style={{ backgroundColor: `${rowColor}18`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
-                            <Text style={{ ...Typography.caption, fontSize: 11, fontWeight: '700', color: rowColor }}>
+                          <View style={{ backgroundColor: `${rowColor}18`, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, flexShrink: 0 }}>
+                            <Text style={{ ...Typography.code, fontSize: 10.5, fontWeight: '700', color: rowColor }}>
                               {row.pct.toFixed(0)}%
                             </Text>
                           </View>
                         </View>
-                        <View style={{ height: 6, backgroundColor: Palette.white, borderRadius: 4, overflow: 'hidden', marginBottom: 8 }}>
-                          <View style={{ height: '100%', width: `${Math.min(row.pct, 100)}%`, backgroundColor: rowColor, borderRadius: 4 }} />
-                        </View>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                          <Text style={{ ...Typography.caption, fontSize: 11, color: Palette.muted }}>
-                            {formatCurrency(row.spent, activeCurrency, privacyMode)} / {formatCurrency(row.limit, activeCurrency, privacyMode)}
-                          </Text>
-                          <Text style={{ ...Typography.caption, fontSize: 11, fontWeight: '600', color: row.remaining >= 0 ? Palette.ink : Palette.error }}>
-                            {row.remaining >= 0
-                              ? `${formatCurrency(row.remaining, activeCurrency, privacyMode)} left`
-                              : `Over ${formatCurrency(Math.abs(row.remaining), activeCurrency, privacyMode)}`}
-                          </Text>
+                        <AnimatedProgressBar
+                          percentage={row.pct}
+                          fillColor={rowColor}
+                          trackColor={Palette.white}
+                          height={6}
+                          borderRadius={4}
+                          style={{ marginBottom: 8 }}
+                        />
+                        <View style={{ gap: 3 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                            <Text style={{ ...Typography.caption, fontSize: 10.5, color: Palette.muted, flexShrink: 0 }}>
+                              Spent / Limit
+                            </Text>
+                            <Text
+                              style={{ ...Typography.mono, fontSize: 11, color: Palette.ink, flex: 1, textAlign: 'right' }}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.76}
+                            >
+                              {formatCurrency(row.spent, activeCurrency, privacyMode)}{' '}
+                              <Text style={{ color: Palette.muted, fontWeight: '400' }}>
+                                / {formatCurrency(row.limit, activeCurrency, privacyMode)}
+                              </Text>
+                            </Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                            <Text style={{ ...Typography.caption, fontSize: 10.5, color: Palette.muted, flexShrink: 0 }}>
+                              {row.remaining >= 0 ? 'Remaining' : 'Over Budget'}
+                            </Text>
+                            <Text
+                              style={{
+                                ...Typography.mono,
+                                fontSize: 11,
+                                fontWeight: '600',
+                                color: row.remaining >= 0 ? Palette.success : Palette.error,
+                                flex: 1,
+                                textAlign: 'right',
+                              }}
+                              numberOfLines={1}
+                              adjustsFontSizeToFit
+                              minimumFontScale={0.76}
+                            >
+                              {row.remaining >= 0
+                                ? formatCurrency(row.remaining, activeCurrency, privacyMode)
+                                : `-${formatCurrency(Math.abs(row.remaining), activeCurrency, privacyMode)}`}
+                            </Text>
+                          </View>
                         </View>
                       </View>
                     );
@@ -1324,6 +1371,15 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                     data={donutData}
                     size={200}
                     strokeWidth={22}
+                    selectedLabel={focusedItem?.category ?? null}
+                    onPressCenter={
+                      focusedItem
+                        ? () => {
+                            AppHaptics.selection();
+                            setSelectedBreakdownCategory(null);
+                          }
+                        : undefined
+                    }
                     centerTitle={
                       focusedItem
                         ? focusedItem.category
@@ -1358,6 +1414,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                             borderColor: item.color,
                             backgroundColor: `${item.color}0D`,
                           },
+                          focusedItem && !isFocused && { opacity: 0.62 },
                         ]}
                         onPress={() => {
                           AppHaptics.selection();
@@ -1483,23 +1540,26 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   headerTitle: {
-    ...Typography.heading,
+    ...Typography.editorialTitle,
     fontSize: 22,
-    fontWeight: '700',
     color: Palette.ink,
   },
   analyticsCurrencyToggle: {
     flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Palette.surfaceSoft,
-    borderRadius: 12,
-    padding: 2,
+    borderRadius: 11,
+    padding: 3,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
   analyticsCurrencyBtn: {
     paddingHorizontal: 10,
     paddingVertical: 5,
-    borderRadius: 9,
+    minHeight: 26,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   analyticsCurrencyBtnActive: {
     backgroundColor: Palette.white,
@@ -1507,8 +1567,10 @@ const styles = StyleSheet.create({
   analyticsCurrencyBtnText: {
     ...Typography.caption,
     fontSize: 11,
+    lineHeight: 14,
     fontWeight: '600',
     color: Palette.muted,
+    includeFontPadding: false,
   },
   analyticsCurrencyBtnTextActive: {
     color: Palette.ink,
@@ -1642,7 +1704,8 @@ const styles = StyleSheet.create({
   },
   momCell: {
     flex: 1,
-    paddingHorizontal: 12,
+    minWidth: 0,
+    paddingHorizontal: 10,
   },
   momCellLabel: {
     ...Typography.caption,
@@ -1686,8 +1749,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     backgroundColor: Palette.white,
     borderRadius: 14,
-    paddingVertical: 8,
+    paddingVertical: 9,
     paddingHorizontal: 10,
+    minHeight: 56,
     marginBottom: 12,
     borderWidth: 1,
     borderColor: Palette.hairline,
@@ -1699,12 +1763,16 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.surfaceSoft,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
   stepperBtnDisabled: {
     opacity: 0.35,
   },
   periodCenterBtn: {
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 10,
   },
   periodCenterRow: {
@@ -1714,15 +1782,19 @@ const styles = StyleSheet.create({
   },
   periodTitleText: {
     ...Typography.heading,
-    fontSize: 15,
+    fontSize: 14.5,
+    lineHeight: 18,
     fontWeight: '700',
     color: Palette.ink,
+    includeFontPadding: false,
   },
   periodSubtitleText: {
     ...Typography.caption,
-    fontSize: 10,
+    fontSize: 10.5,
+    lineHeight: 14,
     color: Palette.muted,
-    marginTop: 1,
+    marginTop: 4,
+    textAlign: 'center',
   },
   healthStatusCard: {
     backgroundColor: Palette.white,
@@ -1820,14 +1892,16 @@ const styles = StyleSheet.create({
   pillarsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
     marginBottom: 20,
   },
   pillarTile: {
-    width: '48%',
+    flexBasis: '47.5%',
+    flexGrow: 1,
+    minWidth: 0,
     backgroundColor: Palette.white,
     borderRadius: 16,
-    padding: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: Palette.hairline,
   },
@@ -1839,11 +1913,12 @@ const styles = StyleSheet.create({
   },
   pillarLabel: {
     ...Typography.caption,
-    fontSize: 11,
+    fontSize: 10.5,
     color: Palette.muted,
     fontWeight: '600',
     textTransform: 'uppercase',
-    letterSpacing: 0.4,
+    letterSpacing: 0.35,
+    flex: 1,
   },
   pillarValue: {
     ...Typography.heading,
@@ -1947,17 +2022,18 @@ const styles = StyleSheet.create({
   budgetMainRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 10,
     marginBottom: 12,
   },
   budgetMainCol: {
     flex: 1,
+    minWidth: 0,
   },
   budgetMainLabel: {
     ...Typography.caption,
-    fontSize: 11,
+    fontSize: 11.5,
+    fontWeight: '600',
     color: Palette.muted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.4,
     marginBottom: 4,
   },
   budgetMainAmount: {
@@ -1984,10 +2060,11 @@ const styles = StyleSheet.create({
   },
   budgetBentoTile: {
     flex: 1,
+    minWidth: 0,
     backgroundColor: Palette.surfaceSoft,
     borderRadius: 12,
     paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
   },
   budgetBentoLabel: {
     ...Typography.caption,
