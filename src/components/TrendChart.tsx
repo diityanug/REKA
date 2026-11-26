@@ -131,11 +131,8 @@ export const TrendChart: React.FC<TrendChartProps> = ({
           {activePoint ? (
             <View style={styles.detailCard}>
               <View style={styles.detailTopRow}>
-                <Text style={styles.detailPeriod} numberOfLines={1} ellipsizeMode="tail">
+                <Text style={styles.detailPeriod}>
                   {activePoint.fullLabel}
-                </Text>
-                <Text style={styles.detailHint} numberOfLines={1}>
-                  {mode === 'bars' ? 'Tap bar to inspect' : 'Tap point to inspect'}
                 </Text>
               </View>
 
@@ -511,20 +508,11 @@ const styles = StyleSheet.create({
   },
   detailPeriod: {
     flex: 1,
-    flexShrink: 1,
     fontFamily: FontFamily.sans,
     fontSize: 13,
-    lineHeight: 17,
+    lineHeight: 18,
     fontWeight: '700',
     color: Palette.ink,
-  },
-  detailHint: {
-    flexShrink: 0,
-    fontFamily: FontFamily.sans,
-    fontSize: 11,
-    lineHeight: 14,
-    fontWeight: '500',
-    color: Palette.muted,
   },
   detailDivider: {
     height: 1,
