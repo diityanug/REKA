@@ -272,7 +272,7 @@ export function getRemainingDaysInPeriod(
     0,
     0
   );
-  const diffDays = Math.floor(
+  const diffDays = Math.round(
     (endMidnight.getTime() - todayMidnight.getTime()) / (24 * 60 * 60 * 1000)
   );
   return Math.max(1, diffDays + 1);

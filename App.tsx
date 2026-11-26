@@ -393,18 +393,118 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
   const [historyDateTo, setHistoryDateTo] = useState<string>('');
 
   const availablePaymentMethods = useMemo(() => {
-    const set = new Set<string>(PAYMENT_METHODS);
+    const used = new Map<string, string>();
     transactions.forEach((tx) => {
       const m = (tx.paymentMethod || '').trim();
-      if (m && m.toLowerCase() !== 'transfer') set.add(m);
+      if (m && m.toLowerCase() !== 'transfer') {
+        const key = m.toLowerCase();
+        if (!used.has(key)) used.set(key, m);
+      }
     });
-    return Array.from(set);
+    const order = new Map(PAYMENT_METHODS.map((m, idx) => [m.toLowerCase(), idx]));
+    return Array.from(used.values()).sort((a, b) => {
+      const ia = order.get(a.toLowerCase()) ?? 999;
+      const ib = order.get(b.toLowerCase()) ?? 999;
+      return ia !== ib ? ia - ib : a.localeCompare(b);
+    });
   }, [transactions]);
+
+  // Only show accounts & pockets in History Filter that actually have recorded transactions
+  const historyFilterWallets = useMemo(() => {
+    const usedIds = new Set<string>();
+    transactions.forEach((tx) => {
+      if (tx.walletId) usedIds.add(tx.walletId);
+    });
+    return wallets.filter((w) => usedIds.has(w.id));
+  }, [transactions, wallets]);
+
+  const historyFilterPockets = useMemo(() => {
+    const usedIds = new Set<string>();
+    transactions.forEach((tx) => {
+      if (tx.pocketId) usedIds.add(tx.pocketId);
+    });
+    return finance.pockets.filter((p) => usedIds.has(p.id));
+  }, [transactions, finance.pockets]);
+
+  // Auto-prune stale history filters when underlying transactions, accounts, or pockets are deleted/edited
+  // so an invisible "ghost filter" can never remain stuck active.
+  useEffect(() => {
+    if (!finance.initialAppReady) return;
+    if (historyWalletId !== 'all' && !historyFilterWallets.some((w) => w.id === historyWalletId)) {
+      setHistoryWalletId('all');
+      setHistoryPocketId('all');
+    } else if (historyPocketId === '__main__' && historyWalletId !== 'all') {
+      const hasPocketsForSelected = historyFilterPockets.some(
+        (p) => p.walletId === historyWalletId
+      );
+      if (!hasPocketsForSelected) {
+        setHistoryPocketId('all');
+      }
+    } else if (
+      historyPocketId !== 'all' &&
+      historyPocketId !== '__main__' &&
+      !historyFilterPockets.some((p) => p.id === historyPocketId)
+    ) {
+      setHistoryPocketId('all');
+    }
+
+    if (
+      historyPaymentMethod !== 'all' &&
+      !availablePaymentMethods.some(
+        (m) => m.toLowerCase() === historyPaymentMethod.toLowerCase()
+      )
+    ) {
+      setHistoryPaymentMethod('all');
+    }
+
+    if (
+      historyMonth !== 'all' &&
+      !finance.availableMonths.includes(historyMonth)
+    ) {
+      setHistoryMonth('all');
+    }
+
+    if (historyCategory !== 'all') {
+      const pool =
+        historyFilter === 'expense'
+          ? finance.availableExpenseCategories
+          : historyFilter === 'income'
+            ? finance.availableIncomeCategories
+            : finance.availableCategories;
+      if (!pool.some((c) => c.toLowerCase() === historyCategory.toLowerCase())) {
+        setHistoryCategory('all');
+      }
+    }
+  }, [
+    finance.initialAppReady,
+    finance.availableMonths,
+    finance.availableCategories,
+    finance.availableExpenseCategories,
+    finance.availableIncomeCategories,
+    historyFilter,
+    historyWalletId,
+    historyPocketId,
+    historyPaymentMethod,
+    historyMonth,
+    historyCategory,
+    historyFilterWallets,
+    historyFilterPockets,
+    availablePaymentMethods,
+  ]);
 
   const handleChangeLentFilter = useCallback((newFilter: 'all' | 'outstanding' | 'settled') => {
     setHistoryLentFilter(newFilter);
     if (newFilter === 'outstanding') {
+      // Clear conflicting filters so tapping the Outstanding Lent banner always reveals unsettled loans
+      setSearchQuery('');
+      setHistoryFilter('all');
+      setHistoryCategory('all');
       setHistoryMonth('all');
+      setHistoryWalletId('all');
+      setHistoryPocketId('all');
+      setHistoryPaymentMethod('all');
+      setHistoryDateFrom('');
+      setHistoryDateTo('');
     }
   }, []);
 
@@ -471,12 +571,12 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
     (newFilter: FilterType) => {
       setHistoryFilter(newFilter);
       if (historyCategory !== 'all') {
-        let allowedList = availableCategories;
-        if (newFilter === 'expense' && availableExpenseCategories.length > 0) {
-          allowedList = availableExpenseCategories;
-        } else if (newFilter === 'income' && availableIncomeCategories.length > 0) {
-          allowedList = availableIncomeCategories;
-        }
+        const allowedList =
+          newFilter === 'expense'
+            ? availableExpenseCategories
+            : newFilter === 'income'
+              ? availableIncomeCategories
+              : availableCategories;
         const isStillAllowed = allowedList.some(
           (c) => c.toLowerCase() === historyCategory.toLowerCase()
         );
@@ -572,26 +672,25 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
         matchesLent = Boolean(tx.isLent && tx.lentStatus === 'settled');
       }
 
-      let matchesWallet = true;
-      if (historyWalletId !== 'all') {
-        matchesWallet = tx.walletId === historyWalletId;
-        if (!matchesWallet && tx.transferPairId) {
+      // Pair account + pocket check per transfer leg so Pocket = Main Balance accurately
+      // includes incoming Main Balance transfers and excludes transfers targeting another pocket
+      let matchesAccountAndPocket = true;
+      if (historyWalletId !== 'all' || historyPocketId !== 'all') {
+        const legMatches = (leg: { walletId?: string; pocketId?: string }) => {
+          const walletOk = historyWalletId === 'all' || leg.walletId === historyWalletId;
+          const pocketOk =
+            historyPocketId === 'all'
+              ? true
+              : historyPocketId === '__main__'
+                ? !leg.pocketId
+                : leg.pocketId === historyPocketId;
+          return walletOk && pocketOk;
+        };
+        matchesAccountAndPocket = legMatches(tx);
+        if (!matchesAccountAndPocket && tx.transferPairId) {
           const counterpart = transactions.find((c) => c.id === tx.transferPairId);
-          if (counterpart && counterpart.walletId === historyWalletId) {
-            matchesWallet = true;
-          }
-        }
-      }
-
-      let matchesPocket = true;
-      if (historyPocketId === '__main__') {
-        matchesPocket = !tx.pocketId;
-      } else if (historyPocketId !== 'all') {
-        matchesPocket = tx.pocketId === historyPocketId;
-        if (!matchesPocket && tx.transferPairId) {
-          const counterpart = transactions.find((c) => c.id === tx.transferPairId);
-          if (counterpart && counterpart.pocketId === historyPocketId) {
-            matchesPocket = true;
+          if (counterpart && legMatches(counterpart)) {
+            matchesAccountAndPocket = true;
           }
         }
       }
@@ -614,8 +713,7 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
         matchesCategory &&
         matchesMonth &&
         matchesLent &&
-        matchesWallet &&
-        matchesPocket &&
+        matchesAccountAndPocket &&
         matchesPaymentMethod &&
         matchesDateRange
       );
@@ -1149,8 +1247,11 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
     }
   };
 
+  const savingManualTxRef = useRef<boolean>(false);
+
   // Save manual transaction (create, duplicate, or edit)
   const handleSaveManualTransaction = async () => {
+    if (savingManualTxRef.current) return;
     Keyboard.dismiss();
     if (!modals.manMerchant.trim()) {
       modals.showAlert('Missing Merchant', 'Please enter merchant or recipient name.', undefined, 'warning');
@@ -1279,6 +1380,8 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
     }
 
     const persistTransaction = async () => {
+      if (savingManualTxRef.current) return;
+      savingManualTxRef.current = true;
       try {
         AppHaptics.heavy();
         const txCurrency = modals.manCurrency;
@@ -1331,6 +1434,8 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
         AppHaptics.success();
       } catch (err: any) {
         modals.showAlert('Error', err.message || 'Failed to save transaction.', undefined, 'error');
+      } finally {
+        savingManualTxRef.current = false;
       }
     };
 
@@ -1486,16 +1591,26 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
     setHistoryDateTo('');
   }, []);
 
+  const handleSplashFinish = useCallback(() => {
+    setSplashFinished(true);
+  }, []);
+
+  const handleAppUnlock = useCallback(() => {
+    setIsAppLocked(false);
+  }, []);
+
   useEffect(() => {
     // Sembunyikan native splash bawaan OS begitu komponen React siap
     SplashScreen.hideAsync().catch(() => {});
   }, []);
 
-  if (!splashFinished || !fontsReady || (finance.loading && !finance.initialAppReady)) {
+  const appResourcesReady = fontsReady && (!finance.loading || finance.initialAppReady);
+  if (!splashFinished || !appResourcesReady) {
     return (
       <AnimatedSplashScreen
         minDurationMs={1000}
-        onAnimationFinish={() => setSplashFinished(true)}
+        ready={appResourcesReady}
+        onAnimationFinish={handleSplashFinish}
       />
     );
   }
@@ -1597,6 +1712,8 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
                 historyDateTo={historyDateTo}
                 wallets={finance.wallets}
                 pockets={finance.pockets}
+                filterWallets={historyFilterWallets}
+                filterPockets={historyFilterPockets}
                 billingCycle={finance.billingCycle}
                 availablePaymentMethods={availablePaymentMethods}
                 outstandingLentCount={finance.outstandingLentSummary.count}
@@ -1622,6 +1739,7 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
                 onOpenManualModal={handleOpenManualTransaction}
                 onSelectTransaction={handleSelectTransaction}
                 onDeleteTransactionsBatch={handleDeleteTransactionsBatch}
+                onBatchRenameMerchant={finance.handleBatchRenameMerchant}
                 getCategoryIconName={getCategoryIconName}
                 getPocketName={getPocketName}
               />
@@ -1686,6 +1804,7 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
         selectedWalletId={modals.selectedWalletId}
         selectedPocketId={modals.selectedPocketId}
         activeCurrency={finance.activeCurrency}
+        privacyMode={privacyMode}
         onSelectWallet={modals.setSelectedWalletId}
         onSelectPocket={modals.setSelectedPocketId}
         onOpenAddAccount={() => modals.openAddAccountModal(modals.extractedData?.currency || finance.activeCurrency, 'review')}
@@ -2041,6 +2160,7 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
         visible={modals.monthPickerVisible}
         selectedMonth={modals.monthPickerTarget === 'history' ? historyMonth : finance.selectedMonth}
         availableMonths={finance.availableMonths}
+        currentPeriodKey={finance.currentPeriodKey}
         showAllOption={true}
         onSelectMonth={(monthKey) => {
           if (modals.monthPickerTarget === 'history') {
@@ -2153,7 +2273,7 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
         visible={isAppLocked}
         biometricsEnabled={finance.lockSettings.isBiometricsEnabled}
         biometricType={finance.biometricCaps.biometricType}
-        onUnlock={() => setIsAppLocked(false)}
+        onUnlock={handleAppUnlock}
       />
     </View>
   );

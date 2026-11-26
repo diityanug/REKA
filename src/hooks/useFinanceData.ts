@@ -32,6 +32,7 @@ import {
   deleteCategory,
   deleteTransaction,
   deleteTransactionsBatch,
+  updateTransactionsMerchantBatch,
   updateTransactionImageUri,
   recordLentRepayment,
   getLentRepayments,
@@ -495,39 +496,37 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       if (lower === 'transfer') return 'ArrowLeftRight';
       if (lower === 'others') return 'CircleEllipsis';
 
-      // 1. Direct semantic overrides for high-frequency categories where icons were previously mismatched
-      if (lower === 'shopping' || lower === 'belanja') return 'ShoppingCart';
-      if (lower === 'snacks' || lower === 'snack' || lower === 'camilan') return 'Cookie';
-
-      // 2. Exact match in user's category list with matching type
+      // 1. Exact match in user's category list with matching type (respects user-chosen icons on custom categories)
       if (type) {
         const foundWithType = categories.find(
           (c) => c.name.toLowerCase() === lower && c.type === type
         );
         if (foundWithType) {
-          if (foundWithType.name.toLowerCase() === 'shopping' && (foundWithType.icon === 'ShoppingBag' || foundWithType.icon === 'Gift')) {
+          if (foundWithType.isDefault && foundWithType.name.toLowerCase() === 'shopping' && (foundWithType.icon === 'ShoppingBag' || foundWithType.icon === 'Gift')) {
             return 'ShoppingCart';
           }
-          if ((foundWithType.name.toLowerCase() === 'snacks' || foundWithType.name.toLowerCase() === 'snack') && foundWithType.icon === 'Coffee') {
+          if (foundWithType.isDefault && (foundWithType.name.toLowerCase() === 'snacks' || foundWithType.name.toLowerCase() === 'snack') && foundWithType.icon === 'Coffee') {
             return 'Cookie';
           }
           return foundWithType.icon;
         }
       }
 
-      // 3. Exact match in user's category list
+      // 2. Exact match in user's category list
       const found = categories.find((c) => c.name.toLowerCase() === lower);
       if (found) {
-        if (found.name.toLowerCase() === 'shopping' && (found.icon === 'ShoppingBag' || found.icon === 'Gift')) {
+        if (found.isDefault && found.name.toLowerCase() === 'shopping' && (found.icon === 'ShoppingBag' || found.icon === 'Gift')) {
           return 'ShoppingCart';
         }
-        if ((found.name.toLowerCase() === 'snacks' || found.name.toLowerCase() === 'snack') && found.icon === 'Coffee') {
+        if (found.isDefault && (found.name.toLowerCase() === 'snacks' || found.name.toLowerCase() === 'snack') && found.icon === 'Coffee') {
           return 'Cookie';
         }
         return found.icon;
       }
 
-      // 4. Semantic fallback mapping
+      // 3. Semantic fallback mapping (for legacy/deleted categories not in user's category table)
+      if (lower === 'shopping' || lower === 'belanja') return 'ShoppingCart';
+      if (lower === 'snacks' || lower === 'snack' || lower === 'camilan') return 'Cookie';
       if (SEMANTIC_CATEGORY_ICON_FALLBACKS[lower]) {
         return SEMANTIC_CATEGORY_ICON_FALLBACKS[lower];
       }
@@ -565,9 +564,6 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
 
   const availableExpenseCategories = useMemo(() => {
     const set = new Set<string>();
-    categories
-      .filter((c) => c.type === 'expense' && !isReservedTransferCategory(c.name))
-      .forEach((c) => set.add(c.name));
     transactions
       .filter(
         (tx) =>
@@ -576,16 +572,14 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
           !isReservedTransferCategory(tx.category)
       )
       .forEach((tx) => {
-        if (tx.category) set.add(tx.category);
+        const cat = (tx.category || '').trim();
+        if (cat) set.add(cat);
       });
     return Array.from(set).sort();
-  }, [categories, transactions]);
+  }, [transactions]);
 
   const availableIncomeCategories = useMemo(() => {
     const set = new Set<string>();
-    categories
-      .filter((c) => c.type === 'income' && !isReservedTransferCategory(c.name))
-      .forEach((c) => set.add(c.name));
     transactions
       .filter(
         (tx) =>
@@ -594,10 +588,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
           !isReservedTransferCategory(tx.category)
       )
       .forEach((tx) => {
-        if (tx.category) set.add(tx.category);
+        const cat = (tx.category || '').trim();
+        if (cat) set.add(cat);
       });
     return Array.from(set).sort();
-  }, [categories, transactions]);
+  }, [transactions]);
 
   const availableCategories = useMemo(() => {
     const set = new Set<string>([
@@ -935,7 +930,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         AppHaptics.success();
         return true;
       } catch (err: any) {
-        showAlert('Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
+        showAlert('Notice', toUserFriendlyErrorMessage(err), undefined, 'error');
         return false;
       }
     },
@@ -1189,6 +1184,42 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         ],
         'confirm'
       );
+    },
+    [showAlert, loadData]
+  );
+
+  const handleBatchRenameMerchant = useCallback(
+    async (
+      ids: string[],
+      newMerchantName: string,
+      onRenamed?: () => void
+    ): Promise<boolean> => {
+      const trimmed = newMerchantName.trim();
+      if (!ids || ids.length === 0 || !trimmed) return false;
+      try {
+        const updated = await updateTransactionsMerchantBatch(ids, trimmed);
+        if (updated === 0) {
+          showAlert(
+            'No Eligible Transactions',
+            'Only regular income and expense transactions can be renamed.',
+            undefined,
+            'info'
+          );
+          return false;
+        }
+        await loadData();
+        AppHaptics.success();
+        if (onRenamed) onRenamed();
+        return true;
+      } catch (err: any) {
+        showAlert(
+          'Error',
+          err?.message || 'Failed to rename selected transactions.',
+          undefined,
+          'error'
+        );
+        return false;
+      }
     },
     [showAlert, loadData]
   );
@@ -1490,10 +1521,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         currency: activeCurrency,
         wallets,
         transactions,
+        billingCycle,
         exchangeRate,
       });
     },
-    [selectedMonth, activeCurrency, wallets, transactions, exchangeRate]
+    [selectedMonth, activeCurrency, wallets, transactions, billingCycle, exchangeRate]
   );
 
   return useMemo(() => ({
@@ -1543,6 +1575,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleUpdateTransfer,
     handleDeleteTransaction,
     handleDeleteTransactionsBatch,
+    handleBatchRenameMerchant,
     handleRecordLentRepayment,
     getLentAuditTrail,
     handleSaveBudget,
@@ -1612,6 +1645,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleUpdateTransfer,
     handleDeleteTransaction,
     handleDeleteTransactionsBatch,
+    handleBatchRenameMerchant,
     handleRecordLentRepayment,
     getLentAuditTrail,
     handleSaveBudget,

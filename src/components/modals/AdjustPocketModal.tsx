@@ -83,8 +83,9 @@ export const AdjustPocketModal: React.FC<AdjustPocketModalProps> = ({
 
   if (!pocket) return null;
 
+  const eps = pCurrency === 'USD' ? 0.001 : 0;
   const typedAmount = parseAmount(amount, pCurrency);
-  const exceedsLimit = !!amount && !isNaN(typedAmount) && typedAmount > limit;
+  const exceedsLimit = !!amount && !isNaN(typedAmount) && typedAmount > limit + eps;
 
   const handleSetAll = () => {
     if (limit <= 0) {

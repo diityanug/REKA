@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -34,8 +34,23 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   const [newPinCandidate, setNewPinCandidate] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
   const [shakeAnim] = useState(() => new Animated.Value(0));
+  const isBusyRef = useRef<boolean>(false);
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearResetTimer = useCallback(() => {
+    if (resetTimerRef.current) {
+      clearTimeout(resetTimerRef.current);
+      resetTimerRef.current = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => clearResetTimer();
+  }, [clearResetTimer]);
 
   useSyncOnChange([visible, isChanging], () => {
+    clearResetTimer();
+    isBusyRef.current = false;
     if (visible) {
       setStep(isChanging ? 'verify_old' : 'enter_new');
       setInputPin('');
@@ -56,7 +71,8 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   }, [shakeAnim]);
 
   const handleKeyPress = async (digit: string) => {
-    if (inputPin.length >= 4) return;
+    if (isBusyRef.current || inputPin.length >= 4) return;
+    clearResetTimer();
     AppHaptics.light();
     setErrorMessage('');
     const nextPin = inputPin + digit;
@@ -64,16 +80,26 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
 
     if (nextPin.length === 4) {
       if (step === 'verify_old') {
-        const matches = await verifyPin(nextPin);
-        if (matches) {
-          AppHaptics.light();
-          setStep('enter_new');
-          setInputPin('');
-        } else {
-          AppHaptics.error();
-          triggerShake();
-          setErrorMessage('Current PIN is incorrect');
-          setTimeout(() => setInputPin(''), 300);
+        isBusyRef.current = true;
+        try {
+          const matches = await verifyPin(nextPin);
+          if (matches) {
+            AppHaptics.light();
+            setStep('enter_new');
+            setInputPin('');
+            isBusyRef.current = false;
+          } else {
+            AppHaptics.error();
+            triggerShake();
+            setErrorMessage('Current PIN is incorrect');
+            resetTimerRef.current = setTimeout(() => {
+              resetTimerRef.current = null;
+              setInputPin('');
+              isBusyRef.current = false;
+            }, 300);
+          }
+        } catch {
+          isBusyRef.current = false;
         }
       } else if (step === 'enter_new') {
         AppHaptics.light();
@@ -82,18 +108,26 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
         setInputPin('');
       } else if (step === 'confirm_new') {
         if (nextPin === newPinCandidate) {
-          AppHaptics.success();
-          await setPin(nextPin);
-          onSuccess();
-          onClose();
+          isBusyRef.current = true;
+          try {
+            AppHaptics.success();
+            await setPin(nextPin);
+            onSuccess();
+            onClose();
+          } finally {
+            isBusyRef.current = false;
+          }
         } else {
+          isBusyRef.current = true;
           AppHaptics.error();
           triggerShake();
           setErrorMessage('PINs do not match. Try again.');
-          setTimeout(() => {
+          resetTimerRef.current = setTimeout(() => {
+            resetTimerRef.current = null;
             setStep('enter_new');
             setInputPin('');
             setNewPinCandidate('');
+            isBusyRef.current = false;
           }, 400);
         }
       }
@@ -101,7 +135,7 @@ export const PinSetupModal: React.FC<PinSetupModalProps> = ({
   };
 
   const handleDelete = () => {
-    if (inputPin.length === 0) return;
+    if (isBusyRef.current || inputPin.length === 0) return;
     AppHaptics.light();
     setInputPin((prev) => prev.slice(0, -1));
     setErrorMessage('');

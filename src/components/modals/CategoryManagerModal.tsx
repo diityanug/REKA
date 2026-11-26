@@ -2,13 +2,13 @@ import React from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
   Keyboard,
   ActivityIndicator,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { Plus, Check, Trash2 } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
 import { Category, TransactionType, filterSelectableCategories } from '../../types';
@@ -162,12 +162,13 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   <Text style={styles.inputLabel}>
                     {activeType === 'expense' ? 'Expense' : 'Income'} Category Name <Text style={styles.requiredStar}>*</Text>
                   </Text>
-                  <TextInput
+                  <StableTextInput
                     style={styles.textInputBox}
                     placeholder="e.g. Subscriptions, Bonus"
                     placeholderTextColor={Palette.mutedSoft}
                     value={newCatName}
                     onChangeText={onChangeName}
+                    maxLength={30}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                   />

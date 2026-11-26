@@ -2,13 +2,13 @@ import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
   Animated,
   Easing,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   ArrowDown,
@@ -135,6 +135,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
   const [quickPercentHint, setQuickPercentHint] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
+  const submittingRef = useRef<boolean>(false);
   const [refreshingRate, setRefreshingRate] = useState<boolean>(false);
   const [spinAnim] = useState(() => new Animated.Value(0));
   const spinLoopRef = useRef<Animated.CompositeAnimation | null>(null);
@@ -234,12 +235,20 @@ export const TransferModal = React.memo<TransferModalProps>(({
   useSyncOnChange([visible, eligibleWallets, editingTransfer], () => {
     if (visible && !editingTransfer) {
       if (eligibleWallets.length >= 2) {
-        if (!fromWalletId || !eligibleWallets.some((w) => w.id === fromWalletId)) {
-          setFromWalletId(eligibleWallets[0].id);
+        const hasValidFrom =
+          !!fromWalletId && eligibleWallets.some((w) => w.id === fromWalletId);
+        const resolvedFromId = hasValidFrom ? fromWalletId : eligibleWallets[0].id;
+        if (!hasValidFrom) {
+          setFromWalletId(resolvedFromId);
           setFromPocketId('');
         }
-        if (!toWalletId || !eligibleWallets.some((w) => w.id === toWalletId) || toWalletId === eligibleWallets[0].id) {
-          setToWalletId(eligibleWallets[1].id);
+        const hasValidTo =
+          !!toWalletId &&
+          eligibleWallets.some((w) => w.id === toWalletId) &&
+          toWalletId !== resolvedFromId;
+        if (!hasValidTo) {
+          const fallbackTo = eligibleWallets.find((w) => w.id !== resolvedFromId);
+          setToWalletId(fallbackTo ? fallbackTo.id : '');
           setToPocketId('');
         }
       } else if (eligibleWallets.length === 1) {
@@ -319,16 +328,18 @@ export const TransferModal = React.memo<TransferModalProps>(({
     }
   }
 
-  // Non-blocking sanity warning for the USD/IDR pair
+  // Non-blocking sanity warning for USD/IDR exchange rate (IDR per 1 USD)
   const isUsdIdrPair =
     isCrossCurrency &&
     ((fromCurrency === 'USD' && toCurrency === 'IDR') ||
       (fromCurrency === 'IDR' && toCurrency === 'USD'));
   const rateLooksUnusual =
     isUsdIdrPair &&
-    numericAmount > 0 &&
-    targetAmount > 0 &&
-    (targetAmount > numericAmount * 100 || numericAmount > targetAmount * 100);
+    !rateInvalid &&
+    (appliedRate < 5000 || appliedRate > 50000);
+  const convertedTooSmall = Boolean(
+    isCrossCurrency && !rateInvalid && numericAmount > 0 && targetAmount <= 0
+  );
 
   const hasSameAccountPockets = eligibleWallets.some((w) =>
     eligiblePockets.some((p) => p.walletId === w.id)
@@ -343,7 +354,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     !toWalletId ||
     isSameEndpoint ||
     !(numericAmount > 0) ||
-    (isCrossCurrency && rateInvalid);
+    (isCrossCurrency && (rateInvalid || convertedTooSmall));
 
   const handleQuickPercent = (pct: number) => {
     if (!selectedFromWallet || effectiveSourceBalance <= 0) {
@@ -380,6 +391,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
   };
 
   const handleSubmit = async () => {
+    if (submitting || submittingRef.current) return;
     Keyboard.dismiss();
 
     if (!fromWalletId || !toWalletId) {
@@ -408,6 +420,16 @@ export const TransferModal = React.memo<TransferModalProps>(({
       showAlert(
         'Invalid Exchange Rate',
         'Enter an exchange rate between Rp 1 and Rp 1.000.000.000.',
+        undefined,
+        'warning'
+      );
+      return;
+    }
+
+    if (convertedTooSmall) {
+      showAlert(
+        'Amount Too Small',
+        `At the current exchange rate, this amount converts to 0 ${toCurrency}. Please increase the transfer amount.`,
         undefined,
         'warning'
       );
@@ -446,6 +468,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     }
 
     try {
+      submittingRef.current = true;
       setSubmitting(true);
       AppHaptics.heavy();
       if (editingTransfer && onUpdateTransfer) {
@@ -476,6 +499,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
     } catch (err: any) {
       showAlert('Transfer Error', err.message || 'Failed to complete fund transfer.', undefined, 'error');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -1059,6 +1083,12 @@ export const TransferModal = React.memo<TransferModalProps>(({
                       </Text>
                     ) : null}
 
+                    {convertedTooSmall ? (
+                      <Text style={styles.fxRateError}>
+                        Amount is too small to convert (rounds to 0 {toCurrency}).
+                      </Text>
+                    ) : null}
+
                     {rateLooksUnusual ? (
                       <Text style={styles.fxRateWarning}>
                         This rate looks unusual — double-check it.
@@ -1168,7 +1198,7 @@ export const TransferModal = React.memo<TransferModalProps>(({
                 {/* Optional Notes */}
                 <View style={styles.fieldSection}>
                   <Text style={styles.inputLabel}>Notes</Text>
-                  <TextInput
+                  <StableTextInput
                     style={styles.textInputBox}
                     placeholder="e.g. Allocation, Savings, Bill share"
                     placeholderTextColor={Palette.mutedSoft}

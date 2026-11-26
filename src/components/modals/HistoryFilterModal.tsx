@@ -29,7 +29,6 @@ import { BottomSheetModal } from '../BottomSheetModal';
 import { PaymentMethodIcon } from '../PaymentMethodIcon';
 import { CategoryIcon } from '../CategoryIcon';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
-import { triggerSmoothLayout } from '../MotionPrimitives';
 import { DatePickerModal } from './DatePickerModal';
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -133,18 +132,10 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
 
   const isAnyFilterActive = activeFilterCount > 0;
 
-  // Determine which categories to show depending on transaction type
+  // Determine which categories to show depending on transaction type (only those with transactions)
   const displayedCategories = useMemo(() => {
-    if (filter === 'expense') {
-      return availableExpenseCategories.length > 0
-        ? availableExpenseCategories
-        : availableCategories;
-    }
-    if (filter === 'income') {
-      return availableIncomeCategories.length > 0
-        ? availableIncomeCategories
-        : availableCategories;
-    }
+    if (filter === 'expense') return availableExpenseCategories;
+    if (filter === 'income') return availableIncomeCategories;
     return availableCategories;
   }, [filter, availableCategories, availableExpenseCategories, availableIncomeCategories]);
 
@@ -227,12 +218,12 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
     onChangeFilter(newFilter);
 
     if (category !== 'all') {
-      let allowedList = availableCategories;
-      if (newFilter === 'expense' && availableExpenseCategories.length > 0) {
-        allowedList = availableExpenseCategories;
-      } else if (newFilter === 'income' && availableIncomeCategories.length > 0) {
-        allowedList = availableIncomeCategories;
-      }
+      const allowedList =
+        newFilter === 'expense'
+          ? availableExpenseCategories
+          : newFilter === 'income'
+            ? availableIncomeCategories
+            : availableCategories;
       const isStillAllowed = allowedList.some(
         (c) => c.toLowerCase() === category.toLowerCase()
       );
@@ -527,7 +518,6 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                     ]}
                     onPress={() => {
                       AppHaptics.selection();
-                      triggerSmoothLayout();
                       onChangeWalletId(item.id);
                       onChangePocketId?.('all');
                     }}
@@ -716,6 +706,8 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                               styles.optionTitleFlex,
                               isActive && styles.optionTitleActive,
                             ]}
+                            numberOfLines={2}
+                            ellipsizeMode="tail"
                           >
                             {item.label}
                           </Text>
@@ -804,6 +796,8 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                               styles.optionTitleFlex,
                               isActive && styles.optionTitleActive,
                             ]}
+                            numberOfLines={2}
+                            ellipsizeMode="tail"
                           >
                             {item.label}
                           </Text>
@@ -841,7 +835,6 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
             style={styles.resetBtn}
             onPress={() => {
               AppHaptics.light();
-              triggerSmoothLayout();
               onReset();
             }}
             activeOpacity={0.75}
@@ -1109,10 +1102,12 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
+    overflow: 'hidden',
   },
   optionCardCompact: {
     height: 50,
     paddingVertical: 6,
+    overflow: 'hidden',
   },
   optionCardActive: {
     backgroundColor: Palette.tintExpense,

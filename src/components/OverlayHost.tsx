@@ -16,10 +16,18 @@ export interface PortalEntry {
 }
 
 type BackHandlerCallback = () => boolean;
+export type OverlayPriority = boolean | 'alert' | 'lock';
+
+function resolveTier(priority: OverlayPriority = false): 0 | 1 | 2 {
+  if (priority === 'lock') return 2;
+  if (priority === true || priority === 'alert') return 1;
+  return 0;
+}
 
 interface OverlayStore {
   subscribe: (listener: () => void) => () => void;
-  registerLayer: (id: string, priority?: boolean) => () => void;
+  registerLayer: (id: string, priority?: OverlayPriority) => () => void;
+  bringToFront: (id: string, priority?: OverlayPriority) => void;
   getLayerZIndex: (id: string) => number;
   setBackHandler: (id: string, handler: BackHandlerCallback | null) => void;
   upsertPortal: (id: string, node: React.ReactNode) => void;
@@ -31,16 +39,25 @@ interface OverlayStore {
 function createOverlayStore(): OverlayStore {
   const regularLayers: string[] = [];
   const priorityLayers: string[] = [];
+  const lockLayers: string[] = [];
   const portals = new Map<string, React.ReactNode>();
   const backHandlers = new Map<string, BackHandlerCallback>();
   const listeners = new Set<() => void>();
   let portalsSnapshot: PortalEntry[] = [];
+
+  const getTierList = (tier: 0 | 1 | 2): string[] => {
+    if (tier === 2) return lockLayers;
+    if (tier === 1) return priorityLayers;
+    return regularLayers;
+  };
 
   const getIndex = (id: string): number => {
     const regIdx = regularLayers.indexOf(id);
     if (regIdx !== -1) return regIdx;
     const prioIdx = priorityLayers.indexOf(id);
     if (prioIdx !== -1) return 1000 + prioIdx;
+    const lockIdx = lockLayers.indexOf(id);
+    if (lockIdx !== -1) return 2000 + lockIdx;
     return -1;
   };
 
@@ -70,28 +87,41 @@ function createOverlayStore(): OverlayStore {
     };
   };
 
-  const registerLayer = (id: string, priority = false) => {
-    const target = priority ? priorityLayers : regularLayers;
-    if (!target.includes(id)) {
+  const removeFromAllLists = (id: string): boolean => {
+    let changed = false;
+    for (const list of [regularLayers, priorityLayers, lockLayers]) {
+      const idx = list.indexOf(id);
+      if (idx !== -1) {
+        list.splice(idx, 1);
+        changed = true;
+      }
+    }
+    return changed;
+  };
+
+  const registerLayer = (id: string, priority: OverlayPriority = false) => {
+    const target = getTierList(resolveTier(priority));
+    const existingIdx = target.indexOf(id);
+    if (existingIdx === -1) {
+      removeFromAllLists(id);
       target.push(id);
       notify();
     }
     return () => {
-      let changed = false;
-      const rIdx = regularLayers.indexOf(id);
-      if (rIdx !== -1) {
-        regularLayers.splice(rIdx, 1);
-        changed = true;
-      }
-      const pIdx = priorityLayers.indexOf(id);
-      if (pIdx !== -1) {
-        priorityLayers.splice(pIdx, 1);
-        changed = true;
-      }
-      if (changed) {
+      if (removeFromAllLists(id)) {
         notify();
       }
     };
+  };
+
+  const bringToFront = (id: string, priority: OverlayPriority = false) => {
+    const target = getTierList(resolveTier(priority));
+    const idx = target.indexOf(id);
+    if (idx === -1) return;
+    if (idx === target.length - 1) return;
+    target.splice(idx, 1);
+    target.push(id);
+    notify();
   };
 
   const getLayerZIndex = (id: string): number => {
@@ -121,6 +151,11 @@ function createOverlayStore(): OverlayStore {
   const getPortalsSnapshot = () => portalsSnapshot;
 
   const handleBackPress = (): boolean => {
+    // Lock-tier layers (AppLockScreen) ALWAYS have highest BackHandler precedence over any alert or modal
+    for (let i = lockLayers.length - 1; i >= 0; i--) {
+      const handler = backHandlers.get(lockLayers[i]);
+      if (handler && handler()) return true;
+    }
     for (let i = priorityLayers.length - 1; i >= 0; i--) {
       const handler = backHandlers.get(priorityLayers[i]);
       if (handler && handler()) return true;
@@ -135,6 +170,7 @@ function createOverlayStore(): OverlayStore {
   return {
     subscribe,
     registerLayer,
+    bringToFront,
     getLayerZIndex,
     setBackHandler,
     upsertPortal,
@@ -178,7 +214,7 @@ export function useOverlayLayer(
   layerActive: boolean,
   backActive: boolean,
   onBack?: () => boolean,
-  priority: boolean = false
+  priority: OverlayPriority = false
 ): { overlayId: string; zIndex: number } {
   const store = useContext(OverlayContext);
   const overlayId = useId();
@@ -187,6 +223,13 @@ export function useOverlayLayer(
     if (!store || !layerActive) return;
     return store.registerLayer(overlayId, priority);
   }, [store, overlayId, layerActive, priority]);
+
+  // If a closing overlay reopens before its exit animation finishes (layerActive never went false),
+  // bump it back to the top of its tier so zIndex & BackHandler order never invert.
+  useLayoutEffect(() => {
+    if (!store || !layerActive || !backActive) return;
+    store.bringToFront(overlayId, priority);
+  }, [store, overlayId, layerActive, backActive, priority]);
 
   useEffect(() => {
     if (!store || !backActive || !onBack) {

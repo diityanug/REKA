@@ -1,15 +1,15 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
   ActivityIndicator,
   Image,
-  Modal,
 } from 'react-native';
+import { OverlayPortal, useOverlayLayer } from '../OverlayHost';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Plus,
@@ -68,6 +68,7 @@ interface ReviewReceiptModalProps {
   selectedWalletId: string;
   selectedPocketId: string;
   activeCurrency: CurrencyType;
+  privacyMode?: boolean;
   onSelectWallet: (id: string) => void;
   onSelectPocket: (id: string) => void;
   onOpenAddAccount: () => void;
@@ -93,6 +94,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   selectedWalletId,
   selectedPocketId,
   activeCurrency,
+  privacyMode = false,
   onSelectWallet,
   onSelectPocket,
   onOpenAddAccount,
@@ -109,6 +111,21 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
   const [showCatPicker, setShowCatPicker] = useState<boolean>(false);
   const [saveReceiptPhoto, setSaveReceiptPhoto] = useState<boolean>(true);
   const [photoPreviewVisible, setPhotoPreviewVisible] = useState<boolean>(false);
+  const closePhotoPreview = useCallback(() => {
+    setPhotoPreviewVisible(false);
+    return true;
+  }, []);
+  const { overlayId: photoPreviewOverlayId } = useOverlayLayer(
+    photoPreviewVisible,
+    photoPreviewVisible,
+    closePhotoPreview
+  );
+
+  useSyncOnChange([visible], () => {
+    if (!visible) {
+      setPhotoPreviewVisible(false);
+    }
+  });
   const [amountOverride, setAmountOverride] = useState<number | null>(null);
   const [amountModalVisible, setAmountModalVisible] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -324,7 +341,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                       <Text style={styles.tapToEditHint}>Tap to edit</Text>
                     </View>
                   </View>
-                  <TextInput
+                  <StableTextInput
                     style={styles.merchantInput}
                     value={merchantName}
                     onChangeText={setMerchantName}
@@ -581,7 +598,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                             adjustsFontSizeToFit
                             minimumFontScale={0.8}
                           >
-                            {formatCurrency(w.balance, w.currency)}
+                            {formatCurrency(w.balance, w.currency, privacyMode)}
                           </Text>
                         </View>
                         <View
@@ -731,7 +748,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
                                 adjustsFontSizeToFit
                                 minimumFontScale={0.8}
                               >
-                                {formatCurrency(choice.balance, selectedDisplayWallet.currency)}
+                                {formatCurrency(choice.balance, selectedDisplayWallet.currency, privacyMode)}
                               </Text>
                             </View>
                             <View
@@ -753,7 +770,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
               })() : null}
 
               <Text style={styles.sectionTitle}>Notes</Text>
-              <TextInput
+              <StableTextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Lunch with team, monthly wifi"
                 placeholderTextColor={Palette.mutedSoft}
@@ -827,15 +844,15 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
       />
 
       {receiptImageUri ? (
-        <Modal
-          visible={photoPreviewVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPhotoPreviewVisible(false)}
-        >
+        <OverlayPortal id={photoPreviewOverlayId} active={photoPreviewVisible}>
           <View
+            accessibilityViewIsModal={photoPreviewVisible}
             style={{
-              flex: 1,
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
               backgroundColor: 'rgba(0,0,0,0.92)',
               justifyContent: 'center',
               alignItems: 'center',
@@ -868,7 +885,7 @@ export const ReviewReceiptModal: React.FC<ReviewReceiptModalProps> = ({
               resizeMode="contain"
             />
           </View>
-        </Modal>
+        </OverlayPortal>
       ) : null}
     </BottomSheetModal>
   );

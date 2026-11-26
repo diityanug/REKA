@@ -2,12 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   SectionList,
   StyleSheet,
   Keyboard,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Search,
@@ -17,6 +17,7 @@ import {
   SlidersHorizontal,
   Plus,
   Trash2,
+  Pencil,
   CheckSquare,
   HandCoins,
 } from 'lucide-react-native';
@@ -30,8 +31,8 @@ import {
 } from '../../utils/billingCycle';
 import { AppHaptics } from '../../utils/haptics';
 import { TransactionItemRow } from '../TransactionItemRow';
-import { triggerSmoothLayout } from '../MotionPrimitives';
 import { HistoryFilterModal } from '../modals/HistoryFilterModal';
+import { BatchRenameMerchantModal } from '../modals/BatchRenameMerchantModal';
 
 interface HistoryTabProps {
   transactions: Transaction[];
@@ -49,6 +50,8 @@ interface HistoryTabProps {
   historyDateTo?: string;
   wallets?: Wallet[];
   pockets?: Pocket[];
+  filterWallets?: Wallet[];
+  filterPockets?: Pocket[];
   billingCycle?: BillingCycleConfig;
   availablePaymentMethods?: string[];
   outstandingLentCount?: number;
@@ -81,6 +84,11 @@ interface HistoryTabProps {
   onOpenManualModal?: () => void;
   onSelectTransaction: (tx: Transaction) => void;
   onDeleteTransactionsBatch?: (ids: string[], onDeleted?: () => void) => void | Promise<void>;
+  onBatchRenameMerchant?: (
+    ids: string[],
+    newMerchantName: string,
+    onRenamed?: () => void
+  ) => Promise<boolean>;
   getCategoryIconName: (category: string, type?: Transaction['type']) => string;
   getPocketName: (pocketId?: string) => string;
 }
@@ -101,6 +109,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   historyDateTo = '',
   wallets = [],
   pockets = [],
+  filterWallets,
+  filterPockets,
   billingCycle = DEFAULT_BILLING_CYCLE,
   availablePaymentMethods = [],
   outstandingLentCount = 0,
@@ -126,6 +136,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   onOpenManualModal,
   onSelectTransaction,
   onDeleteTransactionsBatch,
+  onBatchRenameMerchant,
   getCategoryIconName,
   getPocketName,
 }) => {
@@ -160,6 +171,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
   // Multi-Select Batch Actions State
   const [isSelectionMode, setIsSelectionMode] = useState<boolean>(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [renameModalVisible, setRenameModalVisible] = useState<boolean>(false);
 
   const walletById = useMemo(() => {
     const map = new Map<string, Wallet>();
@@ -176,13 +188,46 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     );
   }, []);
 
-  const selectableCount = useMemo(
-    () => transactions.filter((t) => !isTxArchived(t)).length,
-    [transactions, isTxArchived]
+  const isTxTransfer = useCallback((tx: Transaction) => {
+    return (
+      Boolean(tx.transferPairId) ||
+      (tx.category || '').trim().toLowerCase() === 'transfer' ||
+      (tx.paymentMethod || '').trim().toLowerCase() === 'transfer'
+    );
+  }, []);
+
+  // Archived regular (non-transfer) transactions can be selected for Rename only (never deleted)
+  const isTxMultiSelectable = useCallback(
+    (tx: Transaction) => !isTxArchived(tx) || !isTxTransfer(tx),
+    [isTxArchived, isTxTransfer]
   );
 
+  const selectableIds = useMemo(
+    () => transactions.filter((t) => isTxMultiSelectable(t)).map((t) => t.id),
+    [transactions, isTxMultiSelectable]
+  );
+  const selectableCount = selectableIds.length;
+
+  // Prune selectedIds whenever visible transactions change so hidden rows are never deleted
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const visibleSet = new Set(selectableIds);
+    let hasStale = false;
+    selectedIds.forEach((id) => {
+      if (!visibleSet.has(id)) hasStale = true;
+    });
+    if (!hasStale) return;
+    setSelectedIds((prev) => {
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visibleSet.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [selectableIds, selectedIds]);
+
   const handleToggleSelectTransaction = useCallback((tx: Transaction) => {
-    if (isTxArchived(tx)) {
+    if (!isTxMultiSelectable(tx)) {
       onSelectTransaction(tx);
       return;
     }
@@ -196,46 +241,81 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       }
       return next;
     });
-  }, [isTxArchived, onSelectTransaction]);
+  }, [isTxMultiSelectable, onSelectTransaction]);
 
   const handleLongPressTransaction = useCallback((tx: Transaction) => {
-    if (isTxArchived(tx)) {
+    if (!isTxMultiSelectable(tx)) {
       onSelectTransaction(tx);
       return;
     }
     AppHaptics.heavy();
     if (!isSelectionMode) {
-      triggerSmoothLayout();
       setIsSelectionMode(true);
       setSelectedIds(new Set([tx.id]));
     } else {
       handleToggleSelectTransaction(tx);
     }
-  }, [isSelectionMode, handleToggleSelectTransaction, isTxArchived, onSelectTransaction]);
+  }, [isSelectionMode, handleToggleSelectTransaction, isTxMultiSelectable, onSelectTransaction]);
 
   const handleSelectAll = useCallback(() => {
     AppHaptics.selection();
-    const selectableIds = transactions.filter((t) => !isTxArchived(t)).map((t) => t.id);
     if (selectableIds.length > 0 && selectedIds.size === selectableIds.length) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(selectableIds));
     }
-  }, [selectedIds.size, transactions, isTxArchived]);
+  }, [selectedIds.size, selectableIds]);
 
   const handleExitSelectionMode = useCallback(() => {
     AppHaptics.light();
-    triggerSmoothLayout();
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   }, []);
 
+  // Split selected rows into rename-eligible (non-transfer, including archived) vs delete-eligible (non-archived only)
+  const {
+    renamableSelectedIds,
+    renamableExistingNames,
+    skippedSelectedTransferCount,
+    deletableSelectedIds,
+  } = useMemo(() => {
+    if (selectedIds.size === 0) {
+      return {
+        renamableSelectedIds: [] as string[],
+        renamableExistingNames: [] as string[],
+        skippedSelectedTransferCount: 0,
+        deletableSelectedIds: [] as string[],
+      };
+    }
+    const eligibleRenameIds: string[] = [];
+    const eligibleDeleteIds: string[] = [];
+    const names: string[] = [];
+    let skippedTransfers = 0;
+    for (const tx of transactions) {
+      if (!selectedIds.has(tx.id)) continue;
+      if (!isTxArchived(tx)) {
+        eligibleDeleteIds.push(tx.id);
+      }
+      if (isTxTransfer(tx)) {
+        skippedTransfers += 1;
+      } else {
+        eligibleRenameIds.push(tx.id);
+        if (tx.merchantName) names.push(tx.merchantName);
+      }
+    }
+    return {
+      renamableSelectedIds: eligibleRenameIds,
+      renamableExistingNames: names,
+      skippedSelectedTransferCount: skippedTransfers,
+      deletableSelectedIds: eligibleDeleteIds,
+    };
+  }, [transactions, selectedIds, isTxArchived, isTxTransfer]);
+
   const handleBatchDelete = useCallback(() => {
-    if (selectedIds.size === 0 || !onDeleteTransactionsBatch) return;
+    if (deletableSelectedIds.length === 0 || !onDeleteTransactionsBatch) return;
     AppHaptics.heavy();
-    const ids = Array.from(selectedIds);
-    onDeleteTransactionsBatch(ids, handleExitSelectionMode);
-  }, [selectedIds, onDeleteTransactionsBatch, handleExitSelectionMode]);
+    onDeleteTransactionsBatch(deletableSelectedIds, handleExitSelectionMode);
+  }, [deletableSelectedIds, onDeleteTransactionsBatch, handleExitSelectionMode]);
 
   const handleClearSearch = useCallback(() => {
     setLocalSearch('');
@@ -243,6 +323,13 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     onChangeSearch('');
     onClearSearch();
   }, [onChangeSearch, onClearSearch]);
+
+  // Clear localSearch immediately alongside filter reset so a pending 250ms debounce can never re-apply it
+  const handleResetAll = useCallback(() => {
+    setLocalSearch('');
+    setLastEmittedSearch('');
+    onResetAllFilters();
+  }, [onResetAllFilters]);
 
   const activeFilterCount =
     (historyFilter !== 'all' ? 1 : 0) +
@@ -431,7 +518,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           }}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`}
+          accessibilityLabel={
+            privacyMode
+              ? `Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans, amount hidden. Tap to filter.`
+              : `Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`
+          }
         >
           <View style={styles.lentBannerIconBox}>
             <HandCoins size={16} color={Palette.accentAmber} />
@@ -452,7 +543,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       <View style={styles.searchAndFilterRow}>
         <View style={styles.searchBar}>
           <Search size={16} color={Palette.muted} style={{ marginRight: 8 }} />
-          <TextInput
+          <StableTextInput
             style={styles.searchInput}
             placeholder="Search merchant, notes..."
             placeholderTextColor={Palette.mutedSoft}
@@ -511,7 +602,6 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             if (isSelectionMode) {
               handleExitSelectionMode();
             } else {
-              triggerSmoothLayout();
               setIsSelectionMode(true);
             }
           }}
@@ -691,7 +781,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             style={styles.clearAllBtn}
             onPress={() => {
               AppHaptics.light();
-              onResetAllFilters();
+              handleResetAll();
             }}
             activeOpacity={0.7}
           >
@@ -734,7 +824,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     onChangeMonth,
     historyCategory,
     onChangeCategory,
-    onResetAllFilters,
+    handleResetAll,
     isSelectionMode,
     selectedIds.size,
     handleExitSelectionMode,
@@ -751,7 +841,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           <Text style={styles.emptyDesc}>Try adjusting search query or active filters.</Text>
           <TouchableOpacity
             style={styles.emptyResetBtn}
-            onPress={onResetAllFilters}
+            onPress={handleResetAll}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Clear all filters"
@@ -786,7 +876,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         ) : null}
       </View>
     );
-  }, [isFilterActive, onResetAllFilters, onOpenManualModal]);
+  }, [isFilterActive, handleResetAll, onOpenManualModal]);
 
   const renderSectionHeader = useCallback(({ section }: { section: any }) => {
     const showIdr = !section.hasOnlyTransfers && (section.totalExpense > 0 || !section.totalUsdExpense);
@@ -874,7 +964,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         ListEmptyComponent={emptyComponent}
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: Math.max(insets.bottom, 16) + 96 },
+          {
+            paddingBottom:
+              Math.max(insets.bottom, 16) +
+              (isSelectionMode && selectedIds.size > 0 ? 168 : 96),
+          },
         ]}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
@@ -888,21 +982,53 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       {/* Floating Batch Action Bar — sits cleanly above BottomTabBar (70px height + 10px gap) */}
       {isSelectionMode && selectedIds.size > 0 ? (
         <View style={[styles.floatingBatchBar, { bottom: Math.max(insets.bottom, 16) + 80 }]}>
-          <Text style={styles.floatingBatchText}>
+          <Text style={styles.floatingBatchText} numberOfLines={1}>
             {selectedIds.size} selected
           </Text>
-          <TouchableOpacity
-            style={styles.batchDeleteBtn}
-            onPress={handleBatchDelete}
-            activeOpacity={0.8}
-            accessibilityRole="button"
-            accessibilityLabel={`Delete ${selectedIds.size} selected transactions`}
-          >
-            <Trash2 size={15} color={Palette.white} style={{ marginRight: 6 }} />
-            <Text style={styles.batchDeleteBtnText}>Delete ({selectedIds.size})</Text>
-          </TouchableOpacity>
+          <View style={styles.floatingBatchActions}>
+            {onBatchRenameMerchant && renamableSelectedIds.length > 0 ? (
+              <TouchableOpacity
+                style={styles.batchRenameBtn}
+                onPress={() => {
+                  AppHaptics.light();
+                  setRenameModalVisible(true);
+                }}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Rename ${renamableSelectedIds.length} selected transactions`}
+              >
+                <Pencil size={14} color={Palette.white} style={{ marginRight: 5 }} />
+                <Text style={styles.batchActionBtnText}>Rename</Text>
+              </TouchableOpacity>
+            ) : null}
+            {deletableSelectedIds.length > 0 ? (
+              <TouchableOpacity
+                style={styles.batchDeleteBtn}
+                onPress={handleBatchDelete}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${deletableSelectedIds.length} selected transactions`}
+              >
+                <Trash2 size={14} color={Palette.white} style={{ marginRight: 5 }} />
+                <Text style={styles.batchDeleteBtnText}>Delete ({deletableSelectedIds.length})</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         </View>
       ) : null}
+
+      {/* Batch Rename Merchant Modal (regular income/expense only; skips internal transfers) */}
+      <BatchRenameMerchantModal
+        visible={renameModalVisible}
+        eligibleCount={renamableSelectedIds.length}
+        skippedTransferCount={skippedSelectedTransferCount}
+        existingNames={renamableExistingNames}
+        onConfirm={async (newName) => {
+          if (!onBatchRenameMerchant || renamableSelectedIds.length === 0) return false;
+          return onBatchRenameMerchant(renamableSelectedIds, newName, handleExitSelectionMode);
+        }}
+        onClose={() => setRenameModalVisible(false)}
+      />
 
       {/* Filter Modal */}
       <HistoryFilterModal
@@ -916,8 +1042,8 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         paymentMethod={historyPaymentMethod}
         dateFrom={historyDateFrom}
         dateTo={historyDateTo}
-        wallets={wallets}
-        pockets={pockets}
+        wallets={filterWallets ?? wallets}
+        pockets={filterPockets ?? pockets}
         availablePaymentMethods={availablePaymentMethods}
         availableCategories={availableCategories}
         availableExpenseCategories={availableExpenseCategories}
@@ -933,7 +1059,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         onChangePaymentMethod={onChangePaymentMethod}
         onChangeDateFrom={onChangeDateFrom}
         onChangeDateTo={onChangeDateTo}
-        onReset={onResetAllFilters}
+        onReset={handleResetAll}
         onClose={() => setFilterModalVisible(false)}
       />
     </View>
@@ -1116,7 +1242,6 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
   },
   selectModeToggleBtnActive: {
     backgroundColor: Palette.primary,
@@ -1173,6 +1298,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
     color: Palette.onDark,
+    flexShrink: 1,
+    marginRight: 10,
+  },
+  floatingBatchActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  batchRenameBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Palette.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  batchActionBtnText: {
+    ...Typography.caption,
+    fontSize: 12.5,
+    fontWeight: '700',
+    color: Palette.white,
   },
   batchDeleteBtn: {
     flexDirection: 'row',

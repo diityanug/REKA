@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -89,6 +89,11 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
     return () => clearInterval(timer);
   }, [visible, lockedUntilMs]);
 
+  const onUnlockRef = useRef(onUnlock);
+  useEffect(() => {
+    onUnlockRef.current = onUnlock;
+  }, [onUnlock]);
+
   // Trigger biometric prompt
   const handleBiometricAuth = useCallback(async () => {
     if (!biometricsEnabled || biometricType === 'None') return;
@@ -100,12 +105,12 @@ export const AppLockScreen: React.FC<AppLockScreenProps> = ({
       setErrorMessage('');
       setLockedUntilMs(0);
       setRemainingSec(0);
-      onUnlock();
+      onUnlockRef.current();
     }
-  }, [biometricsEnabled, biometricType, onUnlock]);
+  }, [biometricsEnabled, biometricType]);
 
   const blockBackWhileLocked = useCallback(() => true, []);
-  useOverlayLayer(visible, visible, blockBackWhileLocked, true);
+  useOverlayLayer(visible, visible, blockBackWhileLocked, 'lock');
 
   // Dismiss any lingering background keyboard and prompt biometrics when locked
   useEffect(() => {

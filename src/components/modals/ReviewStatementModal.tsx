@@ -2,13 +2,13 @@ import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
   Keyboard,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Check,
@@ -215,12 +215,18 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
     setEditingCatItemId(null);
   };
 
+  const hasEmptySelectedMerchant = selectedItems.some((it) => !it.merchantName.trim());
+
   const handleConfirm = async () => {
-    if (saving || selectedItems.length === 0 || !selectedWallet) return;
+    if (saving || selectedItems.length === 0 || !selectedWallet || hasEmptySelectedMerchant) return;
     try {
       setSaving(true);
       AppHaptics.heavy();
-      await onConfirmImport(selectedItems, selectedWallet.id, updateBalance);
+      const sanitizedSelected = selectedItems.map((it) => ({
+        ...it,
+        merchantName: it.merchantName.trim(),
+      }));
+      await onConfirmImport(sanitizedSelected, selectedWallet.id, updateBalance);
     } finally {
       setSaving(false);
     }
@@ -546,12 +552,13 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
 
                 {/* Merchant Name & Date */}
                 <View style={styles.txMainCol}>
-                  <TextInput
+                  <StableTextInput
                     style={styles.merchantInput}
                     value={item.merchantName}
                     onChangeText={(txt) => updateItemMerchant(item.id, txt)}
                     placeholder="Transaction Name"
                     placeholderTextColor={Palette.mutedSoft}
+                    maxLength={50}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
                   />
@@ -695,10 +702,10 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
           <TouchableOpacity
             style={[
               styles.confirmBtn,
-              (saving || selectedItems.length === 0 || !selectedWallet) &&
+              (saving || selectedItems.length === 0 || !selectedWallet || hasEmptySelectedMerchant) &&
                 styles.confirmBtnDisabled,
             ]}
-            disabled={saving || selectedItems.length === 0 || !selectedWallet}
+            disabled={saving || selectedItems.length === 0 || !selectedWallet || hasEmptySelectedMerchant}
             onPress={handleConfirm}
             activeOpacity={0.85}
           >
@@ -715,9 +722,11 @@ export const ReviewStatementModal: React.FC<ReviewStatementModalProps> = ({
               <>
                 <Check size={18} color={Palette.white} style={{ marginRight: 8 }} />
                 <Text style={styles.confirmBtnText} numberOfLines={1}>
-                  {selectedWallet
-                    ? `Save ${selectedItems.length} Transaction${selectedItems.length === 1 ? '' : 's'} to ${selectedWallet.name}`
-                    : 'Select Target Account First'}
+                  {!selectedWallet
+                    ? 'Select Target Account First'
+                    : hasEmptySelectedMerchant
+                      ? 'Fill Missing Transaction Names'
+                      : `Save ${selectedItems.length} Transaction${selectedItems.length === 1 ? '' : 's'} to ${selectedWallet.name}`}
                 </Text>
               </>
             )}

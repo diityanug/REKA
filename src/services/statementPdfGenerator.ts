@@ -1,7 +1,12 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { Transaction, Wallet, CurrencyType } from '../types';
-import { formatCurrency, formatMonthYear, getDateStrFromTimestamp } from '../utils/formatters';
+import { Transaction, Wallet, CurrencyType, BillingCycleConfig } from '../types';
+import { formatCurrency, getDateStrFromTimestamp } from '../utils/formatters';
+import {
+  DEFAULT_BILLING_CYCLE,
+  isTimestampInPeriod,
+  formatPeriodLabelWithCycle,
+} from '../utils/billingCycle';
 import { clearSensitiveTempFiles } from '../utils/fileStorage';
 
 function escapeHtml(value: unknown): string {
@@ -18,6 +23,7 @@ interface StatementPdfData {
   currency: CurrencyType;
   wallets: Wallet[];
   transactions: Transaction[];
+  billingCycle?: BillingCycleConfig;
   exchangeRate?: number;
 }
 
@@ -25,12 +31,13 @@ interface StatementPdfData {
  * Generate and share a clean, formal monthly financial statement PDF.
  */
 export async function generateAndShareStatementPdf(data: StatementPdfData): Promise<string> {
-  const { monthKey, currency, wallets, transactions } = data;
+  const { monthKey, currency, wallets, transactions, billingCycle = DEFAULT_BILLING_CYCLE } = data;
 
-  // Filter transactions for this local month and currency, deduplicating same-currency transfer mirror legs
+  // Filter transactions for this billing-cycle period and currency, deduplicating same-currency transfer mirror legs
   const monthTxs = transactions.filter((t) => {
-    const localDate = getDateStrFromTimestamp(t.timestamp);
-    if (monthKey !== 'all' && !localDate.startsWith(monthKey)) return false;
+    if (monthKey !== 'all' && !isTimestampInPeriod(t.timestamp, monthKey, billingCycle)) {
+      return false;
+    }
     if (t.currency !== currency) return false;
     if (
       t.type === 'income' &&
@@ -61,7 +68,8 @@ export async function generateAndShareStatementPdf(data: StatementPdfData): Prom
   }
 
   const netSavings = totalIncome - totalExpense;
-  const periodLabel = monthKey === 'all' ? 'All Time' : formatMonthYear(monthKey);
+  const periodLabel =
+    monthKey === 'all' ? 'All Time' : formatPeriodLabelWithCycle(monthKey, billingCycle);
   const generatedDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',

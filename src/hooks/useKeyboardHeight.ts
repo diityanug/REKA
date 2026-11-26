@@ -59,6 +59,8 @@ export const KeyboardMetricsProvider: React.FC<{ children: React.ReactNode }> = 
 
   const keyboardVisibleRef = useRef<boolean>(false);
   const restHeightRef = useRef<number>(0);
+  const maxHeightForWidthRef = useRef<number>(0);
+  const layoutHeightRef = useRef<number>(0);
   const lastWidthRef = useRef<number>(0);
   const pendingShrinkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -71,6 +73,16 @@ export const KeyboardMetricsProvider: React.FC<{ children: React.ReactNode }> = 
       if (pendingShrinkTimerRef.current) {
         clearTimeout(pendingShrinkTimerRef.current);
         pendingShrinkTimerRef.current = null;
+      }
+      // Guard against restHeight having been poisoned by a slow IME animation before keyboardDidShow
+      if (
+        Platform.OS === 'android' &&
+        maxHeightForWidthRef.current > restHeightRef.current &&
+        layoutHeightRef.current > 0 &&
+        maxHeightForWidthRef.current - layoutHeightRef.current >= 80
+      ) {
+        restHeightRef.current = maxHeightForWidthRef.current;
+        setRestHeight(maxHeightForWidthRef.current);
       }
       setKeyboardHeight(e.endCoordinates.height);
     });
@@ -99,37 +111,61 @@ export const KeyboardMetricsProvider: React.FC<{ children: React.ReactNode }> = 
       pendingShrinkTimerRef.current = null;
     }
 
+    layoutHeightRef.current = height;
     setLayoutHeight(height);
     const widthChanged =
       lastWidthRef.current > 0 && Math.abs(width - lastWidthRef.current) > 1;
     lastWidthRef.current = width;
 
-    if (widthChanged || (!keyboardVisibleRef.current && height >= restHeightRef.current)) {
+    if (widthChanged) {
+      maxHeightForWidthRef.current = height;
       restHeightRef.current = height;
       setRestHeight(height);
       return;
     }
 
+    if (height > maxHeightForWidthRef.current) {
+      maxHeightForWidthRef.current = height;
+    }
+
+    if (!keyboardVisibleRef.current && height >= restHeightRef.current) {
+      restHeightRef.current = height;
+      setRestHeight(height);
+      return;
+    }
+
+    // Only commit a shrink to restHeight after 500ms (longer than Android IME animation)
+    // and only if the keyboard is confirmed not visible (genuine multi-window/split-screen resize)
     if (!keyboardVisibleRef.current && height < restHeightRef.current) {
       pendingShrinkTimerRef.current = setTimeout(() => {
         pendingShrinkTimerRef.current = null;
-        if (!keyboardVisibleRef.current) {
+        const kbOpen = keyboardVisibleRef.current || Boolean(Keyboard.isVisible?.());
+        if (!kbOpen) {
           restHeightRef.current = height;
+          maxHeightForWidthRef.current = height;
           setRestHeight(height);
         }
-      }, 180);
+      }, 500);
     }
   }, []);
 
   const value = useMemo<KeyboardMetricsValue>(() => {
     const resizedBy =
-      Platform.OS === 'android' && keyboardHeight > 0 && restHeight > 0 && layoutHeight > 0
+      Platform.OS === 'android' && restHeight > 0 && layoutHeight > 0
         ? Math.max(0, restHeight - layoutHeight)
         : 0;
+    // On Android adjustResize, layout shrinks ~150-350px immediately as the IME rises,
+    // before keyboardDidShow fires: reflect that immediately so sticky footers hide without flicker.
+    const effectiveKeyboardHeight =
+      keyboardHeight > 0
+        ? keyboardHeight
+        : Platform.OS === 'android' && resizedBy >= 140
+          ? resizedBy
+          : 0;
     const uncompensatedKeyboardHeight =
       keyboardHeight > 0 ? Math.max(0, keyboardHeight - resizedBy) : 0;
     return {
-      keyboardHeight,
+      keyboardHeight: effectiveKeyboardHeight,
       uncompensatedKeyboardHeight,
     };
   }, [keyboardHeight, restHeight, layoutHeight]);

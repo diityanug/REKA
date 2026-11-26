@@ -24,7 +24,6 @@ import {
   formatExpressionDisplay,
   evaluateMathExpression,
   hasMathOperator,
-  normalizeExpressionSpacing,
   sanitizeExpressionForCurrency,
   getQuickPresets,
   formattedToRawCursor,
@@ -140,9 +139,8 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
       currency
     );
 
-    // If user highlighted a range of text, delete that range first
-    let activeExpr = currentExpr;
-    let activeRawCursor = rawCursor;
+    let nextExpr: string;
+    let nextRawCursor: number;
 
     if (sel.start !== sel.end) {
       const rawEnd = formattedToRawCursor(
@@ -153,16 +151,36 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
       );
       const minRaw = Math.min(rawCursor, rawEnd);
       const maxRaw = Math.max(rawCursor, rawEnd);
-      activeExpr = normalizeExpressionSpacing(currentExpr.slice(0, minRaw) + currentExpr.slice(maxRaw));
-      activeRawCursor = minRaw;
+      const afterRangeDelete = sanitizeExpressionForCurrency(
+        currentExpr.slice(0, minRaw) + currentExpr.slice(maxRaw),
+        currency
+      );
+      if (key === '⌫') {
+        nextExpr = afterRangeDelete;
+        nextRawCursor =
+          afterRangeDelete === '0' && minRaw === 0
+            ? 1
+            : Math.min(minRaw, afterRangeDelete.length);
+      } else {
+        const computed = calculateNextExpressionWithCursor(
+          afterRangeDelete,
+          key,
+          currency,
+          Math.min(minRaw, afterRangeDelete.length)
+        );
+        nextExpr = computed.nextExpr;
+        nextRawCursor = computed.nextRawCursor;
+      }
+    } else {
+      const computed = calculateNextExpressionWithCursor(
+        currentExpr,
+        key,
+        currency,
+        rawCursor
+      );
+      nextExpr = computed.nextExpr;
+      nextRawCursor = computed.nextRawCursor;
     }
-
-    const { nextExpr, nextRawCursor } = calculateNextExpressionWithCursor(
-      activeExpr,
-      key,
-      currency,
-      activeRawCursor
-    );
 
     if (nextExpr === currentExpr && nextRawCursor === rawCursor && sel.start === sel.end) {
       return;
@@ -188,7 +206,8 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
   const handleQuickAdd = useCallback((amount: number) => {
     isKeypadActionRef.current = true;
     setIsFocused(true);
-    const currentNum = evaluateMathExpression(currentExpr, currency);
+    const rawCurrent = evaluateMathExpression(currentExpr, currency);
+    const currentNum = Number.isFinite(rawCurrent) ? rawCurrent : 0;
     const result = Math.max(currentNum + amount, 0);
     if (result > 9999999999999) return;
 
@@ -345,11 +364,13 @@ export const CalculatorKeypad = React.memo<CalculatorKeypadProps>(({
                 <Text
                   style={[
                     styles.liveResultAmount,
-                    liveEvaluated < 0 && { color: Palette.error },
+                    (Number.isNaN(liveEvaluated) || liveEvaluated < 0) && { color: Palette.error },
                   ]}
                   numberOfLines={1}
                 >
-                  = {formatCurrency(liveEvaluated, currency)}
+                  {Number.isNaN(liveEvaluated)
+                    ? 'Cannot divide by 0'
+                    : `= ${formatCurrency(liveEvaluated, currency)}`}
                 </Text>
                 <TouchableOpacity
                   style={styles.evalInlineBtn}

@@ -27,7 +27,7 @@ import {
   formatExpressionDisplay,
   evaluateMathExpression,
   hasMathOperator,
-  normalizeExpressionSpacing,
+  sanitizeExpressionForCurrency,
   formattedToRawCursor,
   rawToFormattedCursor,
   calculateNextExpressionWithCursor,
@@ -113,11 +113,12 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
 
   const numericValue = useMemo(() => {
     if (rawExpr === '0') return 0;
-    return evaluateMathExpression(rawExpr, currency);
-  }, [rawExpr, currency]);
+    return evaluateMathExpression(rawExpr, currency, maxDigits);
+  }, [rawExpr, currency, maxDigits]);
 
-  // Negative totals are never valid; zero is invalid unless the calling flow explicitly allows it
-  const zeroBlocked = numericValue < 0 || (!allowZero && numericValue <= 0);
+  const isDivideByZero = Number.isNaN(numericValue);
+  // Division by zero and negative totals are never valid; zero is invalid unless allowZero is true
+  const zeroBlocked = isDivideByZero || numericValue < 0 || (!allowZero && numericValue <= 0);
 
   const getActiveSelection = () => {
     const curLen = displayFormatted.length;
@@ -144,8 +145,8 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       currency
     );
 
-    let activeExpr = rawExpr;
-    let activeRawCursor = rawCursor;
+    let nextExpr: string;
+    let nextRawCursor: number;
 
     if (sel.start !== sel.end) {
       const rawEnd = formattedToRawCursor(
@@ -156,17 +157,40 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
       );
       const minRaw = Math.min(rawCursor, rawEnd);
       const maxRaw = Math.max(rawCursor, rawEnd);
-      activeExpr = normalizeExpressionSpacing(rawExpr.slice(0, minRaw) + rawExpr.slice(maxRaw));
-      activeRawCursor = minRaw;
+      const afterRangeDelete = sanitizeExpressionForCurrency(
+        rawExpr.slice(0, minRaw) + rawExpr.slice(maxRaw),
+        currency,
+        maxDigits
+      );
+      if (key === '⌫') {
+        // Backspace on a selected range deletes ONLY the selected range
+        nextExpr = afterRangeDelete;
+        nextRawCursor =
+          afterRangeDelete === '0' && minRaw === 0
+            ? 1
+            : Math.min(minRaw, afterRangeDelete.length);
+      } else {
+        const computed = calculateNextExpressionWithCursor(
+          afterRangeDelete,
+          key,
+          currency,
+          Math.min(minRaw, afterRangeDelete.length),
+          maxDigits
+        );
+        nextExpr = computed.nextExpr;
+        nextRawCursor = computed.nextRawCursor;
+      }
+    } else {
+      const computed = calculateNextExpressionWithCursor(
+        rawExpr,
+        key,
+        currency,
+        rawCursor,
+        maxDigits
+      );
+      nextExpr = computed.nextExpr;
+      nextRawCursor = computed.nextRawCursor;
     }
-
-    const { nextExpr, nextRawCursor } = calculateNextExpressionWithCursor(
-      activeExpr,
-      key,
-      currency,
-      activeRawCursor,
-      maxDigits
-    );
 
     if (nextExpr === rawExpr && nextRawCursor === rawCursor && sel.start === sel.end) {
       return;
@@ -241,7 +265,7 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
     AppHaptics.selection();
     // Add to the evaluated numeric value so USD cents and active expressions resolve cleanly
     const cap = currency === 'USD' ? Math.pow(10, maxDigits) - 0.01 : Math.pow(10, maxDigits) - 1;
-    const baseVal = Math.max(0, numericValue);
+    const baseVal = Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0;
     const sum = Math.min(baseVal + addVal, cap);
     const rounded = currency === 'USD' ? Math.round(sum * 100) / 100 : Math.round(sum);
     const nextRaw = rounded > 0 ? String(rounded) : '0';
@@ -375,11 +399,11 @@ export const AmountInputModal: React.FC<AmountInputModalProps> = ({
                 <Text
                   style={[
                     styles.livePreviewText,
-                    numericValue < 0 && { color: Palette.error },
+                    (isDivideByZero || numericValue < 0) && { color: Palette.error },
                   ]}
                   numberOfLines={1}
                 >
-                  = {formatCurrency(numericValue, currency)}
+                  {isDivideByZero ? 'Cannot divide by 0' : `= ${formatCurrency(numericValue, currency)}`}
                 </Text>
                 <TouchableOpacity
                   style={styles.evalInlineBtn}

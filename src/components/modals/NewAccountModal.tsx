@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
   ActivityIndicator,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Building2,
@@ -122,13 +122,14 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
             Account Name <Text style={styles.requiredStar}>*</Text>
           </Text>
           <View style={styles.inputContainer}>
-            <TextInput
+            <StableTextInput
               style={styles.textInputBox}
               placeholder="e.g. BCA, Cash Wallet, Wise..."
               placeholderTextColor={Palette.mutedSoft}
               value={name}
               onChangeText={onChangeName}
-              returnKeyType="next"
+              returnKeyType="done"
+              onSubmitEditing={Keyboard.dismiss}
               maxLength={40}
             />
           </View>
@@ -339,7 +340,7 @@ export const NewAccountModal: React.FC<NewAccountModalProps> = ({
         <View style={styles.formSection}>
           <Text style={styles.sectionTitle}>Note / Account Number</Text>
           <View style={styles.inputContainer}>
-            <TextInput
+            <StableTextInput
               style={styles.textInputBox}
               placeholder="e.g. 1234 5678 or main account note..."
               placeholderTextColor={Palette.mutedSoft}

@@ -1,13 +1,13 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   Keyboard,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Check,
@@ -84,6 +84,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   const [selectedWalletId, setSelectedWalletId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const submittingRef = useRef<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
 
   const isBorrowed = currentTx?.type === 'income';
@@ -129,7 +130,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
   const canSubmit = isAmountValid && !!selectedWalletId && !isSubmitting;
 
   const handleConfirm = async () => {
-    if (!currentTx) return;
+    if (!currentTx || isSubmitting || submittingRef.current) return;
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
       setErrorMsg('Please enter a valid repayment amount greater than 0.');
       AppHaptics.error();
@@ -161,6 +162,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
     }
 
     Keyboard.dismiss();
+    submittingRef.current = true;
     setIsSubmitting(true);
     setErrorMsg('');
 
@@ -177,6 +179,7 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
       setErrorMsg(err?.message || 'Failed to record repayment.');
       AppHaptics.error();
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -407,12 +410,13 @@ export const RecordLentRepaymentModal: React.FC<RecordLentRepaymentModalProps> =
         {/* 4. Notes (Optional) */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notes</Text>
-          <TextInput
+          <StableTextInput
             style={styles.notesInput}
             value={notes}
             onChangeText={setNotes}
             placeholder="e.g. Paid in cash, bank transfer ref..."
             placeholderTextColor={Palette.mutedSoft}
+            maxLength={100}
             returnKeyType="done"
             onSubmitEditing={Keyboard.dismiss}
           />

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,16 +13,26 @@ import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 interface AnimatedSplashScreenProps {
   onAnimationFinish?: () => void;
   minDurationMs?: number; // Tepat 1 detik (1000ms)
+  /** Wait until app resources (fonts + initial DB load) are ready before fading out */
+  ready?: boolean;
 }
 
 export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
   onAnimationFinish,
   minDurationMs = 1000,
+  ready = true,
 }) => {
   const spinValue = useState(() => new Animated.Value(0))[0];
   const pulseValue = useState(() => new Animated.Value(0.95))[0];
   const contentFade = useState(() => new Animated.Value(0))[0];
   const screenFade = useState(() => new Animated.Value(1))[0];
+  const [minDurationElapsed, setMinDurationElapsed] = useState<boolean>(false);
+
+  const onAnimationFinishRef = useRef(onAnimationFinish);
+  useEffect(() => {
+    onAnimationFinishRef.current = onAnimationFinish;
+  }, [onAnimationFinish]);
+  const finishTriggeredRef = useRef<boolean>(false);
 
   // Animasi 3 titik dot loading "..."
   const dot1 = useState(() => new Animated.Value(0))[0];
@@ -69,42 +79,46 @@ export const AnimatedSplashScreen: React.FC<AnimatedSplashScreenProps> = ({
     pulseAnim.start();
 
     // Animasi titik-titik bergerak (wave dots)
-    const animateDots = () => {
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(dot1, { toValue: 1, duration: 250, useNativeDriver: true }),
-          Animated.timing(dot2, { toValue: 1, duration: 250, useNativeDriver: true }),
-          Animated.timing(dot3, { toValue: 1, duration: 250, useNativeDriver: true }),
-          Animated.parallel([
-            Animated.timing(dot1, { toValue: 0, duration: 250, useNativeDriver: true }),
-            Animated.timing(dot2, { toValue: 0, duration: 250, useNativeDriver: true }),
-            Animated.timing(dot3, { toValue: 0, duration: 250, useNativeDriver: true }),
-          ]),
-        ])
-      ).start();
-    };
-    animateDots();
+    const dotsAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dot1, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.timing(dot2, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.timing(dot3, { toValue: 1, duration: 250, useNativeDriver: true }),
+        Animated.parallel([
+          Animated.timing(dot1, { toValue: 0, duration: 250, useNativeDriver: true }),
+          Animated.timing(dot2, { toValue: 0, duration: 250, useNativeDriver: true }),
+          Animated.timing(dot3, { toValue: 0, duration: 250, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    dotsAnim.start();
 
-    // Timer transisi tepat 1 detik
+    // Minimum display duration timer (independent of parent re-renders)
     const timer = setTimeout(() => {
-      Animated.timing(screenFade, {
-        toValue: 0,
-        duration: 250,
-        easing: Easing.in(Easing.cubic),
-        useNativeDriver: true,
-      }).start(() => {
-        if (onAnimationFinish) {
-          onAnimationFinish();
-        }
-      });
+      setMinDurationElapsed(true);
     }, minDurationMs);
 
     return () => {
       clearTimeout(timer);
       spinAnim.stop();
       pulseAnim.stop();
+      dotsAnim.stop();
     };
-  }, [spinValue, pulseValue, contentFade, screenFade, dot1, dot2, dot3, minDurationMs, onAnimationFinish]);
+  }, [spinValue, pulseValue, contentFade, dot1, dot2, dot3, minDurationMs]);
+
+  // Fade out only once BOTH minimum splash duration has elapsed AND app data/fonts are ready
+  useEffect(() => {
+    if (!minDurationElapsed || !ready || finishTriggeredRef.current) return;
+    finishTriggeredRef.current = true;
+    Animated.timing(screenFade, {
+      toValue: 0,
+      duration: 250,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      onAnimationFinishRef.current?.();
+    });
+  }, [minDurationElapsed, ready, screenFade]);
 
   const spin = spinValue.interpolate({
     inputRange: [0, 1],

@@ -3,11 +3,11 @@ import {
   ActivityIndicator,
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Plus,
@@ -394,7 +394,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
               <Text style={styles.inputLabel}>
                 Merchant / Recipient <Text style={styles.requiredStar}>*</Text>
               </Text>
-              <TextInput
+              <StableTextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Supermarket, Salary"
                 placeholderTextColor={Palette.mutedSoft}
@@ -464,7 +464,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 </Text>
                 <View style={styles.timeBox}>
                   <Text style={styles.timeLabel}>Time</Text>
-                  <TextInput
+                  <StableTextInput
                     style={styles.timeInput}
                     value={manTime}
                     onChangeText={onChangeTime}
@@ -1037,7 +1037,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                 <View style={styles.optionalContent}>
                   {/* Notes */}
                   <Text style={styles.inputLabel}>Notes</Text>
-                  <TextInput
+                  <StableTextInput
                     style={styles.textInputBox}
                     placeholder="e.g. Lunch with team"
                     placeholderTextColor={Palette.mutedSoft}
@@ -1099,7 +1099,7 @@ export const ManualTxModal = React.memo<ManualTxModalProps>(({
                         <Text style={styles.lentInputLabel}>
                           {manType === 'income' ? 'Borrowed from (Lender)' : 'Lent to (Borrower)'}
                         </Text>
-                        <TextInput
+                        <StableTextInput
                           style={styles.lentInput}
                           placeholder="e.g. John Doe, Sarah"
                           placeholderTextColor={Palette.mutedSoft}
