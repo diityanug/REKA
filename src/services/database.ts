@@ -1967,6 +1967,40 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * Atomically renames `merchant_name` across multiple regular (income/expense) transactions,
+ * including archived transactions from deleted accounts/pockets (only `merchant_name` is
+ * modified; amounts and balances are never touched). Strictly skips internal paired transfers.
+ */
+export async function updateTransactionsMerchantBatch(
+  ids: string[],
+  newMerchantName: string
+): Promise<number> {
+  const trimmed = String(newMerchantName || '').trim().slice(0, 50);
+  if (!ids || ids.length === 0 || !trimmed) return 0;
+
+  const db = await getDatabase();
+  let updatedCount = 0;
+
+  await db.withTransactionAsync(async () => {
+    for (const id of ids) {
+      const result = await db.runAsync(
+        `UPDATE transactions
+         SET merchant_name = ?
+         WHERE id = ?
+           AND transfer_pair_id IS NULL
+           AND LOWER(TRIM(COALESCE(category, ''))) != 'transfer'
+           AND LOWER(TRIM(COALESCE(payment_method, ''))) != 'transfer'`,
+        trimmed,
+        id
+      );
+      updatedCount += Number(result?.changes) || 0;
+    }
+  });
+
+  return updatedCount;
+}
+
 export interface UpdateTransactionParams {
   walletId: string;
   pocketId: string;

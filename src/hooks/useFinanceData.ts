@@ -32,6 +32,7 @@ import {
   deleteCategory,
   deleteTransaction,
   deleteTransactionsBatch,
+  updateTransactionsMerchantBatch,
   updateTransactionImageUri,
   recordLentRepayment,
   getLentRepayments,
@@ -1187,6 +1188,42 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     [showAlert, loadData]
   );
 
+  const handleBatchRenameMerchant = useCallback(
+    async (
+      ids: string[],
+      newMerchantName: string,
+      onRenamed?: () => void
+    ): Promise<boolean> => {
+      const trimmed = newMerchantName.trim();
+      if (!ids || ids.length === 0 || !trimmed) return false;
+      try {
+        const updated = await updateTransactionsMerchantBatch(ids, trimmed);
+        if (updated === 0) {
+          showAlert(
+            'No Eligible Transactions',
+            'Only regular income and expense transactions can be renamed.',
+            undefined,
+            'info'
+          );
+          return false;
+        }
+        await loadData();
+        AppHaptics.success();
+        if (onRenamed) onRenamed();
+        return true;
+      } catch (err: any) {
+        showAlert(
+          'Error',
+          err?.message || 'Failed to rename selected transactions.',
+          undefined,
+          'error'
+        );
+        return false;
+      }
+    },
+    [showAlert, loadData]
+  );
+
   const handleRecordLentRepayment = useCallback(
     async (params: RecordLentRepaymentParams): Promise<string> => {
       try {
@@ -1538,6 +1575,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleUpdateTransfer,
     handleDeleteTransaction,
     handleDeleteTransactionsBatch,
+    handleBatchRenameMerchant,
     handleRecordLentRepayment,
     getLentAuditTrail,
     handleSaveBudget,
@@ -1607,6 +1645,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
     handleUpdateTransfer,
     handleDeleteTransaction,
     handleDeleteTransactionsBatch,
+    handleBatchRenameMerchant,
     handleRecordLentRepayment,
     getLentAuditTrail,
     handleSaveBudget,

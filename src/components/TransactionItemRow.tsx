@@ -190,7 +190,7 @@ export const TransactionItemRow = React.memo<TransactionItemRowProps>(({
     >
       <View style={styles.txRow}>
         {/* Selection Checkbox */}
-        {selectionMode && !isArchived ? (
+        {selectionMode && (!isArchived || !isTransfer) ? (
           <View
             style={[
               styles.checkboxCircle,

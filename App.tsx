@@ -1739,6 +1739,7 @@ function MainApp({ fontsReady }: { fontsReady: boolean }) {
                 onOpenManualModal={handleOpenManualTransaction}
                 onSelectTransaction={handleSelectTransaction}
                 onDeleteTransactionsBatch={handleDeleteTransactionsBatch}
+                onBatchRenameMerchant={finance.handleBatchRenameMerchant}
                 getCategoryIconName={getCategoryIconName}
                 getPocketName={getPocketName}
               />
