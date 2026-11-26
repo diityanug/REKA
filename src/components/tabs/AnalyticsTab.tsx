@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import {
   ChevronLeft,
@@ -113,6 +113,12 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   const [selectedBreakdownCategory, setSelectedBreakdownCategory] = useState<string | null>(null);
   const [showAllBreakdown, setShowAllBreakdown] = useState<boolean>(false);
 
+  // Reset donut slice focus & expansion whenever switching currency or period
+  useEffect(() => {
+    setSelectedBreakdownCategory(null);
+    setShowAllBreakdown(false);
+  }, [activeCurrency, selectedMonth]);
+
   // Same period-key rule the finance hook uses (respects Payday Cycle)
   const { todayStr } = useCurrentDate();
   const currentPeriodKey = useMemo(() => {
@@ -211,6 +217,12 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
     let diagnosisSummary = 'No transactions recorded in this period.';
     let recommendations: string[] = [];
 
+    const maskedSavingsRate = privacyMode ? '••••' : `${savingsRate.toFixed(1)}%`;
+    const maskedBurnRate = privacyMode ? '••••' : `${burnRate.toFixed(0)}%`;
+    const maskedRunway = (months: number) =>
+      privacyMode ? '••••' : months > 12 ? 'over 12' : months.toFixed(1);
+    const maskedTopShare = privacyMode ? 'a major share' : `${topExpenseShare.toFixed(0)}%`;
+
     if (!hasData) {
       tier = 'nodata';
       statusTitle = 'No Period Activity';
@@ -223,11 +235,11 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       statusTitle = 'Financial Deficit';
       statusBadgeColor = Palette.error;
       statusBgColor = '#FDF0ED';
-      diagnosisSummary = `Outflows exceed inflows by ${formatCurrency(Math.abs(net), activeCurrency, privacyMode)} (${burnRate.toFixed(0)}% burn rate). Current spending is depleting cash reserves.`;
+      diagnosisSummary = `Outflows exceed inflows by ${formatCurrency(Math.abs(net), activeCurrency, privacyMode)} (${maskedBurnRate} burn rate). Current spending is depleting cash reserves.`;
       recommendations = [
         `Cash burn exceeds income. Trim discretionary spending in ${topExpenseCategory || 'high-expense categories'}.`,
         runwayMonths !== null && runwayMonths < 3
-          ? `Emergency buffer stands at ${runwayMonths.toFixed(1)} months, below the recommended 3–6 month safety baseline.`
+          ? `Emergency buffer stands at ${maskedRunway(runwayMonths)} months, below the recommended 3–6 month safety baseline.`
           : 'Preserve existing liquid balances until positive monthly cash flow is restored.',
       ];
     } else if (savingsRate >= 0 && savingsRate < 10) {
@@ -235,21 +247,21 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       statusTitle = 'Fragile / Break-Even';
       statusBadgeColor = '#F59E0B';
       statusBgColor = '#FFFBEB';
-      diagnosisSummary = `Net surplus is slim at +${formatCurrency(net, activeCurrency, privacyMode)} (${savingsRate.toFixed(1)}% savings rate). You are spending ${burnRate.toFixed(0)}% of earned income.`;
+      diagnosisSummary = `Net surplus is slim at +${formatCurrency(net, activeCurrency, privacyMode)} (${maskedSavingsRate} savings rate). You are spending ${maskedBurnRate} of earned income.`;
       recommendations = [
         'Savings margin is below the 20% golden benchmark. Unexpected expenses could cause cash flow deficit.',
-        `Review ${topExpenseCategory} which accounts for ${topExpenseShare.toFixed(0)}% of total outflow this month.`,
+        `Review ${topExpenseCategory} which accounts for ${maskedTopShare} of total outflow this month.`,
       ];
     } else if (savingsRate >= 10 && savingsRate < 20) {
       tier = 'stable';
       statusTitle = 'Stable Cash Flow';
       statusBadgeColor = Palette.accentTeal;
       statusBgColor = '#EBF7F4';
-      diagnosisSummary = `Solid positive surplus of +${formatCurrency(net, activeCurrency, privacyMode)} (${savingsRate.toFixed(1)}% savings rate). Spending is contained at ${burnRate.toFixed(0)}% of income.`;
+      diagnosisSummary = `Solid positive surplus of +${formatCurrency(net, activeCurrency, privacyMode)} (${maskedSavingsRate} savings rate). Spending is contained at ${maskedBurnRate} of income.`;
       recommendations = [
         'Good financial control. Aim to increase savings by 5–10% to reach the recommended 20% 50/30/20 target.',
         runwayMonths !== null && runwayMonths >= 3
-          ? `Adequate emergency runway (${runwayMonths.toFixed(1)} months). Continue building toward 6 months.`
+          ? `Adequate emergency runway (${maskedRunway(runwayMonths)} months). Continue building toward 6 months.`
           : 'Direct current monthly surplus into an emergency pocket.',
       ];
     } else {
@@ -257,11 +269,11 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       statusTitle = tier === 'excellent' ? 'Exceptional Health' : 'Financially Healthy';
       statusBadgeColor = Palette.success;
       statusBgColor = '#EAF8ED';
-      diagnosisSummary = `Outstanding cash retention with +${formatCurrency(net, activeCurrency, privacyMode)} saved (${savingsRate.toFixed(1)}% savings rate). Well above the 20% personal finance benchmark.`;
+      diagnosisSummary = `Outstanding cash retention with +${formatCurrency(net, activeCurrency, privacyMode)} saved (${maskedSavingsRate} savings rate). Well above the 20% personal finance benchmark.`;
       recommendations = [
         `Savings rate exceeds the 20% 50/30/20 standard. High financial resilience and capital accumulation.`,
         runwayMonths !== null && runwayMonths >= 6
-          ? `Robust safety net: liquid balances can support ${runwayMonths > 12 ? 'over 12' : runwayMonths.toFixed(1)} months of current living costs.`
+          ? `Robust safety net: liquid balances can support ${maskedRunway(runwayMonths)} months of current living costs.`
           : 'Consider allocating surplus funds into designated goal pockets or investments.',
       ];
     }
@@ -428,19 +440,21 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
   // Safe daily spend only makes sense for the current cycle; past cycles show realized average
   const pacing = useMemo(() => {
     if (monthlyBudget <= 0) return null;
+    const roundDaily = (v: number) =>
+      activeCurrency === 'USD' ? Math.round(v * 100) / 100 : Math.round(v);
     const range = getBillingCycleRange(budgetMonthKey, billingCycle);
     if (isPastBudgetMonth) {
       return {
         kind: 'average' as const,
-        value: Math.round(budgetSpent / Math.max(range.totalDays, 1)),
+        value: roundDaily(budgetSpent / Math.max(range.totalDays, 1)),
       };
     }
 
     const daysRemaining = getRemainingDaysInPeriod(budgetMonthKey, billingCycle);
     const remaining = monthlyBudget - budgetSpent;
     if (remaining <= 0) return { kind: 'exhausted' as const, value: 0 };
-    return { kind: 'safe' as const, value: Math.round(remaining / daysRemaining) };
-  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth, billingCycle]);
+    return { kind: 'safe' as const, value: roundDaily(remaining / daysRemaining) };
+  }, [monthlyBudget, budgetSpent, budgetMonthKey, isPastBudgetMonth, billingCycle, activeCurrency]);
 
   // Category breakdown for selected period & type
   const categoryBreakdown = useMemo(() => {
@@ -642,7 +656,9 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
               ]}
               numberOfLines={1}
             >
-              {financialHealth.runwayMonths === null
+              {privacyMode
+                ? '••••'
+                : financialHealth.runwayMonths === null
                 ? financialHealth.expense > 0 && totalBalance <= 0
                   ? 'No liquidity buffer'
                   : 'No active burn'
@@ -924,7 +940,7 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {financialHealth.burnRate.toFixed(0)}%
+            {privacyMode ? '••••' : `${financialHealth.burnRate.toFixed(0)}%`}
           </Text>
           <Text style={styles.pillarBenchmark}>
             {financialHealth.burnRate <= 80 ? 'Target: ≤ 80% (Within)' : 'Target: ≤ 80% budget'}
@@ -976,7 +992,9 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
           </Text>
           <Text style={styles.pillarBenchmark}>
             {financialHealth.topExpenseShare > 0
-              ? `${financialHealth.topExpenseShare.toFixed(0)}% of month outflow`
+              ? privacyMode
+                ? 'Top outflow category'
+                : `${financialHealth.topExpenseShare.toFixed(0)}% of month outflow`
               : 'No recorded outflows'}
           </Text>
         </View>
@@ -1357,12 +1375,12 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
       <View style={styles.breakdownContainer}>
         {categoryBreakdown.length > 0 ? (
           (() => {
-            const focusedItem = selectedBreakdownCategory
-              ? categoryBreakdown.find((it) => it.category === selectedBreakdownCategory) || null
-              : null;
             const visibleItems = showAllBreakdown
               ? categoryBreakdown
               : categoryBreakdown.slice(0, 5);
+            const focusedItem = selectedBreakdownCategory
+              ? visibleItems.find((it) => it.category === selectedBreakdownCategory) || null
+              : null;
             return (
               <>
                 {/* Donut Chart Presentation */}
@@ -1487,7 +1505,18 @@ export const AnalyticsTab = React.memo<AnalyticsTabProps>(({
                     style={styles.expandBreakdownBtn}
                     onPress={() => {
                       AppHaptics.selection();
-                      setShowAllBreakdown((prev) => !prev);
+                      setShowAllBreakdown((prev) => {
+                        const next = !prev;
+                        if (!next && selectedBreakdownCategory) {
+                          const stillVisible = categoryBreakdown
+                            .slice(0, 5)
+                            .some((it) => it.category === selectedBreakdownCategory);
+                          if (!stillVisible) {
+                            setSelectedBreakdownCategory(null);
+                          }
+                        }
+                        return next;
+                      });
                     }}
                     activeOpacity={0.75}
                   >

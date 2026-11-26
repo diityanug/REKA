@@ -231,10 +231,18 @@ async function migrateCategoryIcons(db: SQLite.SQLiteDatabase): Promise<void> {
   }
 }
 
+const NEW_V2_DEFAULT_CATEGORY_KEYS = new Set<string>([
+  'expense:transport',
+  'expense:family',
+  'expense:charity & gifts',
+  'income:freelance / business',
+]);
+
 /**
  * One-time migration from legacy v1 default categories (22 expense + 7 income)
  * to the streamlined v2 taxonomy (18 expense + 8 income).
- * Preserves all transactions, receipt items, category budgets, and user-created custom categories.
+ * Preserves all transactions, receipt items, category budgets, user-created custom categories,
+ * and respects any v1 defaults the user intentionally deleted.
  */
 async function migrateCategoriesV2(db: SQLite.SQLiteDatabase): Promise<void> {
   try {
@@ -248,8 +256,30 @@ async function migrateCategoriesV2(db: SQLite.SQLiteDatabase): Promise<void> {
       defaultByKey.set(`${def.type}:${def.name.toLowerCase()}`, def);
     }
 
+    const skippedCustomLower = new Set<string>();
+    const keysToEnsure = new Set<string>(NEW_V2_DEFAULT_CATEGORY_KEYS);
+
     // 1. Remap legacy expense category names across transactions, transaction_items, and default categories
     for (const [oldLower, newName] of Object.entries(LEGACY_EXPENSE_CATEGORY_MAP)) {
+      // Never strip transactions/budgets from a user-created custom category matching a legacy name
+      const customExists = await db.getFirstAsync<{ id: string }>(
+        "SELECT id FROM categories WHERE is_default = 0 AND LOWER(TRIM(type)) = 'expense' AND LOWER(TRIM(name)) = ?",
+        oldLower
+      );
+      if (customExists) {
+        skippedCustomLower.add(oldLower);
+        continue;
+      }
+
+      const legacyTxRow = await db.getFirstAsync<{ cnt: number }>(
+        "SELECT COUNT(*) AS cnt FROM transactions WHERE type = 'expense' AND LOWER(TRIM(category)) = ?",
+        oldLower
+      );
+      const legacyDefaultRow = await db.getFirstAsync<{ id: string }>(
+        "SELECT id FROM categories WHERE is_default = 1 AND LOWER(TRIM(type)) = 'expense' AND LOWER(TRIM(name)) = ?",
+        oldLower
+      );
+
       await db.runAsync(
         "UPDATE transactions SET category = ? WHERE type = 'expense' AND LOWER(TRIM(category)) = ?",
         newName,
@@ -273,27 +303,28 @@ async function migrateCategoriesV2(db: SQLite.SQLiteDatabase): Promise<void> {
           "DELETE FROM categories WHERE is_default = 1 AND LOWER(TRIM(type)) = 'expense' AND LOWER(TRIM(name)) = ?",
           oldLower
         );
-      } else {
+      } else if (legacyDefaultRow) {
         // Rename the first matching legacy default row in-place so IDs stay tidy
-        const legacyRow = await db.getFirstAsync<{ id: string }>(
-          "SELECT id FROM categories WHERE is_default = 1 AND LOWER(TRIM(type)) = 'expense' AND LOWER(TRIM(name)) = ?",
-          oldLower
+        await db.runAsync(
+          'UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?',
+          newName,
+          def?.icon || 'CircleEllipsis',
+          def?.color || '#CC785C',
+          legacyDefaultRow.id
         );
-        if (legacyRow) {
-          await db.runAsync(
-            'UPDATE categories SET name = ?, icon = ?, color = ? WHERE id = ?',
-            newName,
-            def?.icon || 'CircleEllipsis',
-            def?.color || '#CC785C',
-            legacyRow.id
-          );
-        }
+      } else if ((Number(legacyTxRow?.cnt) || 0) > 0) {
+        // Legacy transactions existed even though the old default row was absent: ensure target exists
+        keysToEnsure.add(`expense:${newName.toLowerCase()}`);
       }
     }
 
-    // 2. Ensure all v2 default categories exist (inserts newly introduced categories like Transport, Family, Charity & Gifts, Entertainment, Freelance / Business)
+    // 2. Insert only newly introduced v2 categories (or targets that received remapped transactions)
+    //    so previously deleted v1 defaults (e.g. Education, Travel) are never resurrected.
     for (let i = 0; i < DEFAULT_CATEGORIES.length; i++) {
       const cat = DEFAULT_CATEGORIES[i];
+      const catKey = `${cat.type}:${cat.name.toLowerCase()}`;
+      if (!keysToEnsure.has(catKey)) continue;
+
       const existing = await db.getFirstAsync<{ id: string }>(
         'SELECT id FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND LOWER(TRIM(type)) = LOWER(TRIM(?))',
         cat.name,
@@ -327,7 +358,10 @@ async function migrateCategoriesV2(db: SQLite.SQLiteDatabase): Promise<void> {
         for (const [catName, rawLimit] of Object.entries(parsed)) {
           const limit = Number(rawLimit) || 0;
           if (limit <= 0) continue;
-          const mapped = LEGACY_EXPENSE_CATEGORY_MAP[catName.trim().toLowerCase()];
+          const lowerName = catName.trim().toLowerCase();
+          const mapped = skippedCustomLower.has(lowerName)
+            ? undefined
+            : LEGACY_EXPENSE_CATEGORY_MAP[lowerName];
           const finalKey = mapped || catName;
           if (mapped && mapped !== catName) changed = true;
           nextMap[finalKey] = (nextMap[finalKey] || 0) + limit;
@@ -357,6 +391,164 @@ function roundForCurrency(amount: number, currency: CurrencyType | string = 'IDR
   return currency === 'USD' ? Math.round(amount * 100) / 100 : Math.round(amount);
 }
 
+interface BalanceDeltaLeg {
+  walletId: string;
+  pocketId: string;
+  delta: number;
+}
+
+/**
+ * Atomically applies one or more wallet/pocket balance deltas while validating
+ * invariants against the FINAL post-batch balances (preventing false rejections
+ * during multi-leg edits, transfers, or cascade loan deletions) and rounding
+ * stored balances cleanly to currency precision.
+ */
+async function applyBalanceDeltasBatch(
+  db: SQLite.SQLiteDatabase,
+  legs: BalanceDeltaLeg[],
+  options?: { disallowNegativeWalletIds?: string[] }
+): Promise<void> {
+  const walletTotals = new Map<string, number>();
+  const pocketTotals = new Map<string, { walletId: string; pocketId: string; delta: number }>();
+  const walletPocketDeltaSum = new Map<string, number>();
+
+  for (const leg of legs) {
+    if (!leg.delta || Math.abs(leg.delta) < 1e-9) continue;
+    walletTotals.set(leg.walletId, (walletTotals.get(leg.walletId) || 0) + leg.delta);
+    if (leg.pocketId) {
+      const key = `${leg.walletId}::${leg.pocketId}`;
+      const existing = pocketTotals.get(key);
+      if (existing) {
+        existing.delta += leg.delta;
+      } else {
+        pocketTotals.set(key, {
+          walletId: leg.walletId,
+          pocketId: leg.pocketId,
+          delta: leg.delta,
+        });
+      }
+      walletPocketDeltaSum.set(
+        leg.walletId,
+        (walletPocketDeltaSum.get(leg.walletId) || 0) + leg.delta
+      );
+    }
+  }
+
+  const touchedWalletIds = new Set<string>(walletTotals.keys());
+  for (const entry of pocketTotals.values()) {
+    touchedWalletIds.add(entry.walletId);
+  }
+  if (options?.disallowNegativeWalletIds) {
+    for (const id of options.disallowNegativeWalletIds) {
+      if (id) touchedWalletIds.add(id);
+    }
+  }
+  if (touchedWalletIds.size === 0) return;
+
+  // 1. Load & validate all touched wallets
+  const walletMap = new Map<
+    string,
+    { id: string; name: string; balance: number; currency: CurrencyType }
+  >();
+  for (const walletId of touchedWalletIds) {
+    const wallet = await db.getFirstAsync<{
+      id: string;
+      name: string;
+      balance: number;
+      currency: CurrencyType;
+    }>(
+      'SELECT id, name, balance, currency FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
+      walletId
+    );
+    if (!wallet) {
+      throw new Error('Selected account no longer exists.');
+    }
+    walletMap.set(walletId, wallet);
+  }
+
+  // 2. Validate & compute final balances for all touched pockets
+  const pocketUpdates: { id: string; nextBalance: number }[] = [];
+  for (const entry of pocketTotals.values()) {
+    const wallet = walletMap.get(entry.walletId)!;
+    const pocket = await db.getFirstAsync<{ id: string; name: string; balance: number }>(
+      'SELECT id, name, balance FROM pockets WHERE id = ? AND wallet_id = ?',
+      entry.pocketId,
+      entry.walletId
+    );
+    if (!pocket) {
+      throw new Error('The selected pocket no longer exists.');
+    }
+    if (entry.delta < -1e-9 && pocket.balance + entry.delta < -0.005) {
+      throw new InsufficientFundsError(
+        'pocket',
+        Math.max(0, roundForCurrency(pocket.balance, wallet.currency)),
+        `This pocket ("${pocket.name}") does not have enough funds for this change.`
+      );
+    }
+    if (Math.abs(entry.delta) > 1e-9) {
+      const nextPocketBalance = Math.max(
+        0,
+        roundForCurrency(pocket.balance + entry.delta, wallet.currency)
+      );
+      pocketUpdates.push({ id: pocket.id, nextBalance: nextPocketBalance });
+    }
+  }
+
+  // 3. Validate final unallocated Main Balance reserves & optional non-negative wallet constraints
+  const disallowNegativeSet = new Set(options?.disallowNegativeWalletIds || []);
+  const walletUpdates: { id: string; nextBalance: number }[] = [];
+
+  for (const [walletId, wallet] of walletMap.entries()) {
+    const netWalletDelta = walletTotals.get(walletId) || 0;
+    const netPocketDelta = walletPocketDeltaSum.get(walletId) || 0;
+    const netMainDelta = netWalletDelta - netPocketDelta;
+
+    const allocatedRow = await db.getFirstAsync<{ total: number }>(
+      'SELECT COALESCE(SUM(balance), 0) AS total FROM pockets WHERE wallet_id = ?',
+      walletId
+    );
+    const currentAllocated = Number(allocatedRow?.total) || 0;
+    const nextAllocated = currentAllocated + netPocketDelta;
+    const nextWalletBalance = roundForCurrency(wallet.balance + netWalletDelta, wallet.currency);
+
+    if (netMainDelta < -1e-9 && nextAllocated > 0.005 && nextWalletBalance < nextAllocated - 0.005) {
+      const availableMain = Math.max(
+        0,
+        roundForCurrency(wallet.balance - currentAllocated, wallet.currency)
+      );
+      throw new InsufficientFundsError(
+        'account',
+        availableMain,
+        'Insufficient unallocated Main Balance. Funds allocated inside pockets cannot be spent from Main Balance.'
+      );
+    }
+
+    if (
+      disallowNegativeSet.has(walletId) &&
+      netWalletDelta < -1e-9 &&
+      wallet.balance + netWalletDelta < -0.005
+    ) {
+      throw new InsufficientFundsError(
+        'account',
+        Math.max(0, roundForCurrency(wallet.balance, wallet.currency)),
+        `Insufficient balance in ${wallet.name}.`
+      );
+    }
+
+    if (Math.abs(netWalletDelta) > 1e-9) {
+      walletUpdates.push({ id: walletId, nextBalance: nextWalletBalance });
+    }
+  }
+
+  // 4. Commit all rounded balance mutations
+  for (const upd of pocketUpdates) {
+    await db.runAsync('UPDATE pockets SET balance = ? WHERE id = ?', upd.nextBalance, upd.id);
+  }
+  for (const upd of walletUpdates) {
+    await db.runAsync('UPDATE wallets SET balance = ? WHERE id = ?', upd.nextBalance, upd.id);
+  }
+}
+
 /**
  * Atomically adjusts wallet and optional pocket balance while preserving two core invariants:
  * 1. Pocket balances can never drop below zero.
@@ -369,50 +561,7 @@ async function applyTransactionBalanceDelta(
   pocketId: string,
   delta: number
 ): Promise<void> {
-  if (delta === 0) return;
-
-  const wallet = await db.getFirstAsync<{ id: string; balance: number }>(
-    'SELECT id, balance FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
-    walletId
-  );
-  if (!wallet) {
-    throw new Error('Selected account no longer exists.');
-  }
-
-  if (pocketId) {
-    const pocket = await db.getFirstAsync<{ id: string; name: string; balance: number }>(
-      'SELECT id, name, balance FROM pockets WHERE id = ? AND wallet_id = ?',
-      pocketId,
-      walletId
-    );
-    if (!pocket) {
-      throw new Error('The selected pocket no longer exists.');
-    }
-    if (delta < 0 && pocket.balance + delta < -0.005) {
-      throw new InsufficientFundsError(
-        'pocket',
-        Math.max(0, pocket.balance),
-        `This pocket ("${pocket.name}") does not have enough funds for this change.`
-      );
-    }
-    await db.runAsync('UPDATE pockets SET balance = balance + ? WHERE id = ?', delta, pocketId);
-  } else if (delta < 0) {
-    const allocatedRow = await db.getFirstAsync<{ total: number }>(
-      'SELECT COALESCE(SUM(balance), 0) AS total FROM pockets WHERE wallet_id = ?',
-      walletId
-    );
-    const allocatedSum = Number(allocatedRow?.total) || 0;
-    if (allocatedSum > 0.005 && wallet.balance + delta < allocatedSum - 0.005) {
-      const availableMain = Math.max(0, wallet.balance - allocatedSum);
-      throw new InsufficientFundsError(
-        'account',
-        availableMain,
-        'Insufficient unallocated Main Balance. Funds allocated inside pockets cannot be spent from Main Balance.'
-      );
-    }
-  }
-
-  await db.runAsync('UPDATE wallets SET balance = balance + ? WHERE id = ?', delta, walletId);
+  await applyBalanceDeltasBatch(db, [{ walletId, pocketId, delta }]);
 }
 
 // Seeds the factory category list. Runs once per install so a deleted default
@@ -1077,11 +1226,13 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
     );
     if (!pocket) throw new Error('Pocket not found.');
 
+    const wallet = await db.getFirstAsync<{ balance: number; currency: CurrencyType }>(
+      'SELECT balance, currency FROM wallets WHERE id = ?',
+      pocket.wallet_id
+    );
+    const walletCurrency = wallet?.currency || 'IDR';
+
     if (delta > 0) {
-      const wallet = await db.getFirstAsync<{ balance: number }>(
-        'SELECT balance FROM wallets WHERE id = ?',
-        pocket.wallet_id
-      );
       const allocatedRow = await db.getFirstAsync<{ total: number }>(
         'SELECT COALESCE(SUM(balance), 0) as total FROM pockets WHERE wallet_id = ?',
         pocket.wallet_id
@@ -1093,25 +1244,23 @@ export async function adjustPocketBalance(pocketId: string, delta: number): Prom
       if (delta > unallocated + 0.005) {
         throw new InsufficientFundsError(
           'allocate',
-          unallocated,
+          roundForCurrency(unallocated, walletCurrency),
           'The amount exceeds the unallocated funds in this account.'
         );
       }
-      await db.runAsync('UPDATE pockets SET balance = balance + ? WHERE id = ?', delta, pocketId);
+      const nextBalance = roundForCurrency(pocket.balance + delta, walletCurrency);
+      await db.runAsync('UPDATE pockets SET balance = ? WHERE id = ?', nextBalance, pocketId);
     } else if (delta < 0) {
       const releaseAmount = Math.abs(delta);
       if (releaseAmount > pocket.balance + 0.005) {
         throw new InsufficientFundsError(
           'release',
-          pocket.balance,
+          roundForCurrency(pocket.balance, walletCurrency),
           'You cannot release more than the current pocket balance.'
         );
       }
-      await db.runAsync(
-        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
-        releaseAmount,
-        pocketId
-      );
+      const nextBalance = Math.max(0, roundForCurrency(pocket.balance - releaseAmount, walletCurrency));
+      await db.runAsync('UPDATE pockets SET balance = ? WHERE id = ?', nextBalance, pocketId);
     }
   });
 }
@@ -1559,26 +1708,21 @@ export async function deleteTransaction(id: string): Promise<void> {
       throw new Error('This archived transaction belongs to a deleted account or pocket and cannot be deleted.');
     }
 
-    const revertTxBalance = async (targetTx: {
+    // Collect every leg that will be deleted so net balances are validated atomically
+    // (prevents false InsufficientFundsError when reverting a Lent loan + its repayments)
+    const rowsToDelete: {
       id: string;
       wallet_id: string;
       pocket_id: string;
       type: TransactionType;
       amount: number;
       image_uri?: string;
-    }) => {
-      const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
-      await applyTransactionBalanceDelta(
-        db,
-        targetTx.wallet_id,
-        targetTx.pocket_id || '',
-        reverseDelta
-      );
-      await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
-      await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
-      if (targetTx.image_uri) {
-        imagesToDelete.push(targetTx.image_uri);
-      }
+    }[] = [];
+    const seenIds = new Set<string>();
+    const addRowToDelete = (row: typeof rowsToDelete[number]) => {
+      if (seenIds.has(row.id)) return;
+      seenIds.add(row.id);
+      rowsToDelete.push(row);
     };
 
     // If this repayment belongs to an archived loan on a deleted account, keep both immutable
@@ -1595,7 +1739,7 @@ export async function deleteTransaction(id: string): Promise<void> {
       }
     }
 
-    // If target transaction is a lent transaction, delete and revert any child repayments linked to it
+    // If target transaction is a lent transaction, collect any child repayments linked to it
     if (tx.is_lent) {
       const childRepayments = await db.getAllAsync<{
         id: string;
@@ -1617,32 +1761,43 @@ export async function deleteTransaction(id: string): Promise<void> {
         throw new Error('This loan has repayments recorded on a deleted account and cannot be deleted.');
       }
       for (const child of childRepayments) {
-        await revertTxBalance(child);
+        addRowToDelete(child);
       }
     }
 
     // Only an explicit pair id is trusted. Historical legs are paired during DB init,
     // so we never guess (and delete) an unrelated transfer.
-    let pairedTx: typeof tx | null = null;
     if (tx.transfer_pair_id) {
-      pairedTx = await db.getFirstAsync<typeof tx>(
+      const pairedTx = await db.getFirstAsync<typeof tx>(
         'SELECT id, wallet_id, pocket_id, type, amount, category, payment_method, merchant_name, image_uri, transfer_pair_id, is_lent, lent_parent_tx_id, deleted_wallet_name, deleted_pocket_name FROM transactions WHERE id = ?',
         tx.transfer_pair_id
       );
       if (pairedTx && (pairedTx.deleted_wallet_name || pairedTx.deleted_pocket_name)) {
         throw new Error('This transfer involves a deleted account and cannot be deleted.');
       }
+      if (pairedTx) {
+        addRowToDelete(pairedTx);
+      }
     }
 
-    // Revert outgoing (expense) leg before incoming (income) leg so same-wallet/pocket transfers
-    // add funds back before subtracting them
-    if (pairedTx && pairedTx.id !== tx.id) {
-      const firstLeg = tx.type === 'expense' ? tx : pairedTx;
-      const secondLeg = firstLeg.id === tx.id ? pairedTx : tx;
-      await revertTxBalance(firstLeg);
-      await revertTxBalance(secondLeg);
-    } else {
-      await revertTxBalance(tx);
+    addRowToDelete(tx);
+
+    // Apply all balance reversals together against net post-delete balances
+    await applyBalanceDeltasBatch(
+      db,
+      rowsToDelete.map((targetTx) => ({
+        walletId: targetTx.wallet_id,
+        pocketId: targetTx.pocket_id || '',
+        delta: targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount,
+      }))
+    );
+
+    for (const targetTx of rowsToDelete) {
+      await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
+      await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
+      if (targetTx.image_uri) {
+        imagesToDelete.push(targetTx.image_uri);
+      }
     }
 
     // If this deleted transaction was a repayment for a lent loan, recalculate parent loan repaid amount & status
@@ -1710,6 +1865,21 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
       return a.type === 'expense' ? -1 : 1;
     });
 
+    const rowsToDelete: {
+      id: string;
+      wallet_id: string;
+      pocket_id: string;
+      type: TransactionType;
+      amount: number;
+      image_uri?: string;
+    }[] = [];
+
+    const addRowToDelete = (row: typeof rowsToDelete[number]) => {
+      if (processedIds.has(row.id)) return;
+      processedIds.add(row.id);
+      rowsToDelete.push(row);
+    };
+
     for (const tx of candidateRows) {
       if (processedIds.has(tx.id)) continue;
 
@@ -1738,30 +1908,6 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
         parentsToSync.add(tx.lent_parent_tx_id);
       }
 
-      const revertTxBalance = async (targetTx: {
-        id: string;
-        wallet_id: string;
-        pocket_id: string;
-        type: TransactionType;
-        amount: number;
-        image_uri?: string;
-      }) => {
-        const reverseDelta = targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount;
-        await applyTransactionBalanceDelta(
-          db,
-          targetTx.wallet_id,
-          targetTx.pocket_id || '',
-          reverseDelta
-        );
-        await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
-        await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
-        processedIds.add(targetTx.id);
-        if (targetTx.image_uri) {
-          imagesToDelete.push(targetTx.image_uri);
-        }
-      };
-
-      // If target transaction is a lent transaction, verify and delete child repayments
       if (tx.is_lent) {
         const childRepayments = await db.getAllAsync<{
           id: string;
@@ -1780,27 +1926,39 @@ export async function deleteTransactionsBatch(ids: string[]): Promise<void> {
           continue;
         }
         for (const child of childRepayments) {
-          if (!processedIds.has(child.id)) {
-            await revertTxBalance(child);
-          }
+          addRowToDelete(child);
         }
       }
 
-      if (pairedTx && !processedIds.has(pairedTx.id)) {
-        const firstLeg = tx.type === 'expense' ? tx : pairedTx;
-        const secondLeg = firstLeg.id === tx.id ? pairedTx : tx;
-        await revertTxBalance(firstLeg);
-        if (!processedIds.has(secondLeg.id)) {
-          await revertTxBalance(secondLeg);
-        }
-      } else {
-        await revertTxBalance(tx);
+      if (pairedTx) {
+        addRowToDelete(pairedTx);
+      }
+      addRowToDelete(tx);
+    }
+
+    // Apply all balance reversals together against net post-delete balances
+    await applyBalanceDeltasBatch(
+      db,
+      rowsToDelete.map((targetTx) => ({
+        walletId: targetTx.wallet_id,
+        pocketId: targetTx.pocket_id || '',
+        delta: targetTx.type === 'expense' ? targetTx.amount : -targetTx.amount,
+      }))
+    );
+
+    for (const targetTx of rowsToDelete) {
+      await db.runAsync('DELETE FROM transaction_items WHERE transaction_id = ?', targetTx.id);
+      await db.runAsync('DELETE FROM transactions WHERE id = ?', targetTx.id);
+      if (targetTx.image_uri) {
+        imagesToDelete.push(targetTx.image_uri);
       }
     }
 
-    // Recalculate parent loans affected by deleted repayments
+    // Recalculate parent loans affected by deleted repayments (skip any parent that was also deleted)
     for (const parentId of parentsToSync) {
-      await syncLentParentLoan(db, parentId);
+      if (!processedIds.has(parentId)) {
+        await syncLentParentLoan(db, parentId);
+      }
     }
   });
 
@@ -1961,13 +2119,13 @@ export async function updateTransaction(
       }
     }
 
-    // 1. Revert previous wallet & pocket balance effect
+    // 1 & 2. Revert previous leg and apply new leg atomically against net final balances
     const revertDelta = oldTx.type === 'expense' ? oldTx.amount : -oldTx.amount;
-    await applyTransactionBalanceDelta(db, oldTx.wallet_id, oldTx.pocket_id || '', revertDelta);
-
-    // 2. Apply new wallet & pocket balance effect
     const newDelta = finalType === 'expense' ? -updates.amount : updates.amount;
-    await applyTransactionBalanceDelta(db, updates.walletId, updates.pocketId || '', newDelta);
+    await applyBalanceDeltasBatch(db, [
+      { walletId: oldTx.wallet_id, pocketId: oldTx.pocket_id || '', delta: revertDelta },
+      { walletId: updates.walletId, pocketId: updates.pocketId || '', delta: newDelta },
+    ]);
 
     // 3. Compute lent status & repaid amount
     const oldRepaid = Number(oldTx.lent_repaid_amount) || 0;
@@ -2281,13 +2439,16 @@ export async function transferFunds(
     const rate = params.exchangeRate && params.exchangeRate > 0 ? params.exchangeRate : 16000;
     appliedExchangeRate = rate;
     if (params.targetAmount && params.targetAmount > 0) {
-      finalTargetAmount = params.targetAmount;
+      finalTargetAmount = roundForCurrency(params.targetAmount, toWallet.currency);
     } else {
       if (fromWallet.currency === 'USD' && toWallet.currency === 'IDR') {
         finalTargetAmount = Math.round(amount * rate);
       } else if (fromWallet.currency === 'IDR' && toWallet.currency === 'USD') {
         finalTargetAmount = Math.round((amount / rate) * 100) / 100;
       }
+    }
+    if (!finalTargetAmount || finalTargetAmount <= 0) {
+      throw new Error('Converted amount is too small (rounds to 0). Please increase the transfer amount.');
     }
   }
 
@@ -2296,33 +2457,15 @@ export async function transferFunds(
   const txTimestamp = params.timestamp || new Date().toISOString();
 
   await db.withTransactionAsync(async () => {
-    // Debit source wallet (and optional source pocket) in source currency
-    await db.runAsync(
-      'UPDATE wallets SET balance = balance - ? WHERE id = ?',
-      amount,
-      fromWalletId
+    // Atomically debit source & credit destination with rounded balances and invariant validation
+    await applyBalanceDeltasBatch(
+      db,
+      [
+        { walletId: fromWalletId, pocketId: sourcePocket ? sourcePocket.id : '', delta: -amount },
+        { walletId: toWalletId, pocketId: targetPocket ? targetPocket.id : '', delta: finalTargetAmount },
+      ],
+      { disallowNegativeWalletIds: [fromWalletId] }
     );
-    if (sourcePocket) {
-      await db.runAsync(
-        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
-        amount,
-        sourcePocket.id
-      );
-    }
-
-    // Credit target wallet (and optional target pocket) in target currency
-    await db.runAsync(
-      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
-      finalTargetAmount,
-      toWalletId
-    );
-    if (targetPocket) {
-      await db.runAsync(
-        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
-        finalTargetAmount,
-        targetPocket.id
-      );
-    }
 
     const cleanUserNote = notes ? notes.trim() : '';
     const transferTitle = isSameWallet
@@ -2423,21 +2566,7 @@ export async function updateTransferFunds(params: UpdateTransferFundsParams): Pr
     const oldOutTx = clickedRow.type === 'expense' ? clickedRow : pairedRow;
     const oldInTx = clickedRow.type === 'income' ? clickedRow : pairedRow;
 
-    // 1. Revert previous transfer balances safely (protecting pockets from negative underflow)
-    await applyTransactionBalanceDelta(
-      db,
-      oldOutTx.wallet_id,
-      oldOutTx.pocket_id || '',
-      oldOutTx.amount
-    );
-    await applyTransactionBalanceDelta(
-      db,
-      oldInTx.wallet_id,
-      oldInTx.pocket_id || '',
-      -oldInTx.amount
-    );
-
-    // 2. Validate new source and destination against the reverted state
+    // 1. Validate new source & destination accounts and pockets exist
     const fromWallet = await db.getFirstAsync<any>(
       'SELECT * FROM wallets WHERE id = ? AND COALESCE(is_deleted, 0) = 0',
       fromWalletId
@@ -2457,29 +2586,6 @@ export async function updateTransferFunds(params: UpdateTransferFundsParams): Pr
         fromWalletId
       );
       if (!sourcePocket) throw new Error('Selected source pocket not found.');
-      if (sourcePocket.balance + 0.005 < amount) {
-        throw new Error(
-          `Insufficient balance in pocket "${sourcePocket.name}". Available: ${sourcePocket.balance}`
-        );
-      }
-    } else {
-      const allocatedRow = await db.getFirstAsync<{ total: number }>(
-        'SELECT COALESCE(SUM(balance), 0) as total FROM pockets WHERE wallet_id = ?',
-        fromWalletId
-      );
-      const allocated = allocatedRow ? Number(allocatedRow.total) || 0 : 0;
-      const unallocated = Math.max(fromWallet.balance - allocated, 0);
-      if (allocated > 0 && unallocated + 0.005 < amount) {
-        throw new Error(
-          `Insufficient unallocated balance in ${fromWallet.name}. Available unallocated: ${unallocated}`
-        );
-      }
-    }
-
-    if (fromWallet.balance + 0.005 < amount) {
-      throw new Error(
-        `Insufficient balance in ${fromWallet.name}. Available: ${fromWallet.balance}`
-      );
     }
 
     let targetPocket: any = null;
@@ -2497,10 +2603,16 @@ export async function updateTransferFunds(params: UpdateTransferFundsParams): Pr
     let appliedExchangeRate = 0;
 
     if (isCrossCurrency) {
+      if (
+        params.exchangeRate !== undefined &&
+        (isNaN(params.exchangeRate) || params.exchangeRate <= 0 || params.exchangeRate > 1e9)
+      ) {
+        throw new Error('That exchange rate looks invalid. Please check the rate value.');
+      }
       const rate = params.exchangeRate && params.exchangeRate > 0 ? params.exchangeRate : 16000;
       appliedExchangeRate = rate;
       if (params.targetAmount && params.targetAmount > 0) {
-        finalTargetAmount = params.targetAmount;
+        finalTargetAmount = roundForCurrency(params.targetAmount, toWallet.currency);
       } else {
         if (fromWallet.currency === 'USD' && toWallet.currency === 'IDR') {
           finalTargetAmount = Math.round(amount * rate);
@@ -2508,34 +2620,23 @@ export async function updateTransferFunds(params: UpdateTransferFundsParams): Pr
           finalTargetAmount = Math.round((amount / rate) * 100) / 100;
         }
       }
+      if (!finalTargetAmount || finalTargetAmount <= 0) {
+        throw new Error('Converted amount is too small (rounds to 0). Please increase the transfer amount.');
+      }
     }
 
-    // 3. Apply new transfer balances
-    await db.runAsync(
-      'UPDATE wallets SET balance = balance - ? WHERE id = ?',
-      amount,
-      fromWalletId
+    // 2 & 3. Revert old legs and apply new legs atomically against FINAL net balances
+    // (prevents false InsufficientFundsError when editing notes or adjusting transfers with pockets)
+    await applyBalanceDeltasBatch(
+      db,
+      [
+        { walletId: oldOutTx.wallet_id, pocketId: oldOutTx.pocket_id || '', delta: oldOutTx.amount },
+        { walletId: oldInTx.wallet_id, pocketId: oldInTx.pocket_id || '', delta: -oldInTx.amount },
+        { walletId: fromWalletId, pocketId: sourcePocket ? sourcePocket.id : '', delta: -amount },
+        { walletId: toWalletId, pocketId: targetPocket ? targetPocket.id : '', delta: finalTargetAmount },
+      ],
+      { disallowNegativeWalletIds: [fromWalletId] }
     );
-    if (sourcePocket) {
-      await db.runAsync(
-        'UPDATE pockets SET balance = balance - ? WHERE id = ?',
-        amount,
-        sourcePocket.id
-      );
-    }
-
-    await db.runAsync(
-      'UPDATE wallets SET balance = balance + ? WHERE id = ?',
-      finalTargetAmount,
-      toWalletId
-    );
-    if (targetPocket) {
-      await db.runAsync(
-        'UPDATE pockets SET balance = balance + ? WHERE id = ?',
-        finalTargetAmount,
-        targetPocket.id
-      );
-    }
 
     const cleanUserNote = notes ? notes.trim() : '';
     const transferTitle = isSameWallet
@@ -3064,7 +3165,8 @@ export async function importAllData(
         );
       }
 
-      // Restore categories when the backup carries them
+      // Clear categories before restoring so pre-existing timestamp-ID defaults never duplicate or leak
+      await db.runAsync('DELETE FROM categories');
       if (Array.isArray(data.categories) && data.categories.length > 0) {
         for (const c of data.categories) {
           await db.runAsync(
@@ -3079,7 +3181,6 @@ export async function importAllData(
           );
         }
       } else {
-        await db.runAsync('DELETE FROM categories');
         await seedDefaultCategories(db, true);
       }
       await removeSystemTransferCategory(db);

@@ -2,12 +2,12 @@ import React, { useState, useMemo, useRef } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
   Keyboard,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Plus,
@@ -121,6 +121,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [editAccountNumber, setEditAccountNumber] = useState<string>('');
   const [showAdjustAmountModal, setShowAdjustAmountModal] = useState<boolean>(false);
   const [adjustingPocket, setAdjustingPocket] = useState<Pocket | null>(null);
+  const lastAdjustingPocket = useLastDefined(adjustingPocket);
   const [editingPocketId, setEditingPocketId] = useState<string | null>(null);
   const [pocketEditName, setPocketEditName] = useState<string>('');
   const [pocketEditIcon, setPocketEditIcon] = useState<string>('Briefcase');
@@ -128,7 +129,8 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const [showPocketTargetModal, setShowPocketTargetModal] = useState<boolean>(false);
   const [pocketIconGroupKey, setPocketIconGroupKey] = useState<string>('all');
   const [showAllActivity, setShowAllActivity] = useState<boolean>(false);
-  const accountNumberInputRef = useRef<React.ComponentRef<typeof TextInput>>(null);
+  const savingRenameRef = useRef<boolean>(false);
+  const accountNumberInputRef = useRef<React.ComponentRef<typeof StableTextInput>>(null);
   const { alertConfig, showAlert, hideAlert } = useLocalAlert();
 
   const displayedPocketIcons = useMemo(() => {
@@ -147,16 +149,19 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
     return rows;
   }, [displayedPocketIcons]);
 
-  useSyncOnChange([propWallet], () => {
+  // Reset modal UI state only when switching to a different wallet or reopening (not on every balance reload)
+  useSyncOnChange([propWallet?.id, Boolean(propWallet)], () => {
     if (propWallet) {
       setEditName(propWallet.name);
       setEditType(normalizeAccountType(propWallet.type));
       setEditAccountNumber(propWallet.accountNumber || '');
       setIsRenaming(false);
       setEditingPocketId(null);
+      setAdjustingPocket(null);
       setShowAdjustAmountModal(false);
       setShowPocketTargetModal(false);
       setShowAllActivity(false);
+      savingRenameRef.current = false;
     }
   });
 
@@ -173,17 +178,24 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
   const canSavePocket = !!pocketEditName.trim() && !!pocketEditIcon.trim();
 
   const handleSaveRename = async () => {
+    if (savingRenameRef.current) return;
     const trimmed = editName.trim();
     if (!trimmed || !canSaveAccount) {
       showAlert('Invalid Name', 'Account name cannot be empty.', undefined, 'warning');
       return;
     }
     Keyboard.dismiss();
-    await onRenameWallet(wallet.id, trimmed, editType, editAccountNumber.trim());
-    setIsRenaming(false);
+    savingRenameRef.current = true;
+    try {
+      await onRenameWallet(wallet.id, trimmed, editType, editAccountNumber.trim());
+      setIsRenaming(false);
+    } finally {
+      savingRenameRef.current = false;
+    }
   };
 
   const handleSavePocketRename = async (pocketId: string) => {
+    if (savingRenameRef.current) return;
     const trimmed = pocketEditName.trim();
     if (!trimmed || !canSavePocket) {
       showAlert('Invalid Name', 'Pocket name cannot be empty.', undefined, 'warning');
@@ -194,10 +206,15 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
       ? parseAmount(pocketEditTarget, wallet.currency)
       : 0;
     const safeTarget = isNaN(parsedTarget) || parsedTarget < 0 ? 0 : parsedTarget;
-    if (onRenamePocket) {
-      await onRenamePocket(pocketId, trimmed, pocketEditIcon, safeTarget);
+    savingRenameRef.current = true;
+    try {
+      if (onRenamePocket) {
+        await onRenamePocket(pocketId, trimmed, pocketEditIcon, safeTarget);
+      }
+      setEditingPocketId(null);
+    } finally {
+      savingRenameRef.current = false;
     }
-    setEditingPocketId(null);
   };
 
   return (
@@ -323,7 +340,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                   </View>
 
                   <Text style={styles.editFieldLabel}>Account Name <Text style={styles.requiredStar}>*</Text></Text>
-                  <TextInput
+                  <StableTextInput
                     style={styles.editInput}
                     value={editName}
                     onChangeText={setEditName}
@@ -332,11 +349,11 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     returnKeyType="next"
                     submitBehavior="submit"
                     onSubmitEditing={() => accountNumberInputRef.current?.focus()}
-                    maxLength={30}
+                    maxLength={40}
                   />
 
                   <Text style={styles.editFieldLabel}>Note / Account Number</Text>
-                  <TextInput
+                  <StableTextInput
                     ref={accountNumberInputRef}
                     style={styles.editInput}
                     value={editAccountNumber}
@@ -345,7 +362,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                     placeholderTextColor={Palette.mutedSoft}
                     returnKeyType="done"
                     onSubmitEditing={Keyboard.dismiss}
-                    maxLength={30}
+                    maxLength={40}
                   />
 
                   <Text style={styles.editFieldLabel}>Account Category <Text style={styles.requiredStar}>*</Text></Text>
@@ -523,7 +540,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       {isEditingThisPocket && (
                         <View style={styles.pocketEditPanel}>
                           <Text style={styles.editFieldLabel}>Pocket Name <Text style={styles.requiredStar}>*</Text></Text>
-                          <TextInput
+                          <StableTextInput
                             style={styles.editInput}
                             value={pocketEditName}
                             onChangeText={setPocketEditName}
@@ -812,6 +829,7 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
                       key={tx.id}
                       transaction={tx}
                       categoryIcon={getCategoryIconName(tx.category, tx.type)}
+                      walletName={walletDisplayName}
                       pocketName={getPocketName(tx.pocketId)}
                       privacyMode={privacyMode}
                       onPress={onSelectTransaction}
@@ -896,45 +914,47 @@ export const AccountDetailModal: React.FC<AccountDetailModalProps> = ({
         onClose={() => setShowAdjustAmountModal(false)}
       />
 
-      {/* Pocket Direct Balance Adjustment Modal */}
-      {adjustingPocket && (
-        <AmountInputModal
-          visible={!!adjustingPocket}
-          title={`Adjust ${adjustingPocket.name}`}
-          subtitle="Set real pocket balance (yield / fluctuation)"
-          initialAmount={formatCurrencyNumberForInput(adjustingPocket.balance, wallet.currency)}
-          currency={wallet.currency}
-          allowZero
-          onConfirm={async (_str, num) => {
-            const targetPocket = adjustingPocket;
-            setAdjustingPocket(null);
-            if (!onDirectAdjustPocketBalance) return;
-            const delta = num - targetPocket.balance;
-            const deltaStr =
-              delta > 0
-                ? `+${formatCurrency(delta, wallet.currency)}`
-                : delta < 0
-                ? `-${formatCurrency(Math.abs(delta), wallet.currency)}`
-                : '0';
+      {/* Pocket Direct Balance Adjustment Modal (stays mounted so close animation completes smoothly) */}
+      <AmountInputModal
+        visible={!!adjustingPocket}
+        title={lastAdjustingPocket ? `Adjust ${lastAdjustingPocket.name}` : 'Adjust Pocket'}
+        subtitle="Set real pocket balance (yield / fluctuation)"
+        initialAmount={
+          lastAdjustingPocket
+            ? formatCurrencyNumberForInput(lastAdjustingPocket.balance, wallet.currency)
+            : ''
+        }
+        currency={wallet.currency}
+        allowZero
+        onConfirm={async (_str, num) => {
+          const targetPocket = adjustingPocket;
+          setAdjustingPocket(null);
+          if (!targetPocket || !onDirectAdjustPocketBalance) return;
+          const delta = num - targetPocket.balance;
+          const deltaStr =
+            delta > 0
+              ? `+${formatCurrency(delta, wallet.currency)}`
+              : delta < 0
+              ? `-${formatCurrency(Math.abs(delta), wallet.currency)}`
+              : '0';
 
-            showAlert(
-              'Adjust Pocket Balance',
-              `Set "${targetPocket.name}" balance to ${formatCurrency(num, wallet.currency)}? (${deltaStr})\n\nTotal ${walletDisplayName} balance will automatically adjust by ${deltaStr} while keeping unallocated free balance intact.`,
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Update',
-                  onPress: async () => {
-                    await onDirectAdjustPocketBalance(targetPocket.id, num);
-                  },
+          showAlert(
+            'Adjust Pocket Balance',
+            `Set "${targetPocket.name}" balance to ${formatCurrency(num, wallet.currency)}? (${deltaStr})\n\nTotal ${walletDisplayName} balance will automatically adjust by ${deltaStr} while keeping unallocated free balance intact.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Update',
+                onPress: async () => {
+                  await onDirectAdjustPocketBalance(targetPocket.id, num);
                 },
-              ],
-              'confirm'
-            );
-          }}
-          onClose={() => setAdjustingPocket(null)}
-        />
-      )}
+              },
+            ],
+            'confirm'
+          );
+        }}
+        onClose={() => setAdjustingPocket(null)}
+      />
 
       {/* Pocket Target Goal Input Modal */}
       <AmountInputModal

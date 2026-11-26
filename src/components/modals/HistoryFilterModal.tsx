@@ -29,7 +29,6 @@ import { BottomSheetModal } from '../BottomSheetModal';
 import { PaymentMethodIcon } from '../PaymentMethodIcon';
 import { CategoryIcon } from '../CategoryIcon';
 import { ContactlessCardIcon } from '../icons/ContactlessCardIcon';
-import { triggerSmoothLayout } from '../MotionPrimitives';
 import { DatePickerModal } from './DatePickerModal';
 
 function chunkArray<T>(items: T[], size: number): T[][] {
@@ -519,7 +518,6 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                     ]}
                     onPress={() => {
                       AppHaptics.selection();
-                      triggerSmoothLayout();
                       onChangeWalletId(item.id);
                       onChangePocketId?.('all');
                     }}
@@ -708,6 +706,8 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                               styles.optionTitleFlex,
                               isActive && styles.optionTitleActive,
                             ]}
+                            numberOfLines={2}
+                            ellipsizeMode="tail"
                           >
                             {item.label}
                           </Text>
@@ -796,6 +796,8 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
                               styles.optionTitleFlex,
                               isActive && styles.optionTitleActive,
                             ]}
+                            numberOfLines={2}
+                            ellipsizeMode="tail"
                           >
                             {item.label}
                           </Text>
@@ -833,7 +835,6 @@ export const HistoryFilterModal: React.FC<HistoryFilterModalProps> = ({
             style={styles.resetBtn}
             onPress={() => {
               AppHaptics.light();
-              triggerSmoothLayout();
               onReset();
             }}
             activeOpacity={0.75}
@@ -1101,10 +1102,12 @@ const styles = StyleSheet.create({
     backgroundColor: Palette.white,
     borderWidth: 1,
     borderColor: Palette.hairline,
+    overflow: 'hidden',
   },
   optionCardCompact: {
     height: 50,
     paddingVertical: 6,
+    overflow: 'hidden',
   },
   optionCardActive: {
     backgroundColor: Palette.tintExpense,

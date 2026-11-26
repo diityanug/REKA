@@ -495,39 +495,37 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
       if (lower === 'transfer') return 'ArrowLeftRight';
       if (lower === 'others') return 'CircleEllipsis';
 
-      // 1. Direct semantic overrides for high-frequency categories where icons were previously mismatched
-      if (lower === 'shopping' || lower === 'belanja') return 'ShoppingCart';
-      if (lower === 'snacks' || lower === 'snack' || lower === 'camilan') return 'Cookie';
-
-      // 2. Exact match in user's category list with matching type
+      // 1. Exact match in user's category list with matching type (respects user-chosen icons on custom categories)
       if (type) {
         const foundWithType = categories.find(
           (c) => c.name.toLowerCase() === lower && c.type === type
         );
         if (foundWithType) {
-          if (foundWithType.name.toLowerCase() === 'shopping' && (foundWithType.icon === 'ShoppingBag' || foundWithType.icon === 'Gift')) {
+          if (foundWithType.isDefault && foundWithType.name.toLowerCase() === 'shopping' && (foundWithType.icon === 'ShoppingBag' || foundWithType.icon === 'Gift')) {
             return 'ShoppingCart';
           }
-          if ((foundWithType.name.toLowerCase() === 'snacks' || foundWithType.name.toLowerCase() === 'snack') && foundWithType.icon === 'Coffee') {
+          if (foundWithType.isDefault && (foundWithType.name.toLowerCase() === 'snacks' || foundWithType.name.toLowerCase() === 'snack') && foundWithType.icon === 'Coffee') {
             return 'Cookie';
           }
           return foundWithType.icon;
         }
       }
 
-      // 3. Exact match in user's category list
+      // 2. Exact match in user's category list
       const found = categories.find((c) => c.name.toLowerCase() === lower);
       if (found) {
-        if (found.name.toLowerCase() === 'shopping' && (found.icon === 'ShoppingBag' || found.icon === 'Gift')) {
+        if (found.isDefault && found.name.toLowerCase() === 'shopping' && (found.icon === 'ShoppingBag' || found.icon === 'Gift')) {
           return 'ShoppingCart';
         }
-        if ((found.name.toLowerCase() === 'snacks' || found.name.toLowerCase() === 'snack') && found.icon === 'Coffee') {
+        if (found.isDefault && (found.name.toLowerCase() === 'snacks' || found.name.toLowerCase() === 'snack') && found.icon === 'Coffee') {
           return 'Cookie';
         }
         return found.icon;
       }
 
-      // 4. Semantic fallback mapping
+      // 3. Semantic fallback mapping (for legacy/deleted categories not in user's category table)
+      if (lower === 'shopping' || lower === 'belanja') return 'ShoppingCart';
+      if (lower === 'snacks' || lower === 'snack' || lower === 'camilan') return 'Cookie';
       if (SEMANTIC_CATEGORY_ICON_FALLBACKS[lower]) {
         return SEMANTIC_CATEGORY_ICON_FALLBACKS[lower];
       }
@@ -931,7 +929,7 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         AppHaptics.success();
         return true;
       } catch (err: any) {
-        showAlert('Notice', toUserFriendlyErrorMessage(err, 'database'), undefined, 'error');
+        showAlert('Notice', toUserFriendlyErrorMessage(err), undefined, 'error');
         return false;
       }
     },
@@ -1486,10 +1484,11 @@ export function useFinanceData({ showAlert }: UseFinanceDataProps) {
         currency: activeCurrency,
         wallets,
         transactions,
+        billingCycle,
         exchangeRate,
       });
     },
-    [selectedMonth, activeCurrency, wallets, transactions, exchangeRate]
+    [selectedMonth, activeCurrency, wallets, transactions, billingCycle, exchangeRate]
   );
 
   return useMemo(() => ({

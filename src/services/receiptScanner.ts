@@ -7,6 +7,7 @@ import {
   parseSafeAmount,
   postToGeminiProxy,
   sanitizeAiCategory,
+  sanitizeAiPaymentMethod,
   sleep,
   withTimeout,
 } from './geminiProxyClient';
@@ -62,7 +63,14 @@ function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): Extracte
       return {
         name: name || 'Item',
         quantity,
-        unitPrice: unitPrice > 0 ? unitPrice : (quantity > 0 ? Math.round(totalPrice / quantity) : totalPrice),
+        unitPrice:
+          unitPrice > 0
+            ? unitPrice
+            : quantity > 0
+              ? currency === 'USD'
+                ? Math.round((totalPrice / quantity) * 100) / 100
+                : Math.round(totalPrice / quantity)
+              : totalPrice,
         totalPrice,
         category: it.category,
       };
@@ -77,7 +85,7 @@ function normalizeReceiptResult(parsed: Partial<ExtractedReceiptData>): Extracte
     type,
     totalAmount: parseSafeAmount(parsed.totalAmount, currency),
     currency,
-    paymentMethod: parsed.paymentMethod || 'QRIS',
+    paymentMethod: sanitizeAiPaymentMethod(parsed.paymentMethod, 'QRIS'),
     taxAmount: parseSafeAmount(parsed.taxAmount, currency),
     discountAmount: parseSafeAmount(parsed.discountAmount, currency),
     notes: parsed.notes || '',

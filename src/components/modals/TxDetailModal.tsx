@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,8 @@ import {
   ScrollView,
   StyleSheet,
   Image,
-  Modal,
 } from 'react-native';
+import { OverlayPortal, useOverlayLayer } from '../OverlayHost';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Trash2,
@@ -32,6 +32,7 @@ import { Palette, Typography } from '../../theme/tokens';
 import { Transaction, TransactionItem, Wallet, Pocket } from '../../types';
 import { getTransactionItems, getLentRepayments } from '../../services/database';
 import { useLastDefined } from '../../hooks/useLastDefined';
+import { useSyncOnChange } from '../../hooks/useSyncOnChange';
 import { formatCurrency, formatDateTime } from '../../utils/formatters';
 import { ModalHeader } from '../ModalHeader';
 import { CategoryIcon } from '../CategoryIcon';
@@ -85,6 +86,21 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
 }) => {
   const insets = useSafeAreaInsets();
   const [photoViewerVisible, setPhotoViewerVisible] = useState<boolean>(false);
+  const closePhotoViewer = useCallback(() => {
+    setPhotoViewerVisible(false);
+    return true;
+  }, []);
+  const { overlayId: photoViewerOverlayId } = useOverlayLayer(
+    photoViewerVisible,
+    photoViewerVisible,
+    closePhotoViewer
+  );
+
+  // Always close fullscreen receipt preview when TxDetailModal closes or switches transaction
+  const txId = tx?.id;
+  useSyncOnChange([txId], () => {
+    setPhotoViewerVisible(false);
+  });
   const latestTx = tx ? (transactions.find((t) => t.id === tx.id) || tx) : null;
   const currentTx = useLastDefined(latestTx);
   // Never inherit the previously viewed transaction's icon: fall back per render.
@@ -914,15 +930,15 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
       </ScrollView>
 
       {currentTx.imageUri ? (
-        <Modal
-          visible={photoViewerVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setPhotoViewerVisible(false)}
-        >
+        <OverlayPortal id={photoViewerOverlayId} active={photoViewerVisible}>
           <View
+            accessibilityViewIsModal={photoViewerVisible}
             style={{
-              flex: 1,
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              left: 0,
               backgroundColor: 'rgba(0,0,0,0.94)',
               justifyContent: 'center',
               alignItems: 'center',
@@ -955,7 +971,7 @@ export const TxDetailModal: React.FC<TxDetailModalProps> = ({
               resizeMode="contain"
             />
           </View>
-        </Modal>
+        </OverlayPortal>
       ) : null}
     </BottomSheetModal>
   );

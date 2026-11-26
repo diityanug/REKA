@@ -19,6 +19,8 @@ export interface MonthPickerModalProps {
   visible: boolean;
   selectedMonth: string; // 'YYYY-MM' or 'all'
   availableMonths?: string[]; // Array of 'YYYY-MM' that have transactions
+  /** Active billing-cycle period key (e.g. '2026-12' when payday cycle starts on the 24th) */
+  currentPeriodKey?: string;
   showAllOption?: boolean;
   onSelectMonth: (monthKey: string) => void;
   onClose: () => void;
@@ -43,12 +45,16 @@ export const MonthPickerModal: React.FC<MonthPickerModalProps> = ({
   visible,
   selectedMonth,
   availableMonths = [],
+  currentPeriodKey,
   showAllOption = true,
   onSelectMonth,
   onClose,
 }) => {
   const insets = useSafeAreaInsets();
-  const { currentYear, currentMonthKey } = useCurrentDate(visible);
+  const { currentYear: calendarYear, currentMonthKey: calendarMonthKey } = useCurrentDate(visible);
+  const currentMonthKey = currentPeriodKey || calendarMonthKey;
+  const parsedCurrentYear = parseInt(currentMonthKey.split('-')[0], 10);
+  const currentYear = !isNaN(parsedCurrentYear) ? parsedCurrentYear : calendarYear;
 
   // Year being navigated in the picker
   const [viewYear, setViewYear] = useState<number>(() => {

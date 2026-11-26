@@ -10,18 +10,20 @@ export const formatCurrency = (
   isMasked: boolean = false
 ): string => {
   if (isMasked) return '••••••';
-  const val = amount || 0;
-  const isNegative = val < 0;
-  const absVal = Math.abs(val);
+  const rawVal = Number.isFinite(amount) ? amount : 0;
 
   if (currency === 'IDR') {
-    const formattedNumber = Math.round(absVal)
+    const rounded = Math.round(rawVal);
+    const isNegative = rounded < 0;
+    const formattedNumber = Math.abs(rounded)
       .toString()
       .replace(/\B(?=(\d{3})+(?!\d))/g, '.');
     return `${isNegative ? '- ' : ''}Rp ${formattedNumber}`;
   }
 
-  const parts = absVal.toFixed(2).split('.');
+  const rounded = Math.round(rawVal * 100) / 100;
+  const isNegative = rounded < 0;
+  const parts = Math.abs(rounded).toFixed(2).split('.');
   const intFormatted = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const dec = parts[1] === '00' ? '' : `.${parts[1]}`;
   return `${isNegative ? '- ' : ''}$ ${intFormatted}${dec}`;
@@ -202,15 +204,9 @@ export const parsePastedAmountInput = (
   if (!trimmed) return '';
 
   if (currency === 'IDR') {
-    // Discard trailing decimal cents (.00 or ,00) only when preceded by thousand separators or a decimal point
-    const withoutCents = trimmed.replace(/[.,]\d{1,2}$/, (match, offset, full) => {
-      const prefix = full.slice(0, offset);
-      // If the separator is ',' (Indonesian decimal) or there's already another separator before '.', treat as cents
-      if (match.startsWith(',') || /[.,]/.test(prefix)) {
-        return '';
-      }
-      return match;
-    });
+    // Discard trailing 1-2 digit decimal cents (.00 / ,00 / .50 / ,50) consistently with parseAmount
+    // (3-digit groups like "15.000" are thousand separators and kept intact)
+    const withoutCents = trimmed.replace(/[.,]\d{1,2}$/, '');
     const digits = withoutCents.replace(/\D/g, '').replace(/^0+/, '').slice(0, maxDigits);
     return digits;
   }
@@ -306,7 +302,8 @@ export const parseAmount = (value: string, currency: CurrencyType = 'IDR'): numb
     str.includes('*') ||
     str.includes('/')
   ) {
-    return evaluateMathExpression(str, currency);
+    const res = evaluateMathExpression(str, currency);
+    return Number.isFinite(res) ? res : 0;
   }
   if (currency === 'IDR') {
     // In IDR, discard any trailing decimal/sen part (.xx or ,xx)

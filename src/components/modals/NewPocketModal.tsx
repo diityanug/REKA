@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   ScrollView,
   StyleSheet,
@@ -10,6 +9,7 @@ import {
   ActivityIndicator,
   useWindowDimensions,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
@@ -331,10 +331,11 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
     return Math.max(Math.floor((baseW - 5 * 8) / 6), 36);
   }, [gridWidth]);
 
-  // Warn before submit; the hook still validates on its own.
+  // Warn before submit; the hook still validates on its own (use USD epsilon for IEEE-754 drift).
   const allocatedValue = parseAmount(balance, currency);
+  const availableEps = currency === 'USD' ? 0.001 : 0;
   const exceedsAvailable =
-    !!balance && !isNaN(allocatedValue) && allocatedValue > effectiveAvailableAmount;
+    !!balance && !isNaN(allocatedValue) && allocatedValue > effectiveAvailableAmount + availableEps;
 
   const canSubmit =
     !saving &&
@@ -396,7 +397,7 @@ export const NewPocketModal: React.FC<NewPocketModalProps> = ({
               <Text style={[styles.inputLabel, { marginTop: 14 }]}>
                 Pocket Name <Text style={styles.requiredStar}>*</Text>
               </Text>
-              <TextInput
+              <StableTextInput
                 style={styles.textInputBox}
                 placeholder="e.g. Emergency Fund, Trip"
                 placeholderTextColor={Palette.mutedSoft}

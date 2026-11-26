@@ -11,6 +11,7 @@ import {
   parseSafeAmount,
   postToGeminiProxy,
   sanitizeAiCategory,
+  sanitizeAiPaymentMethod,
   sleep,
   withTimeout,
 } from './geminiProxyClient';
@@ -109,8 +110,10 @@ function normalizeStatementResult(
       const type: TransactionType = tx?.type === 'income' ? 'income' : 'expense';
       const merchantName = String(tx?.merchantName || 'Statement Transaction').trim();
       const category = sanitizeAiCategory(tx?.category, type);
-      const paymentMethod =
-        String(tx?.paymentMethod || (accountType === 'Credit Card' ? 'Credit Card' : 'Bank Transfer')).trim();
+      const paymentMethod = sanitizeAiPaymentMethod(
+        tx?.paymentMethod,
+        accountType === 'Credit Card' ? 'Credit Card' : 'Bank Transfer'
+      );
       const notes = String(tx?.notes || '').trim();
       const cardIdentifier = tx?.cardIdentifier ? String(tx.cardIdentifier).trim() : undefined;
 

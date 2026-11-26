@@ -63,9 +63,28 @@ const AI_LEGACY_EXPENSE_ALIASES: Record<string, string> = {
   zakat: 'Charity & Gifts',
 };
 
+const AI_EXPENSE_CANONICAL = new Map<string, string>(
+  Array.from(AI_EXPENSE_CATEGORIES).map((name) => [name.toLowerCase(), name])
+);
+
+const AI_INCOME_CANONICAL = new Map<string, string>(
+  Array.from(AI_INCOME_CATEGORIES).map((name) => [name.toLowerCase(), name])
+);
+
+const AI_PAYMENT_METHODS_CANONICAL = new Map<string, string>([
+  ['qris', 'QRIS'],
+  ['bank transfer', 'Bank Transfer'],
+  ['virtual account', 'Virtual Account'],
+  ['debit card', 'Debit Card'],
+  ['credit card', 'Credit Card'],
+  ['e-wallet', 'E-Wallet'],
+  ['cash', 'Cash'],
+  ['e-money', 'E-Money'],
+]);
+
 /**
  * Normalizes AI-returned category strings to valid REKA default categories matching `type`,
- * preventing phantom/typo/legacy labels from leaking.
+ * case-insensitively, preventing phantom/typo/legacy labels from leaking.
  */
 export function sanitizeAiCategory(
   rawCategory: unknown,
@@ -81,8 +100,70 @@ export function sanitizeAiCategory(
       : type === 'income' && (lower === 'freelance' || lower === 'business')
         ? 'Freelance / Business'
         : cleaned;
-  const allowed = type === 'income' ? AI_INCOME_CATEGORIES : AI_EXPENSE_CATEGORIES;
-  return allowed.has(normalized) ? normalized : 'Others';
+  const canonicalMap = type === 'income' ? AI_INCOME_CANONICAL : AI_EXPENSE_CANONICAL;
+  return canonicalMap.get(normalized.toLowerCase()) || 'Others';
+}
+
+/**
+ * Normalizes AI-returned paymentMethod strings to supported REKA payment methods.
+ * Critically, never returns bare `"Transfer"` (which is reserved for paired internal account transfers).
+ */
+export function sanitizeAiPaymentMethod(
+  rawMethod: unknown,
+  fallback: string = 'QRIS'
+): string {
+  const cleaned = String(rawMethod || '').trim();
+  if (!cleaned) return fallback;
+  const lower = cleaned.toLowerCase();
+
+  const exact = AI_PAYMENT_METHODS_CANONICAL.get(lower);
+  if (exact) return exact;
+
+  if (lower.includes('qris') || lower === 'qr' || lower.includes('qr code')) return 'QRIS';
+  if (lower.includes('virtual account') || /\bva\b/.test(lower) || lower.includes('briva')) {
+    return 'Virtual Account';
+  }
+  if (lower.includes('credit') || lower.includes('visa') || lower.includes('mastercard') || lower === 'cc') {
+    return 'Credit Card';
+  }
+  if (lower.includes('debit') || lower.includes('atm')) return 'Debit Card';
+  if (
+    lower.includes('e-money') ||
+    lower.includes('emoney') ||
+    lower.includes('flazz') ||
+    lower.includes('brizzi') ||
+    lower.includes('tapcash') ||
+    lower.includes('e-toll') ||
+    lower.includes('etoll')
+  ) {
+    return 'E-Money';
+  }
+  if (
+    lower.includes('e-wallet') ||
+    lower.includes('ewallet') ||
+    lower.includes('gopay') ||
+    lower.includes('ovo') ||
+    lower.includes('dana') ||
+    lower.includes('shopeepay') ||
+    lower.includes('linkaja') ||
+    lower.includes('wallet')
+  ) {
+    return 'E-Wallet';
+  }
+  if (lower.includes('cash') || lower.includes('tunai')) return 'Cash';
+  if (
+    lower.includes('transfer') ||
+    lower.includes('trsf') ||
+    lower.includes('bi-fast') ||
+    lower.includes('bifast') ||
+    lower.includes('wire') ||
+    lower.includes('rtgs') ||
+    lower.includes('skn')
+  ) {
+    return 'Bank Transfer';
+  }
+
+  return fallback;
 }
 
 export const sleep = (ms: number): Promise<void> =>

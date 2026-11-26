@@ -44,27 +44,35 @@ export const DonutChart: React.FC<DonutChartProps> = ({
   );
 
   // Compute exact flush arcs + crisp radial divider angles (no bulbous overlapping round caps)
-  const { slices, dividerAngles } = validData.reduce<{
-    slices: (DonutSlice & { dashArray: string; dashOffset: number })[];
-    dividerAngles: number[];
+  const { slices, dividerSpecs } = validData.reduce<{
+    slices: (DonutSlice & { dashArray: string; dashOffset: number; arcLength: number })[];
+    dividerSpecs: { angle: number; prevArc: number; nextArc: number }[];
     accumulatedPct: number;
   }>(
-    (acc, slice) => {
+    (acc, slice, idx) => {
       const normalizedFraction = slice.percentage / totalPct;
-      const arcLength = Math.max(normalizedFraction * circumference, 1.5);
+      const arcLength = Math.max(normalizedFraction * circumference, 2.2);
       const offset = -(acc.accumulatedPct / totalPct) * circumference;
 
+      const prevSlice = validData[(idx - 1 + validData.length) % validData.length];
+      const prevArc = Math.max((prevSlice.percentage / totalPct) * circumference, 2.2);
+
       // Record radial boundary angle (0 rad = 12 o'clock because outer G is rotated -90deg)
-      acc.dividerAngles.push((acc.accumulatedPct / totalPct) * 2 * Math.PI);
+      acc.dividerSpecs.push({
+        angle: (acc.accumulatedPct / totalPct) * 2 * Math.PI,
+        prevArc,
+        nextArc: arcLength,
+      });
       acc.slices.push({
         ...slice,
+        arcLength,
         dashArray: `${arcLength} ${circumference}`,
         dashOffset: offset,
       });
       acc.accumulatedPct += slice.percentage;
       return acc;
     },
-    { slices: [], dividerAngles: [], accumulatedPct: 0 }
+    { slices: [], dividerSpecs: [], accumulatedPct: 0 }
   );
 
   // Inner and outer radii slightly overdraw the ring edges so white radial cuts are razor sharp
@@ -117,11 +125,13 @@ export const DonutChart: React.FC<DonutChartProps> = ({
             );
           })}
 
-          {/* Crisp Uniform Radial Separators between Slices */}
+          {/* Crisp Radial Separators (scaled smoothly next to tiny slices so <1% arcs stay visible) */}
           {validData.length > 1
-            ? dividerAngles.map((angle, idx) => {
-                const cos = Math.cos(angle);
-                const sin = Math.sin(angle);
+            ? dividerSpecs.map((spec, idx) => {
+                const cos = Math.cos(spec.angle);
+                const sin = Math.sin(spec.angle);
+                const minAdjArc = Math.min(spec.prevArc, spec.nextArc);
+                const dividerWidth = Math.min(2.5, Math.max(0.9, minAdjArc * 0.35));
                 return (
                   <Line
                     key={`div-${idx}`}
@@ -130,7 +140,7 @@ export const DonutChart: React.FC<DonutChartProps> = ({
                     x2={center + outerR * cos}
                     y2={center + outerR * sin}
                     stroke={Palette.white}
-                    strokeWidth={2.5}
+                    strokeWidth={dividerWidth}
                     strokeLinecap="butt"
                   />
                 );

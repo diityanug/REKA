@@ -2,12 +2,12 @@ import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   Keyboard,
   ActivityIndicator,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Plus, Trash2, Check, Layers, Edit3, Copy } from 'lucide-react-native';
 import { Palette, Typography } from '../../theme/tokens';
@@ -97,6 +97,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     if (visible) {
       if (plan) {
         const initCurr: CurrencyType = plan.currency || activeCurrency;
+        const initMaxDigits = initCurr === 'IDR' ? 13 : 9;
         setTitle(plan.title);
         setPlanCurrency(initCurr);
         if (plan.items && plan.items.length > 0) {
@@ -104,7 +105,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             plan.items.map((it) => ({
               id: it.id,
               label: it.label,
-              amountStr: it.amount > 0 ? formatCurrencyNumberForInput(it.amount, initCurr, 9) : '',
+              amountStr: it.amount > 0 ? formatCurrencyNumberForInput(it.amount, initCurr, initMaxDigits) : '',
             }))
           );
         } else {
@@ -121,9 +122,12 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
     }
   });
 
+  const planMaxDigits = planCurrency === 'IDR' ? 13 : 9;
+
   const handleChangePlanCurrency = (nextCurrency: CurrencyType) => {
     if (nextCurrency === planCurrency) return;
     AppHaptics.selection();
+    const nextMaxDigits = nextCurrency === 'IDR' ? 13 : 9;
     setRows((prev) =>
       prev.map((r) => {
         if (!r.amountStr.trim()) return r;
@@ -132,7 +136,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         const normalizedVal = nextCurrency === 'IDR' ? Math.round(parsed) : parsed;
         return {
           ...r,
-          amountStr: formatCurrencyNumberForInput(normalizedVal, nextCurrency, 9),
+          amountStr: formatCurrencyNumberForInput(normalizedVal, nextCurrency, nextMaxDigits),
         };
       })
     );
@@ -179,12 +183,14 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
   };
 
   const handleUpdateRowAmount = (id: string, text: string) => {
-    // Strictly cap integer digits at 9 so USD cents don't reduce the integer limit
-    const integerDigits = text.split('.')[0].replace(/\D/g, '');
-    if (integerDigits.length > 9) {
+    const integerDigits =
+      planCurrency === 'IDR'
+        ? text.replace(/\D/g, '')
+        : text.split('.')[0].replace(/\D/g, '');
+    if (integerDigits.length > planMaxDigits) {
       return;
     }
-    const formatted = formatCurrencyInput(text, planCurrency, 9);
+    const formatted = formatCurrencyInput(text, planCurrency, planMaxDigits);
     setRows((prev) => {
       const current = prev.find((r) => r.id === id);
       if (current && current.amountStr === formatted) {
@@ -358,13 +364,14 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             </Text>
             <View style={styles.titleInputWrap}>
               <Layers size={17} color={Palette.primary} style={{ marginRight: 8 }} />
-              <TextInput
+              <StableTextInput
                 style={styles.titleInput}
                 placeholder="e.g. Primary Salary, Freelance Projects"
                 placeholderTextColor={Palette.muted}
                 value={title}
                 onChangeText={setTitle}
-                returnKeyType="next"
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
                 maxLength={40}
               />
             </View>
@@ -451,14 +458,15 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
             {rows.map((row) => (
               <View key={row.id} style={styles.allocationRow}>
                 <View style={styles.leftColInputWrap}>
-                  <TextInput
+                  <StableTextInput
                     style={styles.leftInput}
                     placeholder="e.g. Rent"
                     maxLength={20}
                     placeholderTextColor={Palette.muted}
                     value={row.label}
                     onChangeText={(t) => handleUpdateRowLabel(row.id, t)}
-                    returnKeyType="next"
+                    returnKeyType="done"
+                    onSubmitEditing={Keyboard.dismiss}
                   />
                 </View>
 
@@ -613,7 +621,7 @@ export const AllocationPlanModal: React.FC<AllocationPlanModalProps> = ({
         subtitle={lastActiveRow ? `For "${lastActiveRow.label || 'Allocation Item'}"` : undefined}
         initialAmount={lastActiveRow ? lastActiveRow.amountStr : ''}
         currency={planCurrency}
-        maxDigits={9}
+        maxDigits={planMaxDigits}
         allowZero
         onConfirm={(formatted) => {
           if (activeAmountRowId) {

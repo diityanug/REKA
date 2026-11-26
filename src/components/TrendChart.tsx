@@ -25,15 +25,16 @@ export interface TrendChartProps {
 function formatCompactAxis(val: number, currency: CurrencyType): string {
   const abs = Math.abs(val);
   if (abs === 0) return '0';
+  const sign = val < 0 ? '-' : '';
   if (currency === 'IDR') {
-    if (abs >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
-    if (abs >= 1_000_000) return `${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-    if (abs >= 1_000) return `${Math.round(val / 1_000)}k`;
-    return String(Math.round(val));
+    if (abs >= 1_000_000_000) return `${sign}${(abs / 1_000_000_000).toFixed(1).replace(/\.0$/, '')}B`;
+    if (abs >= 1_000_000) return `${sign}${(abs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+    if (abs >= 1_000) return `${sign}${Math.round(abs / 1_000)}k`;
+    return `${sign}${Math.round(abs)}`;
   }
-  if (abs >= 1_000_000) return `$${(val / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
-  if (abs >= 1_000) return `$${(val / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
-  return `$${Math.round(val)}`;
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
+  return `${sign}$${Math.round(abs)}`;
 }
 
 export const TrendChart: React.FC<TrendChartProps> = ({
@@ -50,7 +51,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
   const hasAnyActivity = data.some((d) => d.income > 0 || d.expense > 0);
 
   const chartHeight = 196;
-  const padLeft = 46;
+  const padLeft = 56;
   const padRight = 10;
   const padTop = 18;
   const padBottom = 34;
@@ -61,7 +62,9 @@ export const TrendChart: React.FC<TrendChartProps> = ({
     1,
     ...data.map((d) => Math.max(d.income, d.expense))
   );
-  const netMaxAbs = Math.max(1, ...data.map((d) => Math.abs(d.net)));
+  const rawNetMaxAbs = Math.max(0, ...data.map((d) => Math.abs(d.net)));
+  const hasNonZeroNet = rawNetMaxAbs > 0;
+  const netMaxAbs = hasNonZeroNet ? rawNetMaxAbs : 1;
 
   const slotWidth = data.length > 0 ? plotWidth / data.length : plotWidth;
   const barWidth = Math.max(8, Math.min(13, (slotWidth - 18) / 2));
@@ -128,8 +131,10 @@ export const TrendChart: React.FC<TrendChartProps> = ({
           {activePoint ? (
             <View style={styles.detailCard}>
               <View style={styles.detailTopRow}>
-                <Text style={styles.detailPeriod}>{activePoint.fullLabel}</Text>
-                <Text style={styles.detailHint}>
+                <Text style={styles.detailPeriod} numberOfLines={1} ellipsizeMode="tail">
+                  {activePoint.fullLabel}
+                </Text>
+                <Text style={styles.detailHint} numberOfLines={1}>
                   {mode === 'bars' ? 'Tap bar to inspect' : 'Tap point to inspect'}
                 </Text>
               </View>
@@ -313,7 +318,7 @@ export const TrendChart: React.FC<TrendChartProps> = ({
                           strokeWidth={dir === 0 ? 1.2 : 1}
                           strokeDasharray={dir !== 0 ? '3 4' : undefined}
                         />
-                        {!privacyMode ? (
+                        {!privacyMode && (dir === 0 || hasNonZeroNet) ? (
                           <SvgText
                             x={padLeft - 8}
                             y={y + 3.5}
@@ -505,6 +510,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   detailPeriod: {
+    flex: 1,
+    flexShrink: 1,
     fontFamily: FontFamily.sans,
     fontSize: 13,
     lineHeight: 17,
@@ -512,6 +519,7 @@ const styles = StyleSheet.create({
     color: Palette.ink,
   },
   detailHint: {
+    flexShrink: 0,
     fontFamily: FontFamily.sans,
     fontSize: 11,
     lineHeight: 14,

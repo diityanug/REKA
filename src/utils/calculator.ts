@@ -1,12 +1,21 @@
 import { CurrencyType } from '../services/database';
 
 /**
- * Pure, safe mathematical expression evaluator (no eval)
- * Supports +, -, ×, ÷ with proper operator precedence (BODMAS: ×/÷ evaluated before +/-)
+ * Pure, safe mathematical expression evaluator (no eval).
+ * Supports +, -, ×, ÷ with proper operator precedence (BODMAS: ×/÷ evaluated before +/-).
+ * Returns `NaN` on division by zero so UI can surface an explicit error instead of a bogus number.
  */
-export function evaluateMathExpression(expr: string, currency?: CurrencyType): number {
+export function evaluateMathExpression(
+  expr: string,
+  currency?: CurrencyType,
+  maxDigits?: number
+): number {
   if (!expr) return 0;
-  const clean = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '');
+  let clean = expr.replace(/×/g, '*').replace(/÷/g, '/').replace(/,/g, '');
+  // For IDR, treat thousand-grouped dots like "15.000" or "1.500.000" as integer separators
+  if (currency === 'IDR') {
+    clean = clean.replace(/\b\d{1,3}(?:\.\d{3})+\b/g, (m) => m.replace(/\./g, ''));
+  }
   const tokens = clean.match(/(\d+(?:\.\d+)?|[+\-*\/])/g);
   if (!tokens || tokens.length === 0) return 0;
 
@@ -33,7 +42,10 @@ export function evaluateMathExpression(expr: string, currency?: CurrencyType): n
         pass1.push(prevVal.toString());
         break;
       }
-      const res = token === '*' ? prevVal * nextVal : (nextVal !== 0 ? prevVal / nextVal : prevVal);
+      if (token === '/' && nextVal === 0) {
+        return NaN;
+      }
+      const res = token === '*' ? prevVal * nextVal : prevVal / nextVal;
       pass1.push(res.toString());
     } else {
       pass1.push(token);
@@ -53,8 +65,12 @@ export function evaluateMathExpression(expr: string, currency?: CurrencyType): n
     else if (op === '-') result -= val;
   }
 
-  if (isNaN(result) || !isFinite(result)) return 0;
-  const maxCap = currency === 'USD' ? 999999999.99 : 9999999999999;
+  if (isNaN(result) || !isFinite(result)) return NaN;
+  const effectiveMaxDigits = maxDigits ?? (currency === 'USD' ? 9 : 13);
+  const maxCap =
+    currency === 'USD'
+      ? Math.pow(10, effectiveMaxDigits) - 0.01
+      : Math.pow(10, effectiveMaxDigits) - 1;
   const clamped = Math.min(Math.max(result, -maxCap), maxCap);
   if (currency === 'IDR') {
     return Math.round(clamped);
@@ -99,27 +115,74 @@ export function normalizeExpressionSpacing(raw: string): string {
 }
 
 /**
- * Sanitizes an input expression for the target currency:
- * In IDR: decimals do not exist, so all decimal parts (e.g. .90) are discarded from numbers.
+ * Sanitizes a single numeric operand token (strips leading zeros, enforces maxDigits,
+ * collapses duplicate decimal points in USD, removes decimals in IDR).
  */
-export function sanitizeExpressionForCurrency(expr: string, currency: CurrencyType): string {
+function sanitizeNumericOperand(
+  token: string,
+  currency: CurrencyType,
+  maxDigits: number
+): string {
+  if (!token) return '';
+  const isNeg = token.startsWith('-');
+  const abs = (isNeg ? token.slice(1) : token).replace(/,/g, '');
+  if (!abs) return '';
+
+  if (currency === 'IDR') {
+    // Preserve IDR thousand-grouped strings (e.g. "50.000", "1.250.000") instead of truncating after '.'
+    const digitsOnly = /^\d{1,3}(?:\.\d{3})+$/.test(abs)
+      ? abs.replace(/\./g, '')
+      : (abs.split('.')[0] || '').replace(/\D/g, '');
+    const stripped = digitsOnly.replace(/^0+(?=\d)/, '').slice(0, maxDigits) || '0';
+    return (isNeg && stripped !== '0' ? '-' : '') + stripped;
+  }
+
+  // USD: allow at most 1 decimal point, maxDigits integer digits, max 2 decimal digits
+  const dotIdx = abs.indexOf('.');
+  if (dotIdx === -1) {
+    const intDigits = abs.replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, maxDigits) || '0';
+    return (isNeg && intDigits !== '0' ? '-' : '') + intDigits;
+  }
+  const intRaw = abs.slice(0, dotIdx).replace(/\D/g, '').replace(/^0+(?=\d)/, '').slice(0, maxDigits) || '0';
+  const decRaw = abs.slice(dotIdx + 1).replace(/\D/g, '').slice(0, 2);
+  return (isNeg ? '-' : '') + `${intRaw}.${decRaw}`;
+}
+
+/**
+ * Sanitizes an input expression for the target currency & digit cap.
+ * Collapses duplicate operators, normalizes leading zeros, and prevents double-dots.
+ */
+export function sanitizeExpressionForCurrency(
+  expr: string,
+  currency: CurrencyType,
+  maxDigits: number = currency === 'IDR' ? 13 : 9
+): string {
   if (!expr || expr === '0') return '0';
   const normalized = normalizeExpressionSpacing(expr);
-  if (currency === 'IDR') {
-    const parts = normalized.split(' ');
-    const sanitized = parts
-      .map((part) => {
-        if (['+', '-', '×', '÷', '*', '/'].includes(part)) return part;
-        if (!part) return '';
-        const isNeg = part.startsWith('-');
-        const absPart = (isNeg ? part.slice(1) : part).replace(/,/g, '');
-        const intOnly = absPart.split('.')[0] || '0';
-        return (isNeg ? '-' : '') + intOnly;
-      })
-      .join(' ');
-    return sanitized || '0';
+  const parts = normalized.split(' ');
+  const cleaned: string[] = [];
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part) continue;
+    if (['+', '-', '×', '÷', '*', '/'].includes(part)) {
+      const op = part === '*' ? '×' : part === '/' ? '÷' : part;
+      // Avoid consecutive operators or leading operator
+      if (cleaned.length === 0) continue;
+      if (['+', '-', '×', '÷'].includes(cleaned[cleaned.length - 1])) {
+        cleaned[cleaned.length - 1] = op;
+      } else {
+        cleaned.push(op);
+      }
+      continue;
+    }
+    cleaned.push(sanitizeNumericOperand(part, currency, maxDigits));
   }
-  return normalized;
+
+  if (cleaned.length === 0) return '0';
+  const joined = cleaned.join(' ');
+  const hadTrailingOp = ['+', '-', '×', '÷'].includes(cleaned[cleaned.length - 1]);
+  return hadTrailingOp ? `${joined} ` : joined;
 }
 
 /**
@@ -242,7 +305,7 @@ export function calculateNextExpressionWithCursor(
     const left = expr.slice(0, validCursor - deleteCount);
     const right = expr.slice(rightStart);
     const rawCombined = left + right;
-    const nextExpr = normalizeExpressionSpacing(rawCombined);
+    const nextExpr = sanitizeExpressionForCurrency(rawCombined, currency, maxDigits);
     const nextRawCursor =
       nextExpr === '0' && !rawCombined.trim()
         ? 1
@@ -252,8 +315,11 @@ export function calculateNextExpressionWithCursor(
 
   // Equal / Evaluate
   if (key === '=') {
-    const evaluated = Math.max(0, evaluateMathExpression(expr, currency));
-    const nextExpr = evaluated.toString();
+    const evaluated = evaluateMathExpression(expr, currency, maxDigits);
+    if (isNaN(evaluated) || !isFinite(evaluated)) {
+      return { nextExpr: expr, nextRawCursor: validCursor };
+    }
+    const nextExpr = Math.max(0, evaluated).toString();
     return { nextExpr, nextRawCursor: nextExpr.length };
   }
 
@@ -287,6 +353,16 @@ export function calculateNextExpressionWithCursor(
     ) {
       const replacedLeft = left.slice(0, -2) + ' ' + key + ' ';
       const cleanRight = right.startsWith(' ') ? right.slice(1) : right;
+      return {
+        nextExpr: replacedLeft + cleanRight,
+        nextRawCursor: replacedLeft.length,
+      };
+    }
+    // If cursor sits immediately before an existing operator (e.g. "50| + 20"), replace that operator
+    const rightOpMatch = right.match(/^\s*[+\-×÷]\s*/);
+    if (rightOpMatch) {
+      const replacedLeft = left.trimEnd() + ' ' + key + ' ';
+      const cleanRight = right.slice(rightOpMatch[0].length);
       return {
         nextExpr: replacedLeft + cleanRight,
         nextRawCursor: replacedLeft.length,
@@ -350,8 +426,11 @@ export function calculateNextExpressionWithCursor(
     const leftPart = left.split(/ [+\-×÷] /).pop() || '';
     const rightPart = right.split(/ [+\-×÷] /)[0] || '';
 
-    // Prevent leading "00" or "05" on a new operand after an operator
-    if (leftPart === '0' && rightPart === '') {
+    // Prevent leading "00" or "05" on a new operand or at index 0 before non-zero digits
+    if (leftPart === '' && rightPart.length > 0 && !rightPart.startsWith('.') && key === '0') {
+      return { nextExpr: expr, nextRawCursor: validCursor };
+    }
+    if (leftPart === '0' && !rightPart.startsWith('.')) {
       if (key === '0') {
         return { nextExpr: expr, nextRawCursor: validCursor };
       }
@@ -362,11 +441,19 @@ export function calculateNextExpressionWithCursor(
       };
     }
 
-    if ((leftPart + rightPart).includes('.')) {
-      const decPart = (leftPart + rightPart).split('.')[1] || '';
-      if (decPart.length >= 2) return { nextExpr: expr, nextRawCursor: validCursor };
+    const fullOperand = leftPart + rightPart;
+    if (fullOperand.includes('.')) {
+      if (leftPart.includes('.')) {
+        // Cursor is in the decimal portion: enforce max 2 decimal digits
+        const decPart = fullOperand.split('.')[1] || '';
+        if (decPart.length >= 2) return { nextExpr: expr, nextRawCursor: validCursor };
+      } else {
+        // Cursor is in the integer portion before '.': enforce maxDigits on integer digits
+        const intDigits = (fullOperand.split('.')[0] || '').replace(/\D/g, '').length;
+        if (intDigits >= maxDigits) return { nextExpr: expr, nextRawCursor: validCursor };
+      }
     } else {
-      const intDigits = (leftPart + rightPart).replace(/\D/g, '').length;
+      const intDigits = fullOperand.replace(/\D/g, '').length;
       if (intDigits >= maxDigits) return { nextExpr: expr, nextRawCursor: validCursor };
     }
     return {

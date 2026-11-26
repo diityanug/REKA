@@ -2,12 +2,12 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   SectionList,
   StyleSheet,
   Keyboard,
 } from 'react-native';
+import { StableTextInput } from '../StableTextInput';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Search,
@@ -30,7 +30,6 @@ import {
 } from '../../utils/billingCycle';
 import { AppHaptics } from '../../utils/haptics';
 import { TransactionItemRow } from '../TransactionItemRow';
-import { triggerSmoothLayout } from '../MotionPrimitives';
 import { HistoryFilterModal } from '../modals/HistoryFilterModal';
 
 interface HistoryTabProps {
@@ -180,10 +179,29 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     );
   }, []);
 
-  const selectableCount = useMemo(
-    () => transactions.filter((t) => !isTxArchived(t)).length,
+  const selectableIds = useMemo(
+    () => transactions.filter((t) => !isTxArchived(t)).map((t) => t.id),
     [transactions, isTxArchived]
   );
+  const selectableCount = selectableIds.length;
+
+  // Prune selectedIds whenever visible transactions change so hidden rows are never deleted
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+    const visibleSet = new Set(selectableIds);
+    let hasStale = false;
+    selectedIds.forEach((id) => {
+      if (!visibleSet.has(id)) hasStale = true;
+    });
+    if (!hasStale) return;
+    setSelectedIds((prev) => {
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visibleSet.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [selectableIds, selectedIds]);
 
   const handleToggleSelectTransaction = useCallback((tx: Transaction) => {
     if (isTxArchived(tx)) {
@@ -209,7 +227,6 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     }
     AppHaptics.heavy();
     if (!isSelectionMode) {
-      triggerSmoothLayout();
       setIsSelectionMode(true);
       setSelectedIds(new Set([tx.id]));
     } else {
@@ -219,17 +236,15 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
 
   const handleSelectAll = useCallback(() => {
     AppHaptics.selection();
-    const selectableIds = transactions.filter((t) => !isTxArchived(t)).map((t) => t.id);
     if (selectableIds.length > 0 && selectedIds.size === selectableIds.length) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(selectableIds));
     }
-  }, [selectedIds.size, transactions, isTxArchived]);
+  }, [selectedIds.size, selectableIds]);
 
   const handleExitSelectionMode = useCallback(() => {
     AppHaptics.light();
-    triggerSmoothLayout();
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   }, []);
@@ -247,6 +262,13 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     onChangeSearch('');
     onClearSearch();
   }, [onChangeSearch, onClearSearch]);
+
+  // Clear localSearch immediately alongside filter reset so a pending 250ms debounce can never re-apply it
+  const handleResetAll = useCallback(() => {
+    setLocalSearch('');
+    setLastEmittedSearch('');
+    onResetAllFilters();
+  }, [onResetAllFilters]);
 
   const activeFilterCount =
     (historyFilter !== 'all' ? 1 : 0) +
@@ -435,7 +457,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           }}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel={`Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`}
+          accessibilityLabel={
+            privacyMode
+              ? `Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans, amount hidden. Tap to filter.`
+              : `Outstanding Lent: ${outstandingLentCount} unsettled ${activeCurrency} loans totaling ${formatCurrency(outstandingLentTotal, activeCurrency, false)}. Tap to filter.`
+          }
         >
           <View style={styles.lentBannerIconBox}>
             <HandCoins size={16} color={Palette.accentAmber} />
@@ -456,7 +482,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
       <View style={styles.searchAndFilterRow}>
         <View style={styles.searchBar}>
           <Search size={16} color={Palette.muted} style={{ marginRight: 8 }} />
-          <TextInput
+          <StableTextInput
             style={styles.searchInput}
             placeholder="Search merchant, notes..."
             placeholderTextColor={Palette.mutedSoft}
@@ -515,7 +541,6 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             if (isSelectionMode) {
               handleExitSelectionMode();
             } else {
-              triggerSmoothLayout();
               setIsSelectionMode(true);
             }
           }}
@@ -695,7 +720,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
             style={styles.clearAllBtn}
             onPress={() => {
               AppHaptics.light();
-              onResetAllFilters();
+              handleResetAll();
             }}
             activeOpacity={0.7}
           >
@@ -738,7 +763,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
     onChangeMonth,
     historyCategory,
     onChangeCategory,
-    onResetAllFilters,
+    handleResetAll,
     isSelectionMode,
     selectedIds.size,
     handleExitSelectionMode,
@@ -755,7 +780,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
           <Text style={styles.emptyDesc}>Try adjusting search query or active filters.</Text>
           <TouchableOpacity
             style={styles.emptyResetBtn}
-            onPress={onResetAllFilters}
+            onPress={handleResetAll}
             activeOpacity={0.8}
             accessibilityRole="button"
             accessibilityLabel="Clear all filters"
@@ -790,7 +815,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         ) : null}
       </View>
     );
-  }, [isFilterActive, onResetAllFilters, onOpenManualModal]);
+  }, [isFilterActive, handleResetAll, onOpenManualModal]);
 
   const renderSectionHeader = useCallback(({ section }: { section: any }) => {
     const showIdr = !section.hasOnlyTransfers && (section.totalExpense > 0 || !section.totalUsdExpense);
@@ -878,7 +903,11 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         ListEmptyComponent={emptyComponent}
         contentContainerStyle={[
           styles.listContent,
-          { paddingBottom: Math.max(insets.bottom, 16) + 96 },
+          {
+            paddingBottom:
+              Math.max(insets.bottom, 16) +
+              (isSelectionMode && selectedIds.size > 0 ? 168 : 96),
+          },
         ]}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
@@ -937,7 +966,7 @@ export const HistoryTab = React.memo<HistoryTabProps>(({
         onChangePaymentMethod={onChangePaymentMethod}
         onChangeDateFrom={onChangeDateFrom}
         onChangeDateTo={onChangeDateTo}
-        onReset={onResetAllFilters}
+        onReset={handleResetAll}
         onClose={() => setFilterModalVisible(false)}
       />
     </View>
@@ -1120,7 +1149,6 @@ const styles = StyleSheet.create({
     borderColor: Palette.hairline,
     alignItems: 'center',
     justifyContent: 'center',
-    marginLeft: 8,
   },
   selectModeToggleBtnActive: {
     backgroundColor: Palette.primary,

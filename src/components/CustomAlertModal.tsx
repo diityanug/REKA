@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -59,6 +59,7 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   const [mounted, setMounted] = useState<boolean>(visible);
   const [backdropAnim] = useState(() => new Animated.Value(visible ? 1 : 0));
   const [cardScale] = useState(() => new Animated.Value(visible ? 1 : 0.92));
+  const actionPressedRef = useRef<boolean>(false);
 
   if (visible && !mounted) {
     setMounted(true);
@@ -66,6 +67,7 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
 
   useEffect(() => {
     if (visible) {
+      actionPressedRef.current = false;
       backdropAnim.setValue(0);
       cardScale.setValue(0.9);
       Animated.parallel([
@@ -102,9 +104,17 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
     }
   }, [visible, mounted, backdropAnim, cardScale]);
 
-  // A destructive or non-cancel action makes the backdrop non-dismissable,
-  // so an accidental tap can never silently cancel a confirm.
-  const hasBlockingAction = buttons.some((btn) => btn.style !== 'cancel');
+  // Reset synchronous tap lock whenever a chained alert replaces this one with a new alertId
+  useEffect(() => {
+    actionPressedRef.current = false;
+  }, [alertId]);
+
+  // Multi-button confirmation dialogs, destructive actions, or single-button actions with
+  // custom callbacks require an explicit tap; simple informational "OK" alerts can be
+  // dismissed via Android Back or backdrop tap.
+  const hasBlockingAction =
+    buttons.length > 1 ||
+    buttons.some((btn) => btn.style === 'destructive' || typeof btn.onPress === 'function');
 
   const handleBackPress = useCallback(() => {
     if (!hasBlockingAction) {
@@ -113,7 +123,7 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
     return true;
   }, [hasBlockingAction, onClose, alertId]);
 
-  const { overlayId } = useOverlayLayer(mounted, visible, handleBackPress, true);
+  const { overlayId } = useOverlayLayer(mounted, visible, handleBackPress, 'alert');
 
   if (!mounted) return null;
 
@@ -156,6 +166,8 @@ export const CustomAlertModal: React.FC<CustomAlertModalProps> = ({
   const requestClose = hasBlockingAction ? undefined : () => onClose(alertId);
 
   const handleButtonPress = (btn: AlertButton) => {
+    if (actionPressedRef.current) return;
+    actionPressedRef.current = true;
     AppHaptics.light();
     // Run the action BEFORE closing, so a confirm is never cancelled by the close.
     if (btn.onPress) {
